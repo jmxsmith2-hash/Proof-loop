@@ -1,0 +1,10 @@
+services:
+  clearloop:
+    build: .
+    restart: unless-stopped
+    # Host networking keeps printer discovery and camera ports simple on a LAN.
+    network_mode: host
+    volumes:
+      - ./config:/config
+      - ./data:/data
+    # In config.yaml set farm.data_dir: /data

@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClearLoop</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #1b1f24; --muted: #5f6b7a; --line: #e2e6eb;
+    --ok: #1f8a4c; --warn: #b26a00; --bad: #c4302b; --info: #2f6fdd; --chip: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111418; --card: #1a1e24; --ink: #e8ebef; --muted: #98a2b0; --line: #2a3038;
+            --ok: #3ccf7a; --warn: #f0a63a; --bad: #ff6b63; --info: #6aa0ff; --chip: #242a32; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; background: var(--bg); color: var(--ink); }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); background: var(--card); position: sticky; top: 0; z-index: 2; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .sp { flex: 1; }
+  main { max-width: 1200px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  .card h2 { font-size: 15px; margin: 0 0 6px; display: flex; gap: 8px; align-items: center; }
+  .phase { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--chip); }
+  .phase.printing, .phase.ejecting, .phase.starting, .phase.verifying, .phase.recovering { color: var(--info); }
+  .phase.idle { color: var(--ok); } .phase.blocked { color: var(--bad); font-weight: 600; } .phase.offline { color: var(--muted); }
+  .muted { color: var(--muted); font-size: 13px; }
+  .bar { height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; margin: 8px 0; }
+  .bar > i { display: block; height: 100%; background: var(--info); }
+  .reason { color: var(--bad); font-size: 13px; margin: 6px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  button { font: inherit; font-size: 13px; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--chip); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--info); color: #fff; border-color: transparent; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .tablewrap { overflow-x: auto; }
+  .lvl-error { color: var(--bad); } .lvl-warning { color: var(--warn); } .lvl-info { color: var(--muted); }
+  form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  input, select { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); max-width: 100%; }
+  .kpi { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+  .kpi div { background: var(--chip); border-radius: 8px; padding: 10px; }
+  .kpi b { display: block; font-size: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ClearLoop</h1><span class="muted" id="farm"></span><span class="sp"></span>
+  <button id="tokenBtn" title="API token">Token</button>
+</header>
+<main>
+  <section class="kpi" id="kpis"></section>
+  <section class="grid" id="printers"></section>
+  <section class="card">
+    <h2>Queue</h2>
+    <form id="upload">
+      <input type="file" name="file" accept=".3mf,.gcode" required>
+      <label class="muted">plates <input type="number" name="copies" value="1" min="1" style="width:64px"></label>
+      <label class="muted">models <input name="models" placeholder="p1s,x1c" style="width:110px"></label>
+      <button class="primary">Add to queue</button>
+    </form>
+    <div class="tablewrap"><table id="queue"></table></div>
+  </section>
+  <section class="card">
+    <h2>Events</h2>
+    <div class="tablewrap"><table id="events"></table></div>
+  </section>
+</main>
+<script>
+let token = '';
+try { token = localStorage.getItem('clearloop-token') || ''; } catch (e) {}
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({}, opts.headers, token ? {Authorization: 'Bearer ' + token} : {});
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.headers.get('content-type')?.includes('json') ? r.json() : r;
+}
+const post = (path, body) => api(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+function act(fn) { return async () => { try { await fn(); refresh(); } catch (e) { alert(e.message); } }; }
+
+function printerCard(p) {
+  const st = p.printer, job = p.job;
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.innerHTML = `
+    <h2>${esc(p.name)} <span class="muted">${esc(p.model)}</span> <span class="phase ${p.phase}">${p.phase}</span></h2>
+    <div class="muted">${p.online ? 'online' : 'offline'} · ${esc(st.gcode_state)} · bed ${st.bed_temp.toFixed(0)}°C
+      ${p.quiet ? ' · quiet hours (' + esc(p.quiet) + ')' : ''}${p.enabled ? '' : ' · loop paused'}</div>
+    ${job ? `<div>${esc(job.name)} <span class="muted">#${job.id}</span></div>` : '<div class="muted">no job</div>'}
+    <div class="bar"><i style="width:${st.percent}%"></i></div>
+    ${p.blocked_reason ? `<div class="reason">${esc(p.blocked_reason)}</div>` : ''}
+    ${st.hms.length ? `<div class="reason">${st.hms.map(h => `<a href="${esc(h.url)}" target="_blank" rel="noopener">HMS ${esc(h.code)}</a> (${esc(h.severity)})`).join(', ')}</div>` : ''}
+    <div class="muted">plate: ${p.plate.cycles}/${p.plate.rated_cycles} cycles · retries ${p.plate.retries}
+      ${p.last_check ? ` · last check ${p.last_check.clear ? 'clear' : 'NOT clear'} (${(p.last_check.changed_fraction * 100).toFixed(2)}%)` : ''}</div>
+    <div class="row"></div>`;
+  const row = el.querySelector('.row');
+  const add = (label, fn, cls) => { const b = document.createElement('button'); b.textContent = label; if (cls) b.className = cls; b.onclick = act(fn); row.appendChild(b); };
+  const n = encodeURIComponent(p.name);
+  if (p.phase === 'blocked') add('Plate cleared', () => post(`/api/printers/${n}/cleared`), 'primary');
+  if (p.phase === 'blocked' || p.phase === 'idle') add('Check plate', () => post(`/api/printers/${n}/reverify`));
+  add(p.enabled ? 'Pause loop' : 'Resume loop', () => post(`/api/printers/${n}/loop`, {enabled: !p.enabled}));
+  add('Snapshot', async () => window.open(`/api/printers/${n}/snapshot${token ? '?token=' + encodeURIComponent(token) : ''}`));
+  add('Last diff', async () => window.open(`/api/printers/${n}/diff${token ? '?token=' + encodeURIComponent(token) : ''}`));
+  add('Save empty-plate reference', async () => { if (confirm('Is the plate empty right now?')) await post(`/api/printers/${n}/reference`); });
+  add('New plate', async () => { if (confirm('Record a new build plate?')) await post(`/api/printers/${n}/plate`, {}); });
+  if (p.ejector && p.ejector.magazine_size) add(`Reload magazine (${p.ejector.remaining})`, () => post(`/api/printers/${n}/magazine/reload`));
+  return el;
+}
+
+async function refresh() {
+  try {
+    const [printers, queue, events, stats, health] = await Promise.all([
+      api('/api/printers'), api('/api/queue'), api('/api/events?limit=40'), api('/api/stats?days=7'), api('/api/health')]);
+    $('#farm').textContent = `v${health.version}`;
+    const box = $('#printers'); box.replaceChildren(...printers.map(printerCard));
+    const loops = stats.printers.reduce((a, r) => a + r.loops, 0);
+    const cleared = stats.printers.reduce((a, r) => a + (r.cleared || 0), 0);
+    const recovered = stats.printers.reduce((a, r) => a + (r.recovered || 0), 0);
+    const blocked = stats.printers.reduce((a, r) => a + (r.blocked || 0), 0);
+    const missed = stats.printers.reduce((a, r) => a + (r.missed_triggers || 0), 0);
+    const done = cleared + recovered + blocked;
+    $('#kpis').innerHTML = [
+      ['Printers busy', printers.filter(p => !['idle', 'offline', 'blocked'].includes(p.phase)).length + ' / ' + printers.length],
+      ['Need attention', printers.filter(p => p.phase === 'blocked').length],
+      ['Loops (7 days)', loops],
+      ['Hands-off rate', done ? Math.round((cleared + recovered) / done * 100) + '%' : '–'],
+      ['Recovered by retry', recovered],
+      ['Missed triggers', missed],
+      ['Queued', queue.filter(j => j.status === 'queued').length],
+    ].map(([k, v]) => `<div><span class="muted">${k}</span><b>${v}</b></div>`).join('');
+    $('#queue').innerHTML = '<tr><th>#</th><th>name</th><th>status</th><th>printer</th><th>materials</th><th></th></tr>' +
+      queue.slice(0, 50).map(j => `<tr><td>${j.id}</td><td>${esc(j.name)}</td><td>${esc(j.status)}</td><td>${esc(j.assigned_to || j.printer || 'any')}</td><td>${esc(j.materials.join(', '))}</td>
+        <td>${j.status === 'queued' ? `<button data-cancel="${j.id}">Cancel</button>` : esc(j.message || '')}</td></tr>`).join('');
+    document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = act(() => api('/api/queue/' + b.dataset.cancel, {method: 'DELETE'})));
+    $('#events').innerHTML = '<tr><th>time</th><th>printer</th><th>event</th><th>message</th></tr>' +
+      events.map(e => `<tr class="lvl-${e.level}"><td>${new Date(e.ts * 1000).toLocaleString()}</td><td>${esc(e.printer || '')}</td><td>${esc(e.kind)}</td><td>${esc(e.message)}</td></tr>`).join('');
+  } catch (e) {
+    $('#farm').textContent = 'error: ' + e.message;
+  }
+}
+$('#upload').onsubmit = async (ev) => {
+  ev.preventDefault();
+  try { await api('/api/queue', {method: 'POST', body: new FormData(ev.target)}); ev.target.reset(); refresh(); }
+  catch (e) { alert(e.message); }
+};
+$('#tokenBtn').onclick = () => {
+  const t = prompt('API token (leave empty if the farm has none)', token);
+  if (t !== null) { token = t.trim(); try { localStorage.setItem('clearloop-token', token); } catch (e) {} refresh(); }
+};
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
