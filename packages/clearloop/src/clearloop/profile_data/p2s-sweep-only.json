@@ -1,0 +1,72 @@
+{
+  "id": "p2s-sweep-only",
+  "name": "P2S \u00b7 pusher sweep only (no FarmBoard)",
+  "printer_model_id": "N7",
+  "stage": 1,
+  "description": "A FarmLoop pusher on a P2S with no FarmBoard: cool down, sweep, park. Keep the door open (or removed) during prints so parts can leave.",
+  "source": {
+    "kind": "builtin",
+    "evidence": "https://github.com/Liaminamerica2/p2s-autofarm-playbook/tree/7b9a988963bf152c3839344d441e82bdcd96b924/evidence",
+    "farmloop_file": "FL_S2_Poop-Bucket-Logo-V2(5)_Poop Bucket.gcode.3mf",
+    "farmloop_file_sha256": "e75259043c768a2f4a3a3804839996c645a31194f73ebb2dc0f124c368ea9f68",
+    "farmloop_app": "2.72",
+    "farmboard_firmware": "2.94",
+    "slicer": "BambuStudio 02.07.01.62"
+  },
+  "sweep": {
+    "y_rear": 250.0,
+    "y_front": 0.0,
+    "passes": [
+      {
+        "feed": 3000,
+        "lanes": [
+          125.0,
+          125.0,
+          220.0,
+          190.0,
+          160.0,
+          130.0,
+          100.0,
+          70.0,
+          30.0
+        ]
+      },
+      {
+        "feed": 12000,
+        "lanes": [
+          220.0,
+          190.0,
+          160.0,
+          130.0,
+          100.0,
+          70.0,
+          30.0
+        ]
+      }
+    ],
+    "z_feed": 12000,
+    "park": [
+      "G1 X65 Y245 F12000",
+      "G1 Y265 F3000"
+    ]
+  },
+  "start_anchor": null,
+  "start_block": "",
+  "door_open": "",
+  "bend": "",
+  "safety": "",
+  "door_close": "",
+  "cooldown_fan": [
+    "M106 P2 S255 ; turn on remote part cooling fan"
+  ],
+  "cooldown_repeat": 62,
+  "fans_off": [
+    "M106 S0 ; turn off fan",
+    "M106 P2 S0 ; turn off remote part cooling fan",
+    "M106 P3 S0 ; turn off chamber cooling fan"
+  ],
+  "notes": [
+    "Uses the FarmLoop app's P2S sweep path, the same path the playbook's door-and-pusher P2S build runs without a bender.",
+    "FarmLoop has not published the P2S Stage 1 kit's own G-code. If you have the Stage 1 kit, import one of your FL_S1_ files to use its exact moves, including any bend step."
+  ]
+}

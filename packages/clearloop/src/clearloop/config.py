@@ -1,206 +1,103 @@
-"""Farm configuration (YAML)."""
+"""ClearLoop settings, stored as ``settings.json`` in the data folder and edited from the app."""
 
 from __future__ import annotations
 
+import json
+import os
+import threading
 from pathlib import Path
 from typing import Literal
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from .gcode.routines import LoopSettings
-from .gcode.sweep import SweepSettings
-from .profiles import PrinterProfile, printer_profile
+from . import printers
 
 
 class _Model(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
 
-class SweepConfig(_Model):
-    lane_spacing: float = 25.0
-    clearance: float = 6.0
-    push_ratio: float = 0.3
-    max_push_z: float = 12.0
-    top_margin: float = 1.0
-    travel_margin: float = 5.0
-    final_wipe: bool = False
-    wipe_spacing: float = 30.0
+class Defaults(_Model):
+    """Starting values for new loop files. Every one is shown, and can be changed, in the app."""
 
-
-class LoopConfig(_Model):
-    cooldown_mode: Literal["temperature", "time"] = "temperature"
-    release_temp: float | None = None
-    cooldown_time_s: int = 600
-    natural_cooldown_min: int | None = None
-    min_cooldown_s: int = 30
-    door_opener: bool = False
-    bend_window_s: int = 25
-    retract_wait_s: int = 4
-    marker_base: int = 9000
-    marker_hold_s: int = 2
-    bed_temp: float | None = None
-    sweep: SweepConfig = Field(default_factory=SweepConfig)
-
-    def merged(self, override: dict | None) -> LoopConfig:
-        if not override:
-            return self
-        data = self.model_dump()
-        sweep = {**data["sweep"], **override.get("sweep", {})}
-        data.update({k: v for k, v in override.items() if k != "sweep"})
-        data["sweep"] = sweep
-        return LoopConfig.model_validate(data)
-
-    def to_settings(self, eject_mode: str, custom_gcode: str = "") -> LoopSettings:
-        d = self.model_dump()
-        d.pop("bed_temp")
-        sweep = SweepSettings(**d.pop("sweep"))
-        return LoopSettings(eject_mode=eject_mode, custom_eject_gcode=custom_gcode, sweep=sweep, **d)
-
-
-class EjectorConfig(_Model):
-    kind: Literal["gcode", "custom", "clearboard", "http", "webhook", "mqtt"] = "gcode"
-    url: str | None = None
-    eject_url: str | None = None
-    prepare_url: str | None = None
-    door_url: str | None = None
-    status_url: str | None = None
-    token: str | None = None
-    timeout_s: float = 30.0
-    gcode: str | None = None
-    magazine_size: int | None = None
-    mqtt_host: str | None = None
-    mqtt_port: int = 1883
-    command_topic: str | None = None
-    ack_topic: str | None = None
-    username: str | None = None
-    password: str | None = None
-    quiet_profile: str = "quiet"
+    profile_id: str = "p2s-stage2-farmboard"
+    release_temp: float = Field(30.0, ge=15, le=60)  # FarmLoop's default cooldown target
+    floor_z: float = Field(2.0, ge=0.5, le=30)  # calibrate in the Calibrate tab
+    floor_calibrated: bool = False
+    push_offset: float = Field(10.0, ge=0, le=50)  # FarmLoop: part height minus 10 mm
+    natural_cooldown_min: int = Field(0, ge=0, le=120)  # FarmLoop allows 1-120 min
+    bender_fitted: bool = True
+    cooldown_fan: Literal["profile", "exhaust", "off"] = "profile"
+    wait_for_monitor: bool = False
+    loops: int = Field(1, ge=1, le=50)
 
 
 class VerifyConfig(_Model):
-    enabled: bool = True
-    roi: tuple[float, float, float, float] = (0.15, 0.25, 0.85, 0.95)  # x0, y0, x1, y1 as image fractions
+    roi: tuple[float, float, float, float] = (0.15, 0.25, 0.85, 0.95)  # plate area in the image (fractions)
     pixel_threshold: int = 38
     max_changed_fraction: float = 0.004
     min_blob_px: int = 30
     settle_s: float = 3.0
 
 
-class PlateConfig(_Model):
-    type: str = "textured_pei"
-    rated_cycles: int = 1500
-
-
 class PrinterConfig(_Model):
     name: str
-    model: str
     host: str
     serial: str
     access_code: str
-    camera: Literal["auto", "tcp_jpeg", "rtsps", "none"] = "auto"
+    model_id: str
     snapshot_url: str | None = None
-    start_url_template: str = "file:///sdcard/{name}"
-    use_ams: bool = True
-    profile_overrides: dict = Field(default_factory=dict)
-    ejector: EjectorConfig = Field(default_factory=EjectorConfig)
-    loop: dict = Field(default_factory=dict)
-    verify: VerifyConfig | None = None
-    plate: PlateConfig = Field(default_factory=PlateConfig)
-    max_retries: int = 1
-    enabled: bool = True
+    auto_resume: bool = True  # resume a loop-end pause when the plate checks out empty
+    verify: VerifyConfig = Field(default_factory=VerifyConfig)
 
-    def profile(self) -> PrinterProfile:
-        return printer_profile(self.model, **self.profile_overrides)
+    @field_validator("model_id")
+    @classmethod
+    def _known(cls, v: str) -> str:
+        if v not in printers.MODEL_IDS:
+            raise ValueError(f"unknown printer model id {v!r}")
+        return v
 
-    def camera_kind(self) -> str:
-        return self.profile().camera if self.camera == "auto" else self.camera
+    @field_validator("name")
+    @classmethod
+    def _name(cls, v: str) -> str:
+        v = v.strip()
+        if not v or "/" in v:
+            raise ValueError("give the printer a short name without '/'")
+        return v
 
 
-class NotifierConfig(_Model):
+class Notifier(_Model):
     kind: Literal["ntfy", "discord", "webhook"]
     url: str
     min_level: Literal["info", "warning", "error"] = "warning"
     token: str | None = None
 
 
-class QuietHours(_Model):
-    start: str  # "22:00"
-    end: str  # "07:00"
-    mode: Literal["quiet", "hold"] = "quiet"
-
-    @field_validator("start", "end")
-    @classmethod
-    def _hhmm(cls, v: str) -> str:
-        h, m = v.split(":")
-        if not (0 <= int(h) < 24 and 0 <= int(m) < 60):
-            raise ValueError("use HH:MM")
-        return v
-
-
-class CostConfig(_Model):
-    currency: str = "USD"
-    filament_per_kg: float = 20.0
-    power_kw: float = 0.15
-    kwh_price: float = 0.30
-    machine_per_hour: float = 0.0
-    plate_cost: float = 0.0  # spread over rated_cycles
-
-
-class SkuConfig(_Model):
-    sku: str
-    file: str
-    parts_per_plate: int = 1
-    models: list[str] = Field(default_factory=list)
-
-
-class ApiToken(_Model):
-    token: str
-    role: Literal["viewer", "operator", "admin"] = "operator"
-    name: str = ""
-
-
-class FarmConfig(_Model):
-    name: str = "ClearLoop farm"
-    secret: str | None = None
-    data_dir: str = "./data"
-    api_tokens: list[ApiToken] = Field(default_factory=list)
-    shopify_webhook_secret: str | None = None
-
-
-class Config(_Model):
-    farm: FarmConfig = Field(default_factory=FarmConfig)
-    defaults: LoopConfig = Field(default_factory=LoopConfig)
-    verify: VerifyConfig = Field(default_factory=VerifyConfig)
-    quiet_hours: QuietHours | None = None
-    notifications: list[NotifierConfig] = Field(default_factory=list)
-    costs: CostConfig = Field(default_factory=CostConfig)
+class Settings(_Model):
+    defaults: Defaults = Field(default_factory=Defaults)
     printers: list[PrinterConfig] = Field(default_factory=list)
-    skus: list[SkuConfig] = Field(default_factory=list)
-
-    def printer(self, name: str) -> PrinterConfig:
-        for p in self.printers:
-            if p.name == name:
-                return p
-        raise KeyError(f"no printer named {name!r} in config")
-
-    def loop_for(self, p: PrinterConfig) -> LoopConfig:
-        return self.defaults.merged(p.loop)
-
-    def verify_for(self, p: PrinterConfig) -> VerifyConfig:
-        return p.verify or self.verify
-
-    @property
-    def data_path(self) -> Path:
-        return Path(self.farm.data_dir)
+    notifications: list[Notifier] = Field(default_factory=list)
+    app_token: str | None = None  # optional: require this token for the app's API
 
 
-def load_config(path: str | Path) -> Config:
-    data = yaml.safe_load(Path(path).read_text()) or {}
-    cfg = Config.model_validate(data)
-    names = [p.name for p in cfg.printers]
-    if len(names) != len(set(names)):
-        raise ValueError("printer names must be unique")
-    for p in cfg.printers:
-        p.profile()  # fail early on an unknown model
-    return cfg
+class SettingsStore:
+    def __init__(self, data_dir: str | Path):
+        self.dir = Path(data_dir)
+        self.path = self.dir / "settings.json"
+        self._lock = threading.Lock()
+
+    def load(self) -> Settings:
+        if not self.path.exists():
+            return Settings()
+        return Settings.model_validate(json.loads(self.path.read_text()))
+
+    def save(self, settings: Settings) -> None:
+        with self._lock:
+            self.dir.mkdir(parents=True, exist_ok=True)
+            tmp = self.path.with_suffix(".tmp")
+            tmp.write_text(settings.model_dump_json(indent=2))
+            os.replace(tmp, self.path)
+            try:
+                os.chmod(self.path, 0o600)  # holds printer access codes
+            except OSError:
+                pass

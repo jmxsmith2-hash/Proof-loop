@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clearloop"
-version = "0.1.0"
-description = "Open-source, LAN-first, closed-loop continuous printing controller for Bambu Lab print farms"
+version = "0.2.0"
+description = "Open-source loop files and plate checks for FarmLoop hardware on Bambu Lab printers"
 readme = "README.md"
-license = "GPL-3.0-or-later"
+license = "AGPL-3.0-or-later"
 requires-python = ">=3.11"
 authors = [{ name = "ClearLoop contributors" }]
-keywords = ["3d-printing", "bambu-lab", "print-farm", "auto-eject", "continuous-printing"]
+keywords = ["3d-printing", "bambu-lab", "p2s", "farmloop", "print-farm", "auto-eject", "continuous-printing"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -18,23 +18,19 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.5",
-    "PyYAML>=6.0",
     "numpy>=1.26",
     "Pillow>=10.0",
-]
-
-[project.optional-dependencies]
-server = [
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "paho-mqtt>=2.0",
     "python-multipart>=0.0.9",
 ]
+
+[project.optional-dependencies]
 dev = [
     "pytest>=8",
     "ruff>=0.4",
     "httpx>=0.27",
-    "clearloop[server]",
 ]
 
 [project.scripts]
@@ -44,7 +40,7 @@ clearloop = "clearloop.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-clearloop = ["static/*"]
+clearloop = ["static/*", "profile_data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

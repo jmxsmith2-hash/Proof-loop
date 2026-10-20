@@ -1,4 +1,10 @@
-"""Read and write sliced plate files: Bambu/Orca ``.gcode.3mf`` and plain ``.gcode``."""
+"""Read and write Bambu Studio / OrcaSlicer ``.gcode.3mf`` plate files.
+
+Everything ClearLoop knows about a plate comes from the file itself: the
+printer it was sliced for (``printer_model_id`` in ``slice_info.config``), the
+printable area and height (the slicer's own ``CONFIG_BLOCK``), filament types,
+object names and per-object heights (``HEADER_BLOCK``). Nothing is assumed.
+"""
 
 from __future__ import annotations
 
@@ -12,26 +18,49 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 _PLATE_RE = re.compile(r"^Metadata/plate_(\d+)\.gcode$")
-_COMMENT_KV = re.compile(r"^;\s*([a-z_][a-z_ \[\]]*?)\s*=\s*(.+)$", re.M)
+_HEADER_KV = re.compile(r"^;\s*([^:=]+?)\s*:\s*(.*?)\s*$")
+_CONFIG_KV = re.compile(r"^;\s*([a-z0-9_]+)\s*=\s*(.*?)\s*$")
+
+# Markers written by Bambu Studio and OrcaSlicer into every sliced plate.
+EXEC_START = "; EXECUTABLE_BLOCK_START"
+EXEC_END = "; EXECUTABLE_BLOCK_END"
+START_GCODE_END = "; MACHINE_START_GCODE_END"
+END_GCODE_START = "; MACHINE_END_GCODE_START"
+
+
+class PlateFileError(ValueError):
+    """The file is not something ClearLoop can safely work with. The message says why."""
 
 
 @dataclass
 class PlateInfo:
+    slicer: str = ""
+    printer_model_id: str = ""
+    printer_model: str = ""
+    bed_type: str = ""
+    bed_x: float = 0.0
+    bed_y: float = 0.0
+    printable_height: float = 0.0
     filaments: list[str] = field(default_factory=list)
     filament_grams: float = 0.0
     print_seconds: float = 0.0
     chamber_temp: float = 0.0
-    printer_model: str = ""
+    max_z_height: float = 0.0
+    object_heights: dict[str, float] = field(default_factory=dict)  # label id -> height (slicer header)
+    object_names: dict[str, str] = field(default_factory=dict)  # label id -> name (slice_info)
+
+    def as_dict(self) -> dict:
+        return dict(self.__dict__)
 
 
 @dataclass
 class SlicedFile:
-    """One plate's G-code plus everything needed to write the container back."""
+    """One plate's G-code plus everything needed to write the container back unchanged."""
 
     gcode: str
     plate: int
     info: PlateInfo
-    container: str  # "3mf" or "gcode"
+    name: str = ""
     _entries: dict[str, bytes] = field(default_factory=dict, repr=False)
     _order: list[str] = field(default_factory=list, repr=False)
 
@@ -39,13 +68,18 @@ class SlicedFile:
     def gcode_name(self) -> str:
         return f"Metadata/plate_{self.plate}.gcode"
 
+    @property
+    def md5_ok(self) -> bool:
+        stored = self._entries.get(self.gcode_name + ".md5", b"").decode(errors="replace").strip()
+        return stored.lower() == hashlib.md5(self.gcode.encode()).hexdigest()
+
     def to_bytes(self, gcode: str, extra: dict[str, bytes] | None = None) -> bytes:
+        """Write the plate back. Only the plate G-code, its checksum and ``extra`` entries change."""
         data = gcode.encode()
-        if self.container == "gcode":
-            return data
         entries = dict(self._entries)
         entries[self.gcode_name] = data
-        # Bambu firmware checks this checksum before it will start the plate.
+        # Bambu firmware checks this checksum before it starts the plate. Bambu Studio
+        # and the FarmLoop app both write it as upper-case hex.
         entries[self.gcode_name + ".md5"] = hashlib.md5(data).hexdigest().upper().encode()
         for k, v in (extra or {}).items():
             entries[k] = v
@@ -62,96 +96,175 @@ class SlicedFile:
 
 def load(path: str | Path, plate: int | None = None) -> SlicedFile:
     path = Path(path)
-    raw = path.read_bytes()
-    return loads(raw, name=path.name, plate=plate)
+    return loads(path.read_bytes(), name=path.name, plate=plate)
 
 
 def loads(raw: bytes, name: str = "", plate: int | None = None) -> SlicedFile:
-    if raw[:2] == b"PK":
-        return _load_3mf(raw, plate)
-    gcode = raw.decode("utf-8", errors="replace")
-    return SlicedFile(gcode=gcode, plate=plate or 1, info=_info_from_gcode(gcode), container="gcode")
-
-
-def _load_3mf(raw: bytes, plate: int | None) -> SlicedFile:
-    with zipfile.ZipFile(io.BytesIO(raw)) as z:
-        order = z.namelist()
-        entries = {n: z.read(n) for n in order}
+    if raw[:2] != b"PK":
+        raise PlateFileError(
+            "this is not a .gcode.3mf file. In Bambu Studio or OrcaSlicer, slice the plate and use "
+            "'Export plate sliced file' (.gcode.3mf)."
+        )
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            order = z.namelist()
+            entries = {n: z.read(n) for n in order}
+    except (zipfile.BadZipFile, ValueError, OSError, EOFError) as e:
+        raise PlateFileError(f"the file is damaged or not a complete 3MF ({e}); export it again") from e
     plates = sorted(int(m.group(1)) for n in order if (m := _PLATE_RE.match(n)))
     if not plates:
-        raise ValueError("no sliced G-code in this 3MF; slice the plate and export it as .gcode.3mf")
+        raise PlateFileError(
+            "this 3MF has no sliced G-code. It is a project file; slice it and export the plate "
+            "as a sliced file (.gcode.3mf)."
+        )
     if plate is None:
         plate = plates[0]
     elif plate not in plates:
-        raise ValueError(f"plate {plate} not sliced; available: {plates}")
+        raise PlateFileError(f"plate {plate} is not sliced in this file; sliced plates: {plates}")
     gcode = entries[f"Metadata/plate_{plate}.gcode"].decode("utf-8", errors="replace")
-    info = _info_from_3mf(entries, plate)
-    if not info.filaments:
-        info.filaments = _info_from_gcode(gcode).filaments
-    return SlicedFile(gcode=gcode, plate=plate, info=info, container="3mf", _entries=entries, _order=order)
+    info = read_info(gcode, entries, plate)
+    return SlicedFile(gcode=gcode, plate=plate, info=info, name=name, _entries=entries, _order=order)
 
 
-def _info_from_3mf(entries: dict[str, bytes], plate: int) -> PlateInfo:
+def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
     info = PlateInfo()
-    settings = {}
-    if "Metadata/project_settings.config" in entries:
-        try:
-            settings = json.loads(entries["Metadata/project_settings.config"])
-        except ValueError:
-            settings = {}
-    info.printer_model = str(settings.get("printer_model", ""))
-    chamber = settings.get("chamber_temperatures") or settings.get("chamber_temperature") or []
-    if isinstance(chamber, str):
-        chamber = [chamber]
-    info.chamber_temp = max((float(c) for c in chamber if _is_number(c)), default=0.0)
+    header = _header_block(gcode)
+    config = _config_block(gcode)
 
-    used_types: list[str] = []
-    if "Metadata/slice_info.config" in entries:
+    info.slicer = header.get("_first", "")
+    info.max_z_height = _num(header.get("max_z_height"))
+    ids = [s.strip() for s in header.get("model label id", "").split(",") if s.strip()]
+    heights = [_num(s) for s in header.get("object max height", "").split(",") if s.strip()]
+    if ids and len(ids) == len(heights):
+        info.object_heights = dict(zip(ids, heights, strict=True))
+    m = re.search(
+        r"total estimated time: (?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?(\d+)s", header.get("_raw", "")
+    )
+    if m:
+        d, h, mi, s = (int(x) if x else 0 for x in m.groups())
+        info.print_seconds = ((d * 24 + h) * 60 + mi) * 60 + s
+
+    info.printer_model = config.get("printer_model", "")
+    info.bed_type = config.get("curr_bed_type", "")
+    area = config.get("printable_area", "")
+    pts = [p.split("x") for p in area.split(",") if "x" in p]
+    if pts:
+        info.bed_x = max(_num(p[0]) for p in pts)
+        info.bed_y = max(_num(p[1]) for p in pts)
+    info.printable_height = _num(config.get("printable_height"))
+    chamber = [_num(c) for c in re.split(r"[;,]", config.get("chamber_temperatures", "")) if c.strip()]
+    info.chamber_temp = max(chamber, default=0.0)
+    cfg_filaments = [f.strip() for f in re.split(r"[;,]", config.get("filament_type", "")) if f.strip()]
+
+    sinfo = entries.get("Metadata/slice_info.config")
+    used: list[str] = []
+    if sinfo:
         try:
-            root = ET.fromstring(entries["Metadata/slice_info.config"])
+            root = ET.fromstring(sinfo)
         except ET.ParseError:
             root = None
         for p in root.iter("plate") if root is not None else []:
             meta = {m.get("key"): m.get("value") for m in p.findall("metadata")}
             if str(meta.get("index", "1")) != str(plate):
                 continue
-            if _is_number(meta.get("prediction")):
-                info.print_seconds = float(meta["prediction"])
+            info.printer_model_id = meta.get("printer_model_id", "") or info.printer_model_id
+            if not info.print_seconds and meta.get("prediction"):
+                info.print_seconds = _num(meta["prediction"])
+            for o in p.findall("object"):
+                if o.get("identify_id"):
+                    info.object_names[o.get("identify_id")] = o.get("name", "")
             for f in p.findall("filament"):
                 if f.get("type"):
-                    used_types.append(f.get("type"))
-                if _is_number(f.get("used_g")):
-                    info.filament_grams += float(f.get("used_g"))
-    if not used_types:
-        types = settings.get("filament_type") or []
-        used_types = [t for t in types if t]
-    info.filaments = sorted(set(used_types))
+                    used.append(f.get("type"))
+                info.filament_grams += _num(f.get("used_g"))
+    plate_json = entries.get(f"Metadata/plate_{plate}.json")
+    if plate_json and not info.bed_type:
+        try:
+            info.bed_type = str(json.loads(plate_json).get("bed_type", ""))
+        except ValueError:
+            pass
+    info.filaments = sorted(set(used or cfg_filaments))
     return info
 
 
-def _info_from_gcode(gcode: str) -> PlateInfo:
-    info = PlateInfo()
-    # Slicer settings live in comments at the head or tail of the file.
-    sample = gcode[:200_000] + gcode[-400_000:]
-    for key, value in _COMMENT_KV.findall(sample):
-        if key == "filament_type":
-            info.filaments = sorted({v.strip() for v in re.split(r"[;,]", value) if v.strip()})
-        elif key in ("chamber_temperature", "chamber_temperatures"):
-            nums = [float(v) for v in re.split(r"[;,]", value) if _is_number(v.strip())]
-            info.chamber_temp = max(nums, default=0.0)
-        elif key in ("total filament weight [g]", "filament used [g]"):
-            nums = [float(v) for v in re.split(r"[;,]", value) if _is_number(v.strip())]
-            info.filament_grams = sum(nums)
-    m = re.search(r"; total estimated time: (?:(\d+)h )?(?:(\d+)m )?(\d+)s", sample)
-    if m:
-        h, mi, s = (int(x) if x else 0 for x in m.groups())
-        info.print_seconds = h * 3600 + mi * 60 + s
-    return info
+def _header_block(gcode: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    start = gcode.find("; HEADER_BLOCK_START")
+    end = gcode.find("; HEADER_BLOCK_END")
+    if start < 0 or end < 0:
+        return out
+    block = gcode[start:end]
+    out["_raw"] = block
+    lines = block.splitlines()[1:]
+    if lines:
+        out["_first"] = lines[0].lstrip("; ").strip()
+    for line in lines:
+        # "; total estimated time" shares a line with "model printing time"; keep the raw block for it.
+        m = _HEADER_KV.match(line)
+        if m:
+            key = re.sub(r"\s*\[.*?\]\s*", "", m.group(1)).strip().lower()
+            out.setdefault(key, m.group(2))
+    return out
 
 
-def _is_number(v) -> bool:
+def _config_block(gcode: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    start = gcode.find("; CONFIG_BLOCK_START")
+    end = gcode.find("; CONFIG_BLOCK_END")
+    if start < 0 or end < 0:
+        return out
+    for line in gcode[start:end].splitlines():
+        m = _CONFIG_KV.match(line)
+        if m:
+            out[m.group(1)] = m.group(2)
+    return out
+
+
+def _num(v) -> float:
     try:
-        float(v)
-        return True
+        return float(v)
     except (TypeError, ValueError):
-        return False
+        return 0.0
+
+
+@dataclass
+class Layout:
+    """Line indexes of the structural markers inside one plate's G-code."""
+
+    lines: list[str]
+    exec_start: int
+    exec_end: int
+    start_gcode_end: int
+    end_gcode_start: int
+
+    @property
+    def ok(self) -> bool:
+        return min(self.exec_start, self.exec_end, self.start_gcode_end, self.end_gcode_start) >= 0 and (
+            self.exec_start < self.start_gcode_end < self.end_gcode_start < self.exec_end
+        )
+
+    def missing(self) -> list[str]:
+        names = {
+            EXEC_START: self.exec_start,
+            START_GCODE_END: self.start_gcode_end,
+            END_GCODE_START: self.end_gcode_start,
+            EXEC_END: self.exec_end,
+        }
+        return [k for k, v in names.items() if v < 0]
+
+
+def layout(gcode: str) -> Layout:
+    """Find the markers of the first loop in a plate (FarmLoop files repeat the whole plate per loop)."""
+    lines = gcode.splitlines(keepends=True)
+
+    def find(marker: str, after: int = 0) -> int:
+        for i in range(max(0, after), len(lines)):
+            if lines[i].rstrip("\r\n") == marker:
+                return i
+        return -1
+
+    es = find(EXEC_START)
+    sge = find(START_GCODE_END, es)
+    egs = find(END_GCODE_START, sge)
+    ee = find(EXEC_END, egs)
+    return Layout(lines, es, ee, sge, egs)

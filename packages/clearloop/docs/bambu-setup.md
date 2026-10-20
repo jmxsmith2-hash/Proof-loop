@@ -1,46 +1,39 @@
-# Bambu Lab printer setup
+# Printer setup
 
-ClearLoop talks to printers only over your local network. To start jobs and
-read status from third-party software after Bambu's January 2025 authorization
-change, each printer needs:
+## Making and sending loop files
 
-1. **LAN-only mode** on (printer screen → Settings → Network/WLAN).
-2. **Developer Mode** on (in the same menu on recent firmware). The P2 series
-   ships with it available. Developer Mode opens MQTT (8883), FTPS (990) and the
-   camera stream to clients that know the access code.
-3. Note the **IP address**, **serial number** and **LAN access code** from the
-   printer screen.
+No printer setup is needed. ClearLoop only writes files. Send them with Bambu
+Studio, Bambu Handy or Bambuddy, in whatever network mode you use now.
 
-Trade-offs to know about:
+- Slice with the printer's normal Bambu Studio profile. Object labels must be
+  on: they are by default in Bambu Studio. In OrcaSlicer, turn on *Label
+  objects*.
+- Export with *File › Export › Export plate sliced file*. That writes a
+  `.gcode.3mf`.
+- Keep the output's `FL_S2_` / `FL_S1_` name.
 
-- In LAN-only and Developer Mode the printer can't use Bambu Cloud. Bambu Handy
-  and remote cloud printing stop working for that printer. Bambu describes
-  Developer Mode as unsupported.
-- Give printers fixed IP addresses (DHCP reservations) so the config stays
-  valid.
-- A1 and P1 printers need a microSD card for LAN printing.
+## FarmBoard (Stage 2)
 
-## If you can't use Developer Mode
+Set the FarmBoard up as 3D Farmers describe. For digital (MQTT) mode, put the
+printer in LAN-only mode with Developer Mode on. In the board's OTA page enter
+your Wi-Fi, the printer IP, LAN access code and serial number, and tick
+*Enable MQTT auto-trigger*. ClearLoop files also contain FarmLoop's
+switch-tap gestures, so a board in mechanical mode responds the same way it
+does to FarmLoop's own files.
 
-Use **processor-only mode**. Run `clearloop process` with `--eject gcode` or
-`--eject custom` and send files with Bambu Studio or Handy. Every routine runs
-from G-code inside the job, so it works in any network mode. You lose the
-closed loop (no plate verification, no automatic queue), and you should plan on
-supervising more.
+## ClearLoop Monitor (optional)
 
-## Per-printer validation checklist
+1. On the printer, turn on **LAN-only mode** and **Developer Mode**. Note the
+   IP address, serial number and access code. The access code changes every
+   time you toggle either mode.
+2. In ClearLoop, open *Monitor › Add a printer*.
+3. With the plate **empty**, press *Save empty-plate picture*. Add a few:
+   door open and closed, light on and off.
+4. Put a part on the plate and press *Check plate*. It should report parts left.
+5. Make loop files with *Wait for ClearLoop Monitor between loops* on.
 
-Run once per printer, and again after every firmware update:
+If the printer reports HMS 0500-0500-0001-0007 ("MQTT command verification
+failed"), Developer Mode is off and the printer will refuse `resume`.
 
-1. `clearloop probe-marker --config config.yaml <name>` must print **OK**.
-2. `clearloop snapshot --config config.yaml <name> -o test.jpg`. Check that the
-   plate is visible, then adjust `verify.roi` so it covers only the plate.
-3. With the plate **empty**, run `clearloop reference --config config.yaml <name>`.
-   Repeat with the door open and with the chamber light off, so lighting changes
-   are covered.
-4. Put a small part on the plate and run
-   `clearloop check-bed --config config.yaml <name> --diff diff.png`. It must
-   report `"clear": false`.
-5. Run one supervised loop with a cheap PLA part. Watch the cooldown, bend and
-   sweep, and confirm the dashboard shows `loop_done`.
-6. Pin the printer firmware. ClearLoop raises `firmware_changed` if it moves.
+X1, X2D, H2 and P2S cameras need `ffmpeg` on the computer running ClearLoop.
+The Docker image includes it.

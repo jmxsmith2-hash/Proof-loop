@@ -1,24 +1,32 @@
-"""LAN-only connection to one Bambu Lab printer.
+"""Read-mostly LAN connection to one Bambu Lab printer, for ClearLoop Monitor.
 
-Requires LAN-only mode with Developer Mode enabled (see docs/bambu-setup.md):
-MQTT over TLS on 8883 for status and commands, implicit FTPS on 990 for file
-upload, and the chamber camera for bed verification. Nothing here talks to
-Bambu Cloud.
+ClearLoop never uploads or starts jobs: you send loop files the way you do now
+(Bambu Studio, Bambu Handy, Bambuddy). The monitor only reads status over MQTT,
+grabs camera frames, and sends ``resume`` (or ``pause``) when a loop's plate
+check is done. Payloads and ports match Bambuddy, a widely used open-source
+Bambu controller (see docs/sources.md):
+
+* MQTT over TLS on 8883, user ``bblp``, password = LAN access code; reports on
+  ``device/<serial>/report``, commands on ``device/<serial>/request``.
+* ``{"print": {"command": "pause"|"resume", "sequence_id": "0"}}``.
+* Camera: A1, A1 mini, P1P, P1S use a JPEG stream over TLS on port 6000; X1,
+  X2D, H2 and P2S use RTSPS on port 322, read through a local TLS proxy because
+  Debian's GnuTLS-based ffmpeg drops P2S streams.
+
+Control commands need LAN-only mode with Developer Mode on.
 """
 
 from __future__ import annotations
 
-import ftplib
-import io
 import json
 import logging
 import secrets
+import shutil
 import socket
 import ssl
 import struct
 import subprocess
 import threading
-import time
 import urllib.request
 from collections.abc import Callable
 
@@ -26,74 +34,39 @@ from .state import PrinterState
 
 log = logging.getLogger(__name__)
 
+# Model ids (slice_info / MQTT) that use the port-6000 JPEG camera protocol, per Bambuddy.
+CHAMBER_IMAGE_MODELS = {"C11", "C12", "N1", "N2S"}
+
 
 def _insecure_context() -> ssl.SSLContext:
     # Printers present a self-signed certificate; the LAN access code is the credential.
-    ctx = ssl.create_default_context()
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     return ctx
 
 
-class _ImplicitFTPS(ftplib.FTP_TLS):
-    """Implicit-TLS FTP with TLS session reuse on the data channel (the printer insists)."""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._sock = None
-
-    @property
-    def sock(self):
-        return self._sock
-
-    @sock.setter
-    def sock(self, value):
-        if value is not None and not isinstance(value, ssl.SSLSocket):
-            value = self.context.wrap_socket(value, server_hostname=self.host)
-        self._sock = value
-
-    def ntransfercmd(self, cmd, rest=None):
-        conn, size = ftplib.FTP.ntransfercmd(self, cmd, rest)
-        if self._prot_p:
-            conn = self.context.wrap_socket(conn, server_hostname=self.host, session=self.sock.session)
-        return conn, size
-
-
 class BambuPrinter:
-    """Implements the ``PrinterLink`` interface the loop controller expects."""
-
     def __init__(
-        self,
-        host: str,
-        serial: str,
-        access_code: str,
-        camera: str = "tcp_jpeg",
-        snapshot_url: str | None = None,
-        start_url_template: str = "file:///sdcard/{name}",
-        use_ams: bool = True,
+        self, host: str, serial: str, access_code: str, model_id: str, snapshot_url: str | None = None
     ):
         self.host = host
         self.serial = serial
         self.access_code = access_code
-        self.camera = camera
+        self.model_id = model_id
         self.snapshot_url = snapshot_url
-        self.start_url_template = start_url_template
-        self.use_ams = use_ams
         self.state = PrinterState()
         self._listeners: list[Callable[[PrinterState], None]] = []
         self._lock = threading.Lock()
         self._client = None
 
-    # ---- MQTT -------------------------------------------------------------
     def add_listener(self, fn: Callable[[PrinterState], None]) -> None:
         self._listeners.append(fn)
 
     def connect(self) -> None:
         import paho.mqtt.client as mqtt
 
-        client = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION2, client_id=f"clearloop-{self.serial}-{secrets.token_hex(3)}"
-        )
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"clearloop-{secrets.token_hex(4)}")
         client.username_pw_set("bblp", self.access_code)
         client.tls_set_context(_insecure_context())
         client.reconnect_delay_set(1, 30)
@@ -108,19 +81,21 @@ class BambuPrinter:
         if self._client:
             self._client.loop_stop()
             self._client.disconnect()
+            self._client = None
 
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         if reason_code != 0:
             log.error(
-                "%s: MQTT connect refused (%s); check the access code and LAN-only mode",
-                self.serial,
+                "%s: MQTT connection refused (%s); check the access code and LAN-only mode",
+                self.host,
                 reason_code,
             )
             return
         client.subscribe(f"device/{self.serial}/report")
         self.state.online = True
-        self.request({"pushing": {"command": "pushall", "version": 1, "push_target": 1}})
-        self.request({"info": {"command": "get_version"}})
+        self._publish({"pushing": {"command": "pushall"}})
+        self._publish({"info": {"command": "get_version", "sequence_id": "0"}})
+        self._notify()
 
     def _on_disconnect(self, client, userdata, flags, reason_code, properties=None):
         self.state.online = False
@@ -130,6 +105,8 @@ class BambuPrinter:
         try:
             payload = json.loads(msg.payload)
         except ValueError:
+            return
+        if not isinstance(payload, dict):
             return
         with self._lock:
             self.state.merge(payload)
@@ -142,83 +119,29 @@ class BambuPrinter:
             except Exception:  # a listener must never kill the MQTT thread
                 log.exception("printer listener failed")
 
-    def request(self, payload: dict) -> None:
+    def _publish(self, payload: dict) -> bool:
         if not self._client:
-            raise RuntimeError("not connected")
-        for section in payload.values():
-            section.setdefault("sequence_id", str(int(time.time() * 1000) % 1_000_000))
-        self._client.publish(f"device/{self.serial}/request", json.dumps(payload))
+            return False
+        self._client.publish(f"device/{self.serial}/request", json.dumps(payload), qos=1)
+        return True
 
-    # ---- PrinterLink ------------------------------------------------------
-    def upload(self, name: str, data: bytes) -> None:
-        ftp = _ImplicitFTPS(context=_insecure_context(), timeout=60)
-        ftp.connect(self.host, 990)
-        try:
-            ftp.login("bblp", self.access_code)
-            ftp.prot_p()
-            ftp.storbinary(f"STOR {name}", io.BytesIO(data))
-        finally:
-            try:
-                ftp.quit()
-            except (OSError, ftplib.Error):
-                ftp.close()
+    def resume(self) -> bool:
+        return self._publish({"print": {"command": "resume", "sequence_id": "0"}})
 
-    def start(self, name: str, plate: int = 1, ams_mapping: list[int] | None = None) -> None:
-        self.request(
-            {
-                "print": {
-                    "command": "project_file",
-                    "param": f"Metadata/plate_{plate}.gcode",
-                    "url": self.start_url_template.format(name=name),
-                    "subtask_name": name,
-                    "project_id": "0",
-                    "profile_id": "0",
-                    "task_id": "0",
-                    "subtask_id": "0",
-                    "md5": "",
-                    "timelapse": False,
-                    "bed_type": "auto",
-                    "bed_levelling": True,
-                    "flow_cali": False,
-                    "vibration_cali": False,
-                    "layer_inspect": False,
-                    "use_ams": self.use_ams,
-                    "ams_mapping": ams_mapping or [],
-                }
-            }
-        )
+    def pause(self) -> bool:
+        return self._publish({"print": {"command": "pause", "sequence_id": "0"}})
 
-    def start_gcode(self, name: str) -> None:
-        """Run a plain .gcode file (used for recovery sweeps)."""
-        self.request({"print": {"command": "gcode_file", "param": f"/sdcard/{name}"}})
-
-    def pause(self) -> None:
-        self.request({"print": {"command": "pause"}})
-
-    def resume(self) -> None:
-        self.request({"print": {"command": "resume"}})
-
-    def stop(self) -> None:
-        self.request({"print": {"command": "stop"}})
-
-    def gcode_line(self, gcode: str) -> None:
-        self.request(
-            {"print": {"command": "gcode_line", "param": gcode if gcode.endswith("\n") else gcode + "\n"}}
-        )
-
-    def snapshot(self) -> bytes:
+    def snapshot(self, timeout: float = 20.0) -> bytes:
         if self.snapshot_url:
-            with urllib.request.urlopen(self.snapshot_url, timeout=15) as r:
+            with urllib.request.urlopen(self.snapshot_url, timeout=timeout) as r:
                 return r.read()
-        if self.camera == "tcp_jpeg":
-            return tcp_jpeg_frame(self.host, self.access_code)
-        if self.camera == "rtsps":
-            return rtsps_frame(self.host, self.access_code)
-        raise RuntimeError("this printer has no camera configured; set snapshot_url for bed verification")
+        if self.model_id in CHAMBER_IMAGE_MODELS:
+            return chamber_image_frame(self.host, self.access_code, timeout)
+        return rtsps_frame(self.host, self.access_code, timeout)
 
 
-def tcp_jpeg_frame(host: str, access_code: str, timeout: float = 15.0, port: int = 6000) -> bytes:
-    """One JPEG from the A1/P1 chamber camera (TLS on port 6000)."""
+def chamber_image_frame(host: str, access_code: str, timeout: float = 15.0, port: int = 6000) -> bytes:
+    """One JPEG from the A1/P1 camera: 80-byte auth packet, then 16-byte header + JPEG per frame."""
     auth = struct.pack("<IIII", 0x40, 0x3000, 0, 0)
     auth += b"bblp".ljust(32, b"\0") + access_code.encode().ljust(32, b"\0")
     raw = socket.create_connection((host, port), timeout=timeout)
@@ -229,8 +152,8 @@ def tcp_jpeg_frame(host: str, access_code: str, timeout: float = 15.0, port: int
         if not 0 < size < 10_000_000:
             raise RuntimeError(f"unexpected camera frame size {size}")
         frame = _recv_exact(s, size)
-    if not (frame.startswith(b"\xff\xd8") and frame.rstrip(b"\0").endswith(b"\xff\xd9")):
-        raise RuntimeError("camera returned something that is not a JPEG")
+    if not frame.startswith(b"\xff\xd8"):
+        raise RuntimeError("the camera returned something that is not a JPEG")
     return frame
 
 
@@ -244,24 +167,107 @@ def _recv_exact(s, n: int) -> bytes:
     return bytes(buf)
 
 
-def rtsps_frame(host: str, access_code: str, timeout: float = 20.0) -> bytes:
-    """One JPEG from the X1/H2/P2 RTSPS stream (needs ffmpeg on PATH)."""
-    url = f"rtsps://bblp:{access_code}@{host}:322/streaming/live/1"
+def rewrite_request_line(data: bytes, proxy_url: bytes, real_url: bytes) -> bytes:
+    """Rewrite only the RTSP request line, so Digest auth headers (which embed the URL) stay valid."""
+    marker = b" RTSP/1.0"
+    if marker not in data:
+        return data
+    lines = data.split(b"\r\n")
+    for i, line in enumerate(lines):
+        if line.endswith(marker):
+            lines[i] = line.replace(proxy_url, real_url)
+            break
+    return b"\r\n".join(lines)
+
+
+class _TlsProxy:
+    """Local plain-TCP port that forwards to the printer's RTSPS port using Python's OpenSSL."""
+
+    def __init__(self, host: str, port: int):
+        self.host, self.port = host, port
+        self.server = socket.create_server(("127.0.0.1", 0))
+        self.local_port = self.server.getsockname()[1]
+        self._stop = threading.Event()
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self):
+        self.server.settimeout(0.5)
+        while not self._stop.is_set():
+            try:
+                client, _ = self.server.accept()
+            except (TimeoutError, OSError):
+                continue
+            threading.Thread(target=self._serve, args=(client,), daemon=True).start()
+
+    def _serve(self, client: socket.socket):
+        try:
+            raw = socket.create_connection((self.host, self.port), timeout=10)
+            upstream = _insecure_context().wrap_socket(raw, server_hostname=self.host)
+        except OSError as e:
+            log.debug("camera proxy: %s", e)
+            client.close()
+            return
+        proxy_url = f"rtsp://127.0.0.1:{self.local_port}".encode()
+        real_url = f"rtsps://{self.host}:{self.port}".encode()
+
+        def pump(src, dst, rewrite):
+            try:
+                while True:
+                    data = src.recv(65536)
+                    if not data:
+                        break
+                    dst.sendall(rewrite_request_line(data, proxy_url, real_url) if rewrite else data)
+            except OSError:
+                pass
+            finally:
+                for s in (src, dst):
+                    try:
+                        s.close()
+                    except OSError:
+                        pass
+
+        threading.Thread(target=pump, args=(upstream, client, False), daemon=True).start()
+        pump(client, upstream, True)
+
+    def close(self):
+        self._stop.set()
+        self.server.close()
+
+
+def rtsps_frame(host: str, access_code: str, timeout: float = 20.0, port: int = 322) -> bytes:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is needed for this printer's camera; install ffmpeg")
+    proxy = _TlsProxy(host, port)
+    url = f"rtsp://bblp:{access_code}@127.0.0.1:{proxy.local_port}/streaming/live/1"
     cmd = [
-        "ffmpeg",
+        ffmpeg,
+        "-y",
         "-loglevel",
         "error",
         "-rtsp_transport",
         "tcp",
+        "-rtsp_flags",
+        "prefer_tcp",
         "-i",
         url,
         "-frames:v",
         "1",
         "-f",
-        "image2",
+        "image2pipe",
+        "-vcodec",
+        "mjpeg",
+        "-q:v",
+        "2",
         "-",
     ]
-    out = subprocess.run(cmd, capture_output=True, timeout=timeout, check=False)
-    if out.returncode != 0 or not out.stdout:
-        raise RuntimeError(f"ffmpeg could not grab a frame: {out.stderr.decode(errors='replace')[:200]}")
+    try:
+        out = subprocess.run(cmd, capture_output=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"camera did not deliver a frame within {timeout:.0f} s") from e
+    finally:
+        proxy.close()
+    if out.returncode != 0 or len(out.stdout) < 100:
+        msg = out.stderr.decode(errors="replace").replace(access_code, "********")[:300]
+        raise RuntimeError(f"camera frame capture failed: {msg or 'no output from ffmpeg'}")
     return out.stdout

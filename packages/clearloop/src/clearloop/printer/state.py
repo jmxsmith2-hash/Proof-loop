@@ -1,13 +1,18 @@
-"""Printer status as reported over Bambu's local MQTT ``device/<serial>/report`` topic.
+"""Printer status from Bambu's local MQTT ``device/<serial>/report`` topic.
 
-P1 and A1 printers send partial updates, so reports are merged into one state.
+P1/A1-class printers send partial updates, so reports are merged into one state.
+Field names and HMS decoding follow Bambu Studio as documented in Bambuddy's
+source (see docs/sources.md).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-HMS_SEVERITY = {1: "fatal", 2: "serious", 3: "common", 4: "info"}
+# HMS alert level, from the high 16 bits of ``code`` (Bambu Studio DevHMSItem::parse_hms_info).
+HMS_LEVEL = {1: "error", 2: "warning", 3: "notification"}
+# "MQTT command verification failed": the printer rejects control commands (Developer Mode off).
+HMS_COMMAND_REJECTED = "0500050000010007"
 
 
 @dataclass(frozen=True)
@@ -16,107 +21,103 @@ class HmsEvent:
     code: int
 
     @property
+    def full(self) -> str:
+        return f"{self.attr:08X}{self.code:08X}"
+
+    @property
     def code_str(self) -> str:
         return (
-            f"{self.attr >> 16:04X}_{self.attr & 0xFFFF:04X}_{self.code >> 16:04X}_{self.code & 0xFFFF:04X}"
+            f"{self.attr >> 16:04X}-{self.attr & 0xFFFF:04X}-{self.code >> 16:04X}-{self.code & 0xFFFF:04X}"
         )
 
     @property
-    def severity(self) -> str:
-        return HMS_SEVERITY.get(self.code >> 16, "unknown")
-
-    @property
-    def blocking(self) -> bool:
-        return self.severity in ("fatal", "serious")
-
-    @property
-    def wiki_url(self) -> str:
-        return f"https://wiki.bambulab.com/en/x1/troubleshooting/hmscode/{self.code_str}"
+    def level(self) -> str:
+        return HMS_LEVEL.get(self.code >> 16, "unknown")
 
 
 @dataclass
 class PrinterState:
-    gcode_state: str = "UNKNOWN"  # IDLE, PREPARE, RUNNING, PAUSE, FINISH, FAILED
+    online: bool = False
+    gcode_state: str = ""  # IDLE, PREPARE, RUNNING, PAUSE, FINISH, FAILED
     percent: int = 0
     remaining_min: int = 0
-    layer_num: int | None = None
+    layer_num: int = 0
     total_layers: int = 0
-    gcode_file: str = ""
-    subtask_name: str = ""
-    print_error: int = 0
+    nozzle_target: float = 0.0  # FarmBoard sentinels arrive here (M104 S1..S5)
     bed_temp: float = 0.0
     nozzle_temp: float = 0.0
-    chamber_temp: float = 0.0
+    subtask_name: str = ""
+    gcode_file: str = ""
     hms: list[HmsEvent] = field(default_factory=list)
-    ams_types: list[str] = field(default_factory=list)  # filament types loaded in the AMS / external spool
     firmware: str = ""
-    online: bool = False
-    raw: dict = field(default_factory=dict)
-
-    @property
-    def blocking_errors(self) -> list[str]:
-        out = [f"HMS {h.code_str} ({h.severity})" for h in self.hms if h.blocking]
-        if self.print_error:
-            out.append(f"print_error 0x{self.print_error:08X}")
-        return out
 
     def merge(self, report: dict) -> None:
-        """Apply one MQTT report payload."""
         p = report.get("print")
         if isinstance(p, dict):
-            self.raw.update(p)
             self.gcode_state = str(p.get("gcode_state", self.gcode_state))
-            self.percent = int(p.get("mc_percent", self.percent) or 0)
-            self.remaining_min = int(p.get("mc_remaining_time", self.remaining_min) or 0)
-            if "layer_num" in p:
-                self.layer_num = int(p["layer_num"])
-            self.total_layers = int(p.get("total_layer_num", self.total_layers) or 0)
-            self.gcode_file = str(p.get("gcode_file", self.gcode_file))
+            self.percent = _int(p.get("mc_percent"), self.percent)
+            self.remaining_min = _int(p.get("mc_remaining_time"), self.remaining_min)
+            self.layer_num = _int(p.get("layer_num"), self.layer_num)
+            self.total_layers = _int(p.get("total_layer_num"), self.total_layers)
+            self.nozzle_target = _float(p.get("nozzle_target_temper"), self.nozzle_target)
+            self.bed_temp = _float(p.get("bed_temper"), self.bed_temp)
+            self.nozzle_temp = _float(p.get("nozzle_temper"), self.nozzle_temp)
             self.subtask_name = str(p.get("subtask_name", self.subtask_name))
-            if "print_error" in p:
-                self.print_error = int(p["print_error"] or 0)
-            self.bed_temp = float(p.get("bed_temper", self.bed_temp) or 0)
-            self.nozzle_temp = float(p.get("nozzle_temper", self.nozzle_temp) or 0)
-            self.chamber_temp = float(p.get("chamber_temper", self.chamber_temp) or 0)
-            if "hms" in p and isinstance(p["hms"], list):
-                self.hms = [HmsEvent(int(h.get("attr", 0)), int(h.get("code", 0))) for h in p["hms"]]
-            if "ams" in p or "vt_tray" in p:
-                # Partial reports often carry an AMS section without tray data.
-                self.ams_types = _filament_types(p) or self.ams_types
+            self.gcode_file = str(p.get("gcode_file", self.gcode_file))
+            if isinstance(p.get("hms"), list):
+                events = []
+                for h in p["hms"]:
+                    if not isinstance(h, dict):
+                        continue
+                    attr, code = _hex_or_int(h.get("attr")), _hex_or_int(h.get("code"))
+                    if code >= 0x4000:  # lower values are status indicators, not faults
+                        events.append(HmsEvent(attr, code))
+                self.hms = events
         info = report.get("info")
         if isinstance(info, dict) and isinstance(info.get("module"), list):
             for m in info["module"]:
-                if m.get("name") == "ota" and m.get("sw_ver"):
+                if isinstance(m, dict) and m.get("name") == "ota" and m.get("sw_ver"):
                     self.firmware = str(m["sw_ver"])
+
+    @property
+    def commands_rejected(self) -> bool:
+        return any(h.full == HMS_COMMAND_REJECTED for h in self.hms)
 
     def as_dict(self) -> dict:
         return {
+            "online": self.online,
             "gcode_state": self.gcode_state,
             "percent": self.percent,
             "remaining_min": self.remaining_min,
-            "layer_num": self.layer_num,
+            "layer": self.layer_num,
             "total_layers": self.total_layers,
-            "gcode_file": self.gcode_file,
+            "nozzle_target": self.nozzle_target,
             "bed_temp": self.bed_temp,
             "nozzle_temp": self.nozzle_temp,
-            "chamber_temp": self.chamber_temp,
-            "hms": [{"code": h.code_str, "severity": h.severity, "url": h.wiki_url} for h in self.hms],
-            "print_error": self.print_error,
-            "ams_types": self.ams_types,
+            "job": self.subtask_name,
+            "hms": [{"code": h.code_str, "level": h.level} for h in self.hms],
             "firmware": self.firmware,
-            "online": self.online,
         }
 
 
-def _filament_types(p: dict) -> list[str]:
-    types: list[str] = []
-    ams = p.get("ams")
-    if isinstance(ams, dict):
-        for unit in ams.get("ams", []) or []:
-            for tray in unit.get("tray", []) or []:
-                if tray.get("tray_type"):
-                    types.append(str(tray["tray_type"]))
-    vt = p.get("vt_tray")
-    if isinstance(vt, dict) and vt.get("tray_type"):
-        types.append(str(vt["tray_type"]))
-    return sorted(set(types))
+def _int(v, default: int) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _float(v, default: float) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _hex_or_int(v) -> int:
+    if isinstance(v, str):
+        try:
+            return int(v.replace("0x", ""), 16) if v else 0
+        except ValueError:
+            return 0
+    return _int(v, 0)

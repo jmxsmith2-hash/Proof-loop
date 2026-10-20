@@ -1,120 +1,109 @@
-import base64
-import hashlib
-import hmac
-import json
+import io
 
-import pytest
 from fastapi.testclient import TestClient
-from helpers import box_gcode, make_3mf
-from test_loop import FakeLink
+from fixtures import BUCKET, farmloop_3mf, make_3mf, plain, plate_gcode
 
-from clearloop.config import Config
-from clearloop.farm import Farm
+from clearloop import threemf
+from clearloop.printer.state import PrinterState
 from clearloop.server import create_app
+from clearloop.service import App
 
 
-@pytest.fixture
-def farm(tmp_path):
-    lib = tmp_path / "keychain.gcode.3mf"
-    lib.write_bytes(make_3mf(box_gcode([(50, 50, 90, 70, 3.0)])))
-    cfg = Config.model_validate(
-        {
-            "farm": {
-                "data_dir": str(tmp_path / "data"),
-                "secret": "farm-secret",
-                "shopify_webhook_secret": "shh",
-                "api_tokens": [
-                    {"token": "view", "role": "viewer"},
-                    {"token": "op", "role": "operator"},
-                    {"token": "adm", "role": "admin"},
-                ],
-            },
-            "printers": [
-                {
-                    "name": "p1",
-                    "model": "p1s",
-                    "host": "10.0.0.2",
-                    "serial": "S1",
-                    "access_code": "12345678",
-                    "ejector": {"kind": "gcode"},
-                }
-            ],
-            "skus": [{"sku": "KEY-1", "file": str(lib), "parts_per_plate": 10}],
-        }
-    )
-    f = Farm(cfg, links={"p1": FakeLink()}, connect=False)
-    f.controllers["p1"].on_state(f.links["p1"].state)
-    return f, lib
+class FakeLink:
+    def __init__(self, p):
+        self.state = PrinterState(online=True)
+        self.listeners = []
+
+    def add_listener(self, fn):
+        self.listeners.append(fn)
+
+    def connect(self):
+        pass
+
+    def snapshot(self):
+        return b"\xff\xd8jpeg"
+
+    def resume(self):
+        return True
 
 
-def auth(t):
-    return {"Authorization": f"Bearer {t}"}
+def client(tmp_path):
+    app = App(tmp_path, connect=False, link_factory=FakeLink)
+    return TestClient(create_app(app)), app
 
 
-def test_health_and_roles(farm):
-    f, _ = farm
-    c = TestClient(create_app(f))
-    assert c.get("/api/health").json()["auth"] is True
-    assert c.get("/api/printers").status_code == 401
-    assert c.get("/api/printers", headers=auth("view")).json()[0]["phase"] == "idle"
-    assert c.post("/api/printers/p1/cleared", headers=auth("view")).status_code == 403
-    assert c.post("/api/printers/p1/cleared", headers=auth("op")).json()["bed_clear"] is True
-    assert c.get("/", headers={}).status_code == 200
+def up(c, data, name="bucket.gcode.3mf", url="/api/plates"):
+    return c.post(url, files={"file": (name, io.BytesIO(data))})
 
 
-def test_upload_to_queue_and_cancel(farm):
-    f, lib = farm
-    c = TestClient(create_app(f))
+def test_make_flow(tmp_path):
+    c, _ = client(tmp_path)
+    assert c.get("/").status_code == 200
+    r = up(c, plain(BUCKET)).json()
+    assert r["printer"] == "P2S" and r["ok"] and r["profile"]["id"] == "p2s-stage2-farmboard"
+    r2 = c.post(f"/api/plates/{r['token']}/analyze", json={"loops": 3, "bender_fitted": False}).json()
+    assert [s["key"] for s in r2["steps"]].count("bend") == 0
+    d = c.post(f"/api/plates/{r['token']}/download", json={"loops": 3})
+    assert d.headers["x-clearloop-filename"] == "FL_S2_bucket.gcode.3mf"
+    assert threemf.loads(d.content).gcode.count("; EXECUTABLE_BLOCK_START") == 3
+
+
+def test_friendly_errors(tmp_path):
+    c, _ = client(tmp_path)
+    r = up(c, b"not a zip", "x.gcode")
+    assert r.status_code == 422 and "Export plate sliced file" in r.json()["detail"]
+    r = up(c, make_3mf(plate_gcode(BUCKET), BUCKET, model_id="N1")).json()
+    assert r["no_profile"] and r["printer"] == "A1 mini"
+    r = up(c, farmloop_3mf(BUCKET))
+    assert r.status_code == 422 and "FarmLoop app" in r.json()["detail"]
+
+
+def test_check_import_defaults_calibration(tmp_path):
+    c, app = client(tmp_path)
+    f = up(c, farmloop_3mf(BUCKET), "FL_S2_b.gcode.3mf", "/api/check").json()
+    assert any(x["level"] == "danger" for x in f["findings"])
     r = c.post(
-        "/api/queue",
-        headers=auth("op"),
-        files={"file": ("keychain.gcode.3mf", lib.read_bytes())},
-        data={"copies": "2", "models": "p1s"},
+        "/api/profiles/import",
+        files={
+            "plain": ("a.gcode.3mf", io.BytesIO(plain())),
+            "farmloop": ("FL_S2_a.gcode.3mf", io.BytesIO(farmloop_3mf())),
+        },
+        data={"name": "Shop P2S"},
+    ).json()
+    assert r["profile"]["id"] == "shop-p2s" and r["dropped"]
+    assert any(p["id"] == "shop-p2s" for p in c.get("/api/state").json()["profiles"])
+    assert c.put("/api/defaults", json={"floor_z": 2.5, "floor_calibrated": True}).json()["floor_z"] == 2.5
+    assert app.settings_store.load().defaults.floor_calibrated
+    cal = c.post(
+        "/api/calibration",
+        files={"file": ("t.gcode.3mf", io.BytesIO(plain()))},
+        data={"test": "sweep-floor", "profile_id": "p2s-sweep-only"},
     )
-    assert r.status_code == 200, r.text
-    ids = r.json()["jobs"]
-    q = c.get("/api/queue", headers=auth("view")).json()
-    assert {j["id"] for j in q} == set(ids) and q[0]["materials"] == ["PLA"]
-    assert c.delete(f"/api/queue/{ids[0]}", headers=auth("op")).json() == {"cancelled": ids[0]}
+    assert cal.headers["x-clearloop-filename"].startswith("FL_S1_CALIBRATION-sweep-floor")
 
 
-def test_processing_api(farm):
-    f, lib = farm
-    c = TestClient(create_app(f))
+def test_monitor_api(tmp_path):
+    c, app = client(tmp_path)
     r = c.post(
-        "/api/process",
-        headers=auth("op"),
-        files={"file": ("k.gcode.3mf", lib.read_bytes())},
-        data={"printer": "p1", "copies": "2"},
+        "/api/monitor/printers",
+        json={"name": "Left", "host": "10.0.0.2", "serial": "S", "access_code": "1", "model_id": "N7"},
     )
-    assert r.status_code == 200, r.text
-    assert r.headers["x-clearloop-eject-mode"] == "gcode"
-    assert r.content[:2] == b"PK"
-    assert json.loads(r.headers["x-clearloop-cost-per-part"])["per_part"] > 0
+    assert r.status_code == 200
+    assert (
+        c.post(
+            "/api/monitor/printers",
+            json={"name": "Bad", "host": "h", "serial": "s", "access_code": "a", "model_id": "XX"},
+        ).status_code
+        == 422
+    )
+    assert c.get("/api/monitor/Left/snapshot").content.startswith(b"\xff\xd8")
+    assert c.get("/api/state").json()["monitor"][0]["name"] == "Left"
+    assert c.delete("/api/monitor/printers/Left").status_code == 200
+    assert app.settings_store.load().printers == []
 
 
-def test_shopify_webhook(farm):
-    f, _ = farm
-    c = TestClient(create_app(f))
-    body = json.dumps(
-        {"name": "#1001", "line_items": [{"sku": "KEY-1", "quantity": 25}, {"sku": "NOPE", "quantity": 1}]}
-    ).encode()
-    bad = c.post("/api/orders/shopify", content=body, headers={"X-Shopify-Hmac-Sha256": "nope"})
-    assert bad.status_code == 401
-    sig = base64.b64encode(hmac.new(b"shh", body, hashlib.sha256).digest()).decode()
-    r = c.post("/api/orders/shopify", content=body, headers={"X-Shopify-Hmac-Sha256": sig})
-    assert r.status_code == 200, r.text
-    out = r.json()
-    assert out["queued"][0]["plates"] == 3  # 25 parts at 10 per plate
-    assert out["unknown_skus"] == ["NOPE"]
-    assert len(f.store.jobs("queued")) == 3
-
-
-def test_farm_prepares_loop_ready_job(farm):
-    f, lib = farm
-    [jid] = f.enqueue_file(lib)
-    ctl = f.controllers["p1"]
-    remote, data, plate = f.prepare_job(f.cfg.printer("p1"), ctl.ejector, f.store.job(jid))
-    assert remote.startswith(f"cl-{jid}-") and remote.endswith(".gcode.3mf") and plate == 1
-    name, gcode = f.recovery_job(f.cfg.printer("p1"), ctl.ejector, f.store.job(jid))
-    assert b"CLEARLOOP_MARKER SWEEP_DONE" in gcode and b"wipe" in gcode
+def test_app_token(tmp_path):
+    c, app = client(tmp_path)
+    app.settings.app_token = "secret"
+    assert c.get("/api/state").status_code == 401
+    assert c.get("/api/state", headers={"Authorization": "Bearer secret"}).status_code == 200

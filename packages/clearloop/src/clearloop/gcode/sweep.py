@@ -1,124 +1,179 @@
-"""Geometry-aware sweep planning.
+"""Sweep planning on top of the FarmLoop hardware's own sweep path.
 
-A single push height (e.g. "tallest part minus 10 mm") sails straight over short
-parts on a mixed plate. Instead every object gets its own lanes and push height,
-objects nearest the exit edge are cleared first, and travel always clears the
-tallest part still standing.
+The lanes, rear/front positions, feeds and park moves come from the hardware
+profile, i.e. from FarmLoop's own output for that kit. What ClearLoop changes is
+the push height. The FarmLoop app uses one height for the whole plate: "the
+maximum part height minus 10 mm" (its Detachment Tuning text). With a 170 mm and
+a 5 mm part on one plate that is Z160, which never touches the 5 mm part. That's
+the documented "short parts left behind" complaint.
+
+ClearLoop applies the same rule per part. Each lane is pushed once for every
+distinct part height in it, tallest first, at that part's height minus the
+offset, but never below your calibrated sweep floor. Lanes with no parts keep
+the vendor behaviour (one pass at the plate's tallest push height), so the
+result is never less thorough than FarmLoop's.
+
+Safety margins used here (travel clearance, rear clearance, tier merging) are
+ClearLoop design choices, not hardware facts, and are exposed as settings.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
-from ..profiles import PrinterProfile
-from .heightmap import ObjectBox
+from ..profiles import SweepGeometry
+from .objects import Part
 
 
 @dataclass
 class SweepSettings:
-    lane_spacing: float = 25.0  # max distance between push lanes across one part
-    clearance: float = 6.0  # how far behind a part's back edge the nozzle drops
-    push_ratio: float = 0.3  # push at this fraction of part height...
-    max_push_z: float = 12.0  # ...but never higher than this
-    top_margin: float = 1.0  # stay at least this far below a part's top
-    travel_margin: float = 5.0  # travel this far above the tallest standing part
-    final_wipe: bool = False  # extra low passes across the whole plate (tipped parts)
-    wipe_spacing: float = 30.0
+    push_offset: float = 10.0  # FarmLoop: push height = part height minus 10 mm
+    floor_z: float = 2.0  # lowest Z the pusher may sweep at; calibrate it (see the Calibrate tab)
+    travel_margin: float = 5.0  # travel this far above the tallest part
+    rear_clearance: float = 10.0  # warn when a part reaches within this distance of the sweep's start line
+    merge_mm: float = 1.0  # tiers closer than this are swept once, at the lower height
 
 
 @dataclass
-class SweepPass:
+class LanePlan:
     x: float
-    y_start: float
-    y_end: float
-    push_z: float
-    travel_z: float
-    target: int | None  # index into the object list, None for a wipe pass
+    tiers: list[float]  # push heights, highest first
+    parts: list[str]  # labels of parts in this lane
 
-    def as_dict(self) -> dict:
-        return {k: (round(v, 2) if isinstance(v, float) else v) for k, v in self.__dict__.items()}
+
+@dataclass
+class PassPlan:
+    feed: int
+    lanes: list[LanePlan]
 
 
 @dataclass
 class SweepPlan:
-    passes: list[SweepPass] = field(default_factory=list)
+    passes: list[PassPlan]
+    travel_z: float
+    coverage: tuple[float, float]
+    part_push: dict[str, float] = field(default_factory=dict)  # label -> lowest push height reaching it
     warnings: list[str] = field(default_factory=list)
-    est_seconds: float = 0.0
+    problems: list[str] = field(default_factory=list)  # blocking: the file is not safe to produce
 
     def as_dict(self) -> dict:
         return {
-            "passes": [p.as_dict() for p in self.passes],
+            "travel_z": round(self.travel_z, 2),
+            "coverage": [round(c, 1) for c in self.coverage],
+            "passes": [
+                {
+                    "feed": p.feed,
+                    "lanes": [
+                        {"x": ln.x, "tiers": [round(t, 2) for t in ln.tiers], "parts": ln.parts}
+                        for ln in p.lanes
+                    ],
+                }
+                for p in self.passes
+            ],
+            "part_push": {k: round(v, 2) for k, v in self.part_push.items()},
             "warnings": self.warnings,
-            "est_seconds": round(self.est_seconds, 1),
+            "problems": self.problems,
         }
 
 
-def push_height(height: float, profile: PrinterProfile, s: SweepSettings) -> tuple[float, str | None]:
-    if height < profile.min_sweep_z + 0.3:
-        return profile.min_sweep_z, (
-            f"part is only {height:.1f} mm tall, at or below the {profile.min_sweep_z} mm sweep floor; "
-            "it may be left behind (bed verification will catch it)"
-        )
-    z = min(height * s.push_ratio, s.max_push_z, height - s.top_margin)
-    return max(profile.min_sweep_z, z), None
+def _tiers(heights: list[float], s: SweepSettings) -> list[float]:
+    zs = sorted({max(s.floor_z, h - s.push_offset) for h in heights}, reverse=True)
+    out: list[float] = []
+    for z in zs:
+        if out and out[-1] - z < s.merge_mm:
+            out[-1] = z  # merge into one pass at the lower height
+        else:
+            out.append(z)
+    return out
 
 
 def plan_sweep(
-    objects: list[ObjectBox], profile: PrinterProfile, s: SweepSettings | None = None
+    parts: list[Part], geo: SweepGeometry, printable_height: float, s: SweepSettings | None = None
 ) -> SweepPlan:
     s = s or SweepSettings()
-    plan = SweepPlan()
-    # Front-most first, so a rear part is never pushed into one still standing.
-    order = sorted(range(len(objects)), key=lambda i: (objects[i].ymin, objects[i].xmin))
-    standing = set(order)
-    for idx in order:
-        obj = objects[idx]
-        z, warn = push_height(obj.height, profile, s)
-        if warn:
-            plan.warnings.append(f"object {idx} at x={obj.xmin:.0f}-{obj.xmax:.0f}: {warn}")
-        travel = max(objects[i].height for i in standing) + s.travel_margin
-        n = max(1, math.ceil(obj.width / s.lane_spacing))
-        for lane in range(n):
-            x = obj.xmin + obj.width * (lane + 0.5) / n
-            plan.passes.append(
-                SweepPass(
-                    x=_clamp(x, 0, profile.bed_x),
-                    y_start=min(obj.ymax + s.clearance, profile.bed_y),
-                    y_end=profile.eject_y,
-                    push_z=z,
-                    travel_z=min(travel, profile.max_z),
-                    target=idx,
-                )
+    half = geo.lane_pitch / 2
+    lanes = geo.lanes
+    cov = (min(lanes) - half, max(lanes) + half)
+    tallest = max((p.height for p in parts), default=0.0)
+    if printable_height <= 0:
+        raise ValueError("the slice does not state the printer's printable height")
+    travel = min(printable_height, tallest + s.travel_margin)
+    plan = SweepPlan(passes=[], travel_z=travel, coverage=cov)
+
+    if tallest + s.travel_margin > printable_height:
+        plan.warnings.append(
+            f"the tallest part ({tallest:.1f} mm) leaves less than {s.travel_margin:g} mm of travel clearance "
+            f"under the printer's {printable_height:g} mm height; travel moves use Z{printable_height:g}"
+        )
+    plate_top_tier = max(s.floor_z, tallest - s.push_offset) if parts else s.floor_z
+
+    for p in parts:
+        if p.height < s.floor_z:
+            plan.warnings.append(
+                f"{p.name} is {p.height:.1f} mm tall, lower than your sweep floor (Z{s.floor_z:g}); the pusher "
+                "passes over it. Lower the floor after calibrating, or remove this part by hand."
             )
-        standing.discard(idx)
-    if s.final_wipe:
-        n = max(1, math.ceil(profile.bed_x / s.wipe_spacing))
-        for lane in range(n):
-            plan.passes.append(
-                SweepPass(
-                    x=profile.bed_x * (lane + 0.5) / n,
-                    y_start=profile.bed_y,
-                    y_end=profile.eject_y,
-                    push_z=profile.min_sweep_z,
-                    travel_z=profile.min_sweep_z + s.travel_margin,
-                    target=None,
-                )
+        if p.xmin < cov[0] or p.xmax > cov[1]:
+            plan.warnings.append(
+                f"{p.name} spans X{p.xmin:.0f}-{p.xmax:.0f}, outside the sweep lanes (X{cov[0]:.0f}-{cov[1]:.0f} "
+                "with the kit's lane spacing); part of it may not be pushed. Move it toward the middle."
             )
-    plan.est_seconds = estimate_seconds(plan, profile)
+        if p.ymax > geo.y_rear - s.rear_clearance:
+            plan.problems.append(
+                f"{p.name} reaches Y{p.ymax:.0f}; the sweep drops down at Y{geo.y_rear:g} behind the parts and "
+                f"needs {s.rear_clearance:g} mm of clearance. Move the part forward on the plate."
+            )
+
+    for vp in geo.passes:
+        pass_plan = PassPlan(vp.feed, [])
+        for x in vp.lanes:
+            inside = [p for p in parts if p.xmax >= x - half and p.xmin <= x + half]
+            tiers = _tiers([p.height for p in inside], s) if inside else [plate_top_tier]
+            pass_plan.lanes.append(LanePlan(x, tiers, [p.label for p in inside]))
+            for p in inside:
+                lowest = min(tiers)
+                plan.part_push[p.label] = min(plan.part_push.get(p.label, lowest), lowest)
+        plan.passes.append(pass_plan)
     return plan
 
 
-def estimate_seconds(plan: SweepPlan, profile: PrinterProfile) -> float:
+def sweep_gcode(plan: SweepPlan, geo: SweepGeometry) -> str:
+    """Sideways moves only happen at the rear line, behind every part; each lane is pushed rear to front."""
+    out = [
+        f"G1 Z{plan.travel_z:.2f} F{geo.z_feed} ; travel height clears the tallest part",
+        f"G1 Y{geo.y_rear:g} F{geo.passes[0].feed} ; go behind the parts",
+    ]
+    for i, p in enumerate(plan.passes, 1):
+        out.append(f"; -- sweep pass {i}/{len(plan.passes)} at F{p.feed} --")
+        for ln in p.lanes:
+            out.append(f"G1 X{ln.x:g} F{p.feed}")
+            for z in ln.tiers:
+                out.append(f"G1 Z{z:.2f} F{geo.z_feed}")
+                out.append(f"G1 Y{geo.y_front:g} F{p.feed}")
+                out.append(f"G1 Y{geo.y_rear:g} F{p.feed}")
+    out.append(f"G1 Z{plan.travel_z:.2f} F{geo.z_feed} ; lift clear before parking")
+    out += geo.park
+    return "\n".join(out) + "\n"
+
+
+def sweep_seconds(plan: SweepPlan, geo: SweepGeometry, max_xy: float, max_z: float) -> float:
+    """Motion time of the sweep at the commanded feeds, capped by the printer's own speed limits (mm/s)."""
+
+    def t(dist: float, feed: float, cap: float) -> float:
+        v = min(feed / 60.0, cap) if cap > 0 else feed / 60.0
+        return dist / v if v > 0 else 0.0
+
     total = 0.0
-    x, y = profile.bed_x / 2, profile.bed_y
+    depth = abs(geo.y_rear - geo.y_front)
+    z = plan.travel_z
+    x = None
     for p in plan.passes:
-        total += abs(p.travel_z - p.push_z) * 2 / (profile.z_feed / 60)
-        total += math.hypot(p.x - x, p.y_start - y) / (profile.travel_feed / 60)
-        total += abs(p.y_start - p.y_end) / (profile.push_feed / 60)
-        x, y = p.x, p.y_end
+        for ln in p.lanes:
+            if x is not None:
+                total += t(abs(ln.x - x), p.feed, max_xy)
+            x = ln.x
+            for tz in ln.tiers:
+                total += t(abs(z - tz), geo.z_feed, max_z)
+                z = tz
+                total += 2 * t(depth, p.feed, max_xy)
     return total
-
-
-def _clamp(v: float, lo: float, hi: float) -> float:
-    return max(lo, min(hi, v))

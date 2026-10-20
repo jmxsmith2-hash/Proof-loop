@@ -4,186 +4,175 @@ import re
 import zipfile
 
 import pytest
-from helpers import box_gcode, make_3mf
+from fixtures import BUCKET, SMALL, farmloop_3mf, make_3mf, plain, plate_gcode
 
-from clearloop import manifest, threemf
-from clearloop.gcode.heightmap import build_heightmap
-from clearloop.gcode.processor import ProcessOptions, UnsupportedMaterial, process
-from clearloop.gcode.routines import LoopSettings, override_bed_temp, strip_blocks
-from clearloop.gcode.sweep import SweepSettings, plan_sweep
-from clearloop.profiles import combine_materials, printer_profile
-from clearloop.protocol import DEFAULT_BASE, Marker
+from clearloop import threemf
+from clearloop.gcode.objects import read_parts
+from clearloop.gcode.processor import ProcessError, analyze, process
+from clearloop.gcode.routines import LoopSettings
+from clearloop.gcode.sweep import SweepSettings
+from clearloop.profiles import ProfileStore
 
-TALL_AND_SHORT = [(40, 40, 80, 80, 30.0), (150, 150, 170, 170, 4.0)]
-
-
-def run(boxes=TALL_AND_SHORT, filaments=("PLA",), model="p1s", chamber=None, **loop):
-    copies = loop.pop("copies", 1)
-    secret = loop.pop("secret", None)
-    bed_temp = loop.pop("bed_temp", None)
-    sliced = threemf.loads(make_3mf(box_gcode(boxes), filaments=filaments, chamber=chamber))
-    opts = ProcessOptions(
-        printer=printer_profile(model),
-        loop=LoopSettings(**loop),
-        copies=copies,
-        secret=secret,
-        bed_temp=bed_temp,
-    )
-    return process(sliced, opts)
+STAGE2 = ProfileStore().get("p2s-stage2-farmboard")
+STAGE1 = ProfileStore().get("p2s-sweep-only")
 
 
-def markers(gcode):
-    return [Marker(int(m) - DEFAULT_BASE) for m in re.findall(r"^M73 L(9\d{3})$", gcode, re.M)]
+def load(data, name="plate.gcode.3mf"):
+    return threemf.loads(data, name=name)
 
 
-def test_heightmap_finds_each_part_and_skips_purge_line():
-    hm = build_heightmap(box_gcode(TALL_AND_SHORT), 256, 256)
-    objs = hm.objects()
-    assert len(objs) == 2  # the purge line in the start G-code is not an object
-    assert objs[0].height == pytest.approx(30.0)
-    assert objs[1].height == pytest.approx(4.0)
-    assert objs[0].xmin == pytest.approx(40, abs=2) and objs[0].xmax == pytest.approx(80, abs=2)
+def run(boxes=SMALL, profile=STAGE2, **kw):
+    sweep = kw.pop("sweep", SweepSettings())
+    return process(load(plain(boxes)), profile, LoopSettings(sweep=sweep, **kw))
 
 
-def test_heightmap_without_start_marker_still_ignores_nothing_on_plate():
-    hm = build_heightmap(box_gcode([(50, 50, 60, 60, 2.0)], start_marker=False, purge=False), 256, 256)
-    assert len(hm.objects()) == 1
+def end_block(g):
+    return g[g.index("; >>> CLEARLOOP END") : g.index("; <<< CLEARLOOP END")]
 
 
-def test_short_parts_get_their_own_low_push():
-    r = run()
-    by_target = {p.target: p for p in r.plan.passes}
-    tall, short = by_target[0], by_target[1]
-    # A single "tallest minus 10 mm" push would be at 20 mm and miss the 4 mm part entirely.
-    assert short.push_z < 4.0
-    assert tall.push_z < 30.0
-    assert tall.travel_z > 30.0
+def test_reads_plate_facts_from_the_file():
+    sf = load(plain(BUCKET))
+    i = sf.info
+    assert (i.printer_model_id, i.bed_x, i.bed_y, i.printable_height) == ("N7", 256, 256, 256)
+    assert i.object_heights == {"93": 170.0, "104": 5.0}
+    parts = read_parts(sf.gcode, i.object_names, i.object_heights)
+    assert [round(p.height, 1) for p in parts] == [5.0, 170.0]  # sorted front to back
+    assert all(p.slicer_height == round(p.height, 1) for p in parts)
 
 
-def test_front_parts_are_cleared_first_and_travel_clears_standing_parts():
-    boxes = [(100, 180, 140, 220, 10.0), (100, 20, 140, 60, 25.0)]  # tall part in front, short behind
-    r = run(boxes)
-    order = [p.target for p in r.plan.passes]
-    front = min(range(2), key=lambda i: r.objects[i].ymin)
-    assert order[0] == front
-    first = r.plan.passes[0]
-    assert first.travel_z >= 25.0 + 5  # travel clears the tallest part still standing
+def test_rejects_non_sliced_files():
+    with pytest.raises(threemf.PlateFileError, match="not a .gcode.3mf"):
+        threemf.loads(b"G28\n")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("3D/3dmodel.model", "<model/>")
+    with pytest.raises(threemf.PlateFileError, match="project file"):
+        threemf.loads(buf.getvalue())
 
 
-def test_tiny_part_warns_but_never_silently():
-    r = run([(60, 60, 70, 70, 0.8)])
-    assert any("sweep floor" in w for w in r.warnings)
+def test_damaged_zip_is_a_friendly_error():
+    data = plain()
+    with pytest.raises(threemf.PlateFileError, match="damaged"):
+        threemf.loads(data[: len(data) // 2])
 
 
-def test_material_aware_natural_cooldown():
-    asa_enclosed = run(filaments=("ASA",), model="p1s", door_opener=True)
-    assert asa_enclosed.manifest["natural_cooldown_min"] == 20
-    g = asa_enclosed.gcode
-    # Fans off and door shut *before* the door-open marker.
-    assert g.index("warp-safe natural cooldown") < g.index("CLEARLOOP_MARKER DOOR_OPEN")
-
-    assert run(filaments=("PLA",), model="p1s").manifest["natural_cooldown_min"] == 0
-    assert run(filaments=("ASA",), model="a1").manifest["natural_cooldown_min"] == 0  # open frame
-    assert run(filaments=("PETG",), model="x1e", chamber=45).manifest["natural_cooldown_min"] >= 20
+def test_short_part_gets_its_own_push():
+    a = analyze(load(plain(BUCKET)), STAGE2, LoopSettings())
+    lanes = {ln.x: ln.tiers for ln in a.plan.passes[0].lanes}
+    assert lanes[130.0] == [160.0, 2.0]  # 170 mm bucket and 5 mm clip share this lane
+    assert lanes[220.0] == [160.0]  # empty lane: FarmLoop's single height, never less than vendor
+    assert all(a.plan.part_push[p.label] < p.height for p in a.parts)
 
 
-def test_release_temp_uses_coolest_material():
-    assert combine_materials(["PLA", "ABS"]).release_temp == 30
-    assert combine_materials(["ABS", "PC"]).natural_cooldown_min == 30
-
-
-def test_unsupported_material_is_refused():
-    with pytest.raises(UnsupportedMaterial):
-        run(filaments=("TPU",))
-
-
-def test_bed_heater_is_off_after_cooldown_wait():
+def test_cycle_placement_and_safety():
     g = run().gcode
-    wait = g.index("M190 R30")
-    assert g.index("M140 S0", wait) < g.index("CLEARLOOP_MARKER EJECT")
+    eb = end_block(g)
+    # inside the executable block, right before its end marker
+    assert g.index("; <<< CLEARLOOP END") < g.index("; EXECUTABLE_BLOCK_END")
+    assert g[g.index("; <<< CLEARLOOP END") :].split("\n")[1] == "; EXECUTABLE_BLOCK_END"
+    # after the stock end G-code, which ends with M18
+    assert g.index("M18") < g.index("; >>> CLEARLOOP END")
+    assert eb.split("\n")[2].startswith("M17")
+    assert "M190 R" not in g
+    assert eb.count(f"M190 S{30:g}") == STAGE2.cooldown_repeat
+    assert eb.index("M190 S30") > eb.index("M104 S2")  # door opens, then the cooldown (FarmLoop order)
 
 
-def test_bed_temperature_written_exactly():
-    r = run(bed_temp=65)
-    temps = re.findall(r"^M1(?:40|90) S(\d+(?:\.\d+)?)", r.gcode, re.M)
-    assert "65" in temps
-    assert all(t in ("65", "0") for t in temps)
-    assert override_bed_temp("M140 S0\nM190 S55 ; wait\n", 70) == "M140 S0\nM190 S70 ; wait\n"
+def test_farmboard_steps_are_verbatim_and_in_order():
+    g = run().gcode
+    eb = end_block(g)
+    for blk in (STAGE2.door_open, STAGE2.bend, STAGE2.safety, STAGE2.door_close):
+        assert blk in eb
+    seq = re.findall(r"^M104 S([1-5])\b", g, re.M)
+    assert seq == ["1", "2", "3", "4", "5"]
+    # start step right after the start template's date line
+    start = g.index("; >>> CLEARLOOP START")
+    assert g[:start].rstrip().endswith(";===== 2026/05/18 =====")
 
 
-def test_3mf_checksum_updated_and_other_entries_kept():
-    r = run()
+def test_bender_removed_skips_bend_and_safety():
+    g = run(bender_fitted=False).gcode
+    assert re.findall(r"^M104 S([1-5])\b", g, re.M) == ["1", "2", "5"]
+
+
+def test_stage1_has_no_farmboard_signals():
+    r = run(profile=STAGE1)
+    assert not re.search(r"^M104 S[1-5]\b", r.gcode, re.M)
+    assert r.filename.startswith("FL_S1_")
+    assert "Stage 1 has no door opener" in " ".join(r.analysis.notes)
+
+
+def test_loops_like_farmloop_and_pause_only_between_loops():
+    r = run(loops=3, wait_for_monitor=True)
+    g = r.gcode
+    assert g.count("; EXECUTABLE_BLOCK_START") == 3 and g.count("; HEADER_BLOCK_START") == 3
+    assert len(re.findall(r"^M400 U1$", g, re.M)) == 2
+    last = g[g.rindex("; >>> CLEARLOOP END") :]
+    assert "M400 U1" not in last
     z = zipfile.ZipFile(io.BytesIO(r.data))
-    gcode = z.read("Metadata/plate_1.gcode")
-    assert z.read("Metadata/plate_1.gcode.md5").decode() == hashlib.md5(gcode).hexdigest().upper()
+    data = z.read("Metadata/plate_1.gcode")
+    assert z.read("Metadata/plate_1.gcode.md5").decode() == hashlib.md5(data).hexdigest().upper()
     assert z.read("Metadata/plate_1.png") == b"\x89PNG"
-    assert "Metadata/clearloop.json" in z.namelist()
 
 
-def test_processing_is_idempotent():
-    first = run()
-    again = process(threemf.loads(first.data), ProcessOptions(printer=printer_profile("p1s")))
-    body = lambda g: g.split("\n", 1)[1]  # noqa: E731 - ignore the manifest line (timestamp)
-    assert body(again.gcode) == body(first.gcode)
+def test_natural_cooldown_runs_after_the_print_with_heaters_off():
+    g = run(natural_cooldown_min=10).gcode
+    eb = end_block(g)
+    nat = eb.index("warp-safe natural cooldown")
+    assert eb.index("M140 S0") < nat < eb.index("M104 S2")
+    assert eb[nat : eb.index("M104 S2")].count("G4 S30") == 20
+    # the stock fan-off lines (incl. P10, the P2S left aux fan) are reused
+    assert "M106 P10 S0" in eb[nat:]
+    # and nothing before the print
+    assert "G4 S30" not in g[: g.index("; MACHINE_START_GCODE_END")]
 
 
-def test_marker_sequence_board_mode():
-    r = run(eject_mode="board", door_opener=True)
-    assert markers(r.gcode) == [Marker.JOB_START, Marker.DOOR_OPEN, Marker.EJECT, Marker.SWEEP_DONE]
-    assert "G1 Z250 F900 ; present the plate to the bender" in r.gcode
+def test_reprocessing_own_output_is_identical():
+    first = run(loops=2)
+    again = process(load(first.data, first.filename), STAGE2, LoopSettings(loops=2))
+    assert again.gcode == first.gcode
+    assert again.filename == first.filename
 
 
-def test_marker_sequence_multi_copy():
-    r = run(eject_mode="board", copies=3)
-    seq = markers(r.gcode)
-    assert seq.count(Marker.JOB_START) == 3
-    assert seq.count(Marker.LOOP_END) == 2
-    assert seq.count(Marker.EJECT) == 3
-    # Stripping the ClearLoop blocks gives back one clean copy.
-    stripped = strip_blocks(r.gcode)
-    assert stripped.count("; MACHINE_START_GCODE_END") == 1
+def test_refuses_farmloop_output():
+    with pytest.raises(ProcessError, match="already processed by the FarmLoop app"):
+        process(load(farmloop_3mf()), STAGE2, LoopSettings())
 
 
-def test_gcode_mode_has_no_bend_and_custom_snippet_is_inserted():
-    g = run(eject_mode="gcode").gcode
-    assert "present the plate to the bender" not in g
-    g = run(eject_mode="custom", custom_eject_gcode="M400\nG1 Z240 ; press switch").gcode
-    assert "G1 Z240 ; press switch" in g
+def test_refuses_wrong_printer_and_missing_labels():
+    with pytest.raises(ProcessError, match="sliced for the A1"):
+        analyze(load(make_3mf(plate_gcode(SMALL), SMALL, model_id="N2S")), STAGE2, LoopSettings())
+    unlabelled = re.sub(r"^; (start|stop) printing object.*\n", "", plate_gcode(SMALL), flags=re.M)
+    with pytest.raises(ProcessError, match="Label objects"):
+        analyze(load(make_3mf(unlabelled, SMALL)), STAGE2, LoopSettings())
 
 
-def test_job_start_comes_before_homing():
-    g = run().gcode
-    assert g.index("CLEARLOOP_MARKER JOB_START") < g.index("G28")
+def test_flexible_material_is_a_problem():
+    a = analyze(load(plain(filament="TPU")), STAGE2, LoopSettings())
+    assert not a.ok and "rigid" in a.problems[0]
 
 
-def test_manifest_survives_rename_and_detects_tampering():
-    r = run(secret="s3cret")
-    v = manifest.verify(r.gcode, "s3cret")
-    assert v.ok and v.signature == "valid"
-    # The manifest travels inside the G-code, so the file name is irrelevant.
-    renamed = threemf.loads(r.data, name="totally-different-name.gcode.3mf")
-    assert manifest.verify(renamed.gcode, "s3cret").ok
-    tampered = r.gcode.replace("M190 R30", "M190 R60")
-    assert not manifest.verify(tampered, "s3cret").gcode_matches
-    assert manifest.verify(r.gcode, "wrong").signature == "invalid"
+def test_part_at_the_rear_blocks():
+    a = analyze(load(plain([("1", 100, 200, 140, 245, 10.0)])), STAGE2, LoopSettings())
+    assert not a.ok and "Move the part forward" in a.problems[0]
 
 
-def test_plain_gcode_container():
-    sliced = threemf.loads(box_gcode([(50, 50, 70, 70, 10)]).encode() + b"; filament_type = PETG\n")
-    assert sliced.container == "gcode"
-    assert sliced.info.filaments == ["PETG"]
-    r = process(sliced, ProcessOptions(printer=printer_profile("a1")))
-    assert r.data.decode().startswith(manifest.LINE_PREFIX)
+def test_part_lower_than_floor_warns():
+    a = analyze(
+        load(plain([("1", 100, 100, 140, 140, 10.0), ("2", 170, 60, 190, 80, 1.0)])),
+        STAGE2,
+        LoopSettings(sweep=SweepSettings(floor_z=2.0)),
+    )
+    assert any("lower than your sweep floor" in w for w in a.warnings)
 
 
-def test_wrong_printer_warns():
-    sliced = threemf.loads(make_3mf(box_gcode(TALL_AND_SHORT), printer_model="Bambu Lab A1 mini"))
-    r = process(sliced, ProcessOptions(printer=printer_profile("p1s")))
-    assert any("sliced for" in w for w in r.warnings)
+def test_exhaust_fan_option():
+    g = run(cooldown_fan="exhaust").gcode
+    assert "M106 P3 S255" in end_block(g) and "M106 P2 S255" not in end_block(g)
 
 
-def test_final_wipe_covers_the_plate():
-    prof = printer_profile("p1s")
-    plan = plan_sweep([], prof, SweepSettings(final_wipe=True, wipe_spacing=32))
-    assert len(plan.passes) == 8
-    assert all(p.push_z == prof.min_sweep_z for p in plan.passes)
+def test_timeline_only_states_known_durations():
+    a = analyze(load(plain()), STAGE2, LoopSettings(loops=2, wait_for_monitor=True))
+    by = {s["key"]: s for s in a.steps}
+    assert by["cool"]["seconds"] is None and by["check"]["seconds"] is None
+    assert by["bend"]["seconds"] == round(0.5 + 0.15 * 2 + 0.3 * 2 + 0.15 + 6 + 85)
