@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clearloop"
-version = "0.2.0"
+version = "0.3.0"
 description = "Open-source loop files and plate checks for FarmLoop hardware on Bambu Lab printers"
 readme = "README.md"
 license = "AGPL-3.0-or-later"

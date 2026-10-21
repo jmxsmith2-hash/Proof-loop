@@ -177,7 +177,10 @@ def cost(
     parts_per_plate: int,
     times: Times,
     loops: int = 1,
+    prices: dict[str, dict] | None = None,
 ) -> CostReport:
+    """``prices``: slot id -> {"spool", "name", "per_kg"} from the filament inventory. Without it the
+    older price list in ``c.spools`` is used."""
     rep = CostReport(c.currency, parts_per_plate, loops)
     cur = c.currency
     hours = times.known_s / 3600
@@ -199,6 +202,25 @@ def cost(
     mat_total, mat_missing = 0.0, []
     for sid, ftype, color in slots:
         g = slot_grams.get(sid, 0.0)
+        if prices is not None:
+            pr = prices.get(sid) or {}
+            row = {
+                "slot": sid,
+                "type": ftype,
+                "color": color,
+                "grams": round(g, 2),
+                "spool": pr.get("spool"),
+                "spool_name": pr.get("name"),
+                "cost": None,
+                "key": slot_key(ftype, color),
+            }
+            if pr.get("per_kg") is not None:
+                row.update(per_kg=round(pr["per_kg"], 2), cost=round(g / 1000 * pr["per_kg"], 4))
+                mat_total += g / 1000 * pr["per_kg"]
+            else:
+                mat_missing.append(f"{ftype} {color}".strip())
+            rep.materials.append(row)
+            continue
         i = match_spool(c, ftype, color)
         row = {
             "slot": sid,
@@ -226,7 +248,7 @@ def cost(
         "Filament",
         mat_total if not mat_missing else (mat_total or None),
         f"{sum(slot_grams.values()):.1f} g from the slicer, priced from your spools",
-        f"pick a spool for {', '.join(mat_missing)}" if mat_missing else "",
+        f"pick a spool with a price and weight for {', '.join(mat_missing)}" if mat_missing else "",
     )
 
     if None in (c.electricity_per_kwh, c.watts_printing):

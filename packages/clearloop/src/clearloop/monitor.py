@@ -11,6 +11,10 @@ event can never start the next print on a dirty plate.
 A pause counts as a loop-end pause only when the running file is a loop file
 (``FL_S1_``/``FL_S2_``) and the printer reports the last layer as finished.
 Any other pause (filament runout, a user) is reported and never resumed.
+
+With filament tracking on, each finished loop is charged to its spools, a
+loop that stops part-way is charged what its finished layers used, and a
+loop-end pause stays waiting when a spool can't cover the next loop.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ import threading
 import time
 from collections.abc import Callable
 
+from .printer.ams import valid_tray
 from .printer.state import PrinterState
 from .store import Store
 from .vision import BedCheck, BedVerifier
@@ -70,6 +75,7 @@ class PrinterWatch:
         run_async: Callable[[Callable[[], None]], None] | None = None,
         attempts: int = 3,
         retry_s: float = 2.0,
+        filament=None,
     ):
         self.name = name
         self.link = link
@@ -100,6 +106,11 @@ class PrinterWatch:
         self._marks: dict[int, float] = {}  # sentinel -> when it arrived, for the current loop
         self._last_layer = 0
         self._last_start = 0.0
+        # Filament: an object with loop_done / loop_failed / blocker / on_ams, or None.
+        self.filament = filament
+        self._printed = False  # the current loop's print has finished (and been charged)
+        self._trays_loop: list[int] = []  # AMS trays the printer fed from during this loop
+        self._max_layer = 0
 
     def event(
         self, level: str, kind: str, message: str, data: dict | None = None, image: bytes | None = None
@@ -126,6 +137,7 @@ class PrinterWatch:
                 self.status = "the printer rejects commands: turn on Developer Mode (LAN-only mode)"
 
             self._track_loop(s)
+            self._call("on_ams", s)
 
             if s.gcode_state != self._gcode_state:
                 prev, self._gcode_state = self._gcode_state, s.gcode_state
@@ -137,7 +149,12 @@ class PrinterWatch:
         job = "|".join(job_names(s))
         if job and job != self._job:
             self._job, self.loop_no, self._marks, self._last_layer = job, 1, {}, 0
+            self._new_loop()
         loop_job = is_loop_job(s)
+        if loop_job and s.gcode_state == "RUNNING":
+            if valid_tray(s.ams.tray_now) and s.ams.tray_now not in self._trays_loop:
+                self._trays_loop.append(s.ams.tray_now)
+            self._max_layer = max(self._max_layer, s.layer_num)
         t = s.nozzle_target
         if t != self._sentinel:
             self._sentinel = t
@@ -147,12 +164,16 @@ class PrinterWatch:
                 self.event("info", "loop", SENTINEL_TEXT[code])
                 if code == 1:
                     if 1 in self._marks:
+                        self._loop_printed(s)  # never charged twice; covers a missed T1
                         self.loop_no += 1
                         self.store.add_timing(self.name, "loop", now - self._marks[1])
                     self._marks = {1: now}
                     self._last_start = now
+                    self._new_loop()
                 else:
                     self._marks[code] = now
+                if code == 2:
+                    self._loop_printed(s)
                 if code == 3:
                     self.store.bump(self.name, "bends")
                     if 2 in self._marks:
@@ -167,7 +188,10 @@ class PrinterWatch:
             and 0 < s.layer_num < self._last_layer
         ):
             if now - self._last_start > 600:
+                self._loop_printed(s)
                 self.loop_no += 1
+                self._last_start = now
+                self._new_loop()
         if loop_job and s.layer_num and s.layer_num != self._last_layer and s.gcode_state == "RUNNING":
             if not self._marks or max(self._marks) == 1:
                 self.phase = (
@@ -182,6 +206,7 @@ class PrinterWatch:
             self.status = f"printing {s.subtask_name}" if s.subtask_name else "printing"
         elif st == "PAUSE":
             if self.loop_end_pause(s):
+                self._loop_printed(s)
                 self.status = "loop finished: checking the plate"
                 self._start_check("loop end")
             elif prev:
@@ -192,13 +217,42 @@ class PrinterWatch:
                     "the printer paused (not a loop-end pause); ClearLoop won't resume it",
                 )
         elif st == "FINISH" and prev:
+            if is_loop_job(s):
+                self._loop_printed(s)
             self.status = "finished: checking the plate"
             self._start_check("finished")
         elif st == "FAILED" and prev:
             self.status = "print failed or cancelled"
             self.event("error", "failed", "the print failed or was cancelled; check the plate")
+            if is_loop_job(s) and not self._printed:
+                self._printed = True
+                # layer_num is the layer being printed; the ones before it are finished.
+                self._call("loop_failed", s, max(self._max_layer, s.layer_num) - 1)
         elif st == "IDLE":
             self.status = "idle"
+
+    # ---- filament ---------------------------------------------------------------------
+    def _new_loop(self) -> None:
+        self._printed, self._trays_loop, self._max_layer = False, [], 0
+
+    def _loop_printed(self, s: PrinterState) -> None:
+        if not self._printed and is_loop_job(s):
+            self._printed = True
+            self._call("loop_done", s)
+
+    def _call(self, what: str, *args):
+        fn = getattr(self.filament, what, None) if self.filament else None
+        if fn is None:
+            return None
+        try:
+            return fn(self, *args)
+        except Exception:  # filament bookkeeping must never stop the plate check
+            log.exception("%s: filament %s failed", self.name, what)
+            return None
+
+    @property
+    def trays_this_loop(self) -> list[int]:
+        return list(self._trays_loop)
 
     def loop_end_pause(self, s: PrinterState) -> bool:
         return is_loop_job(s) and s.total_layers > 0 and s.layer_num >= s.total_layers
@@ -261,6 +315,19 @@ class PrinterWatch:
             elif check.clear:
                 quiet = self.quiet_until()
                 at_pause = reason == "loop end" and self.link.state.gcode_state == "PAUSE"
+                short = self._call("blocker", self.link.state) if at_pause and self.auto_resume else None
+                if short:
+                    self.pending_resume = False
+                    self.waiting_for_you = True
+                    self.status = f"plate empty, but {short}. Swap or top up the spool, then press Resume"
+                    self.event(
+                        "error",
+                        "filament_short",
+                        f"plate empty, but {short}. The printer keeps waiting.",
+                        check.as_dict(),
+                    )
+                    self.store.add_check(self.name, reason, True, check.changed_fraction, False)
+                    return
                 if at_pause and self.auto_resume and quiet:
                     self.pending_resume = True
                     self.status = f"plate empty: the next loop starts when quiet hours end ({quiet})"

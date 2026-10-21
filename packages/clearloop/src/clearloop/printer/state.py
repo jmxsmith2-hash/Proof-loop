@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .ams import AmsState, label, valid_tray
+
 # HMS alert level, from the high 16 bits of ``code`` (Bambu Studio DevHMSItem::parse_hms_info).
 HMS_LEVEL = {1: "error", 2: "warning", 3: "notification"}
 # "MQTT command verification failed": the printer rejects control commands (Developer Mode off).
@@ -50,6 +52,7 @@ class PrinterState:
     gcode_file: str = ""
     hms: list[HmsEvent] = field(default_factory=list)
     firmware: str = ""
+    ams: AmsState = field(default_factory=AmsState)
 
     def merge(self, report: dict) -> None:
         p = report.get("print")
@@ -64,6 +67,7 @@ class PrinterState:
             self.nozzle_temp = _float(p.get("nozzle_temper"), self.nozzle_temp)
             self.subtask_name = str(p.get("subtask_name", self.subtask_name))
             self.gcode_file = str(p.get("gcode_file", self.gcode_file))
+            self.ams.merge_print(p)
             if isinstance(p.get("hms"), list):
                 events = []
                 for h in p["hms"]:
@@ -97,6 +101,12 @@ class PrinterState:
             "job": self.subtask_name,
             "hms": [{"code": h.code_str, "level": h.level} for h in self.hms],
             "firmware": self.firmware,
+            "ams": {
+                "units": self.ams.units_dict(),
+                "trays": self.ams.trays(),
+                "tray_now": self.ams.tray_now if valid_tray(self.ams.tray_now) else None,
+                "tray_now_label": label(self.ams.tray_now) if valid_tray(self.ams.tray_now) else None,
+            },
         }
 
 

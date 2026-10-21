@@ -13,6 +13,7 @@ from . import __version__, printers, threemf
 from .calibration import TESTS, build_test
 from .config import Defaults, Notifier, PrinterConfig, QuietHours
 from .costing import CostSettings, Times, cost
+from .filament import prices_for, requirements
 from .gcode.processor import (
     ProcessError,
     analyze,
@@ -25,6 +26,7 @@ from .gcode.processor import (
 from .importer import ImportError_, import_profile
 from .lint import lint
 from .service import App, cooldown_for, loop_settings
+from .tracking import register_job
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -102,6 +104,20 @@ def create_app(app: App) -> FastAPI:
     def index():
         return (STATIC / "index.html").read_text()
 
+    def monitor_card(w) -> dict:
+        d = w.as_dict()
+        _key, job = app.tracker.job_for(w.link.state)
+        d["job_loops"] = job["loops"] if job else None
+        linked = {
+            sp.tray: sp
+            for sp in app.inventory.all(archived=False)
+            if sp.printer == w.name and sp.tray is not None
+        }
+        for t in d["printer"]["ams"]["trays"]:
+            sp = linked.get(t["tray"])
+            t["spool"] = {"id": sp.id, "label": sp.label, "remaining_g": sp.remaining_g} if sp else None
+        return d
+
     @api.get("/api/state", dependencies=guard)
     def state():
         return {
@@ -121,10 +137,22 @@ def create_app(app: App) -> FastAPI:
                 for p in app.profiles.all()
             ],
             "printers": {k: v for k, v in printers.MODEL_IDS.items()},
-            "monitor": [w.as_dict() for w in app.watches.values()],
+            "monitor": [monitor_card(w) for w in app.watches.values()],
             "notifications": [n.model_dump(exclude={"token"}) for n in app.settings.notifications],
             "quiet_hours": app.settings.quiet_hours.model_dump(),
             "costs": app.settings.costs.model_dump(),
+            "filament": app.settings.filament.model_dump(),
+            "spools": [
+                {
+                    "id": sp.id,
+                    "label": sp.label,
+                    "material": sp.material,
+                    "color": sp.color,
+                    "remaining_g": sp.remaining_g,
+                    "per_kg": sp.per_kg,
+                }
+                for sp in app.inventory.all(archived=False)
+            ],
         }
 
     # ---- make a loop file ---------------------------------------------------------
@@ -156,6 +184,7 @@ def create_app(app: App) -> FastAPI:
         sf = app.uploads.get(token)
         defaults, st = _settings(app, body)
         r = process(sf, profile(defaults.profile_id), st)
+        register_job(app.store, r.filename, [(sf, st.loops, len(r.analysis.parts))], defaults.profile_id)
         return Response(
             r.data,
             media_type="application/octet-stream",
@@ -172,6 +201,13 @@ def create_app(app: App) -> FastAPI:
         return changes(sf, profile(defaults.profile_id), st)
 
     # ---- costs -------------------------------------------------------------------------
+    def trays_of(printer: str | None) -> list[dict]:
+        w = app.watches.get(printer or "")
+        return w.link.state.ams.trays() if w else []
+
+    def slot_prices(sf, printer: str | None) -> dict:
+        return prices_for(app.inventory, printer, sf.info.filament_slots, trays_of(printer))
+
     def plate_cost(sf, prof, st, loops: int, body: dict, setup: bool = True):
         a = analyze(sf, prof, st)
         fixed = sum(x["seconds"] or 0 for x in a.steps if x["key"] != "print")
@@ -184,7 +220,35 @@ def create_app(app: App) -> FastAPI:
         )
         c = app.settings.costs if setup else app.settings.costs.model_copy(update={"labor_min_per_run": None})
         times = Times(sf.info.print_seconds, fixed, cool, src)
-        return cost(c, sf.info.filament_slots, sf.info.slot_grams, len(a.parts), times, loops).as_dict()
+        printer = body.get("printer") or body.get("cooldown_printer")
+        return cost(
+            c,
+            sf.info.filament_slots,
+            sf.info.slot_grams,
+            len(a.parts),
+            times,
+            loops,
+            slot_prices(sf, printer),
+        ).as_dict()
+
+    @api.post("/api/plates/{token}/filament", dependencies=guard)
+    def plate_filament(token: str, body: dict):
+        sf = app.uploads.get(token)
+        printer = body.get("printer") or None
+        if printer and printer not in app.watches:
+            raise HTTPException(404, f"no printer {printer!r}")
+        loops = max(1, int(body.get("loops") or app.settings.defaults.loops))
+        out = requirements(
+            app.inventory,
+            printer,
+            sf.info.filament_slots,
+            sf.info.slot_grams,
+            loops,
+            trays_of(printer),
+            sf.info.presets,
+        )
+        out["printer"] = printer
+        return out
 
     @api.put("/api/costs", dependencies=guard)
     def put_costs(body: dict):
@@ -269,7 +333,11 @@ def create_app(app: App) -> FastAPI:
     def batch_download(body: dict):
         items = batch_items(body)
         defaults, st = _settings(app, body.get("settings"))
-        r = process_batch(items, profile(defaults.profile_id), st)
+        prof = profile(defaults.profile_id)
+        r = process_batch(items, prof, st)
+        register_job(
+            app.store, r.filename, [(sf, n, len(analyze(sf, prof, st).parts)) for sf, n in items], prof.id
+        )
         return Response(
             r.data,
             media_type="application/octet-stream",
@@ -445,4 +513,7 @@ def create_app(app: App) -> FastAPI:
         app.save_settings()
         return {"count": len(app.settings.notifications)}
 
+    from .routes_more import register
+
+    register(api, app, guard)
     return api

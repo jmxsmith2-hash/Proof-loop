@@ -59,3 +59,14 @@ def test_vendor_file_problems_are_found():
     titles = {f.title for f in lint(threemf.load(Path(EV) / FL))}
     assert "Loop 1: 120 min wait before printing, heaters on" in titles
     assert "Parts the sweep passes over" in titles
+
+
+def test_gcode_extrusion_matches_the_slicers_grams():
+    from clearloop.gcode.usage import layer_usage
+
+    sf = threemf.load(Path(EV) / PLAIN)
+    p = sf.info.presets["1"]
+    assert p["preset"] == "Bambu PLA Basic @BBL P2S" and p["density"] == 1.26 and p["filament_id"] == "GFA00"
+    u = layer_usage(sf.gcode, ["1"], {"1": p["diameter"]}, {"1": p["density"]})
+    assert u["layers"] == 850
+    assert u["grams"]["1"][-1] == pytest.approx(sf.info.slot_grams["1"], abs=0.02)  # 53.887 vs 53.89

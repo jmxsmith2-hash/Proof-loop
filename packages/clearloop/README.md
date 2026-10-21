@@ -80,6 +80,57 @@ Your browser opens ClearLoop at `http://localhost:8484`. Or run it with Docker:
   missing rather than guessed. The Make tab shows the per-part cost too, and
   batches are costed plate by plate.
 
+- **Overview.** One screen with every printer's run (loop 7 of 10, done
+  around 09:24 based on its measured loop times), parts made today, this week
+  and this month, stopped loops, filament used, spools running low and
+  anything waiting for you.
+- **Backup and restore.** One file with your settings, imported profiles,
+  spools, usage, production log and measured timings.
+
+## Filament
+
+The *Filament* tab keeps track of every spool you own:
+
+- **Your spools**: material, colour, brand, price paid, filament when new,
+  the empty-spool weight, what's left, where it's kept, when it was opened
+  and dried, and notes. Each has a fill bar, its value, and how many days it
+  lasts at the rate you've been using it. Search, filter and sort them; buy
+  another of the same spool in one click, or print a spool label.
+- **What's in each AMS**, live from the printer: type, colour, how full the
+  AMS thinks each spool is, the tray being fed, humidity and temperature.
+  Bambu spools link themselves from their RFID tag. Link any other spool by
+  picking it for its tray, or add a tray's spool to your inventory in one
+  click.
+- **Every loop is counted.** When the Monitor sees a loop of a file this
+  ClearLoop made finish, its filament (the slicer's grams per slot) is taken
+  off the spool that fed it. A loop that's cancelled or fails part-way is
+  charged what its finished layers used, worked out from the file's own
+  G-code. If ClearLoop can't tell which spool fed a loop (two trays with the
+  same colour, neither linked), the grams wait in a list for you to assign.
+  Nothing is charged to a guess, and files ClearLoop didn't make are never
+  charged.
+- **Weigh-ins.** Enter the empty-spool weight once, then type the scale
+  reading. You can also set what's left directly, or log filament used
+  outside ClearLoop. Every entry can be undone.
+- **No run comes up short.** The Make tab shows each slot's grams per loop
+  and for the whole run, which spool feeds it, and how many loops your spools
+  cover, counting a second matching spool in another AMS tray. If they don't
+  cover the run, one click sets the loops to what they do cover. With the
+  plate check on, a loop-end pause **stays waiting** when the spool can't
+  cover the next loop, and you get an alert.
+- **Low-stock alerts and a shopping list.** Set a warning weight per spool,
+  or one for all spools. The shopping list shows what's low, plus anything
+  your last 14 days of use would empty within two weeks.
+- **Your slicer's preset, read from the file**: preset name, vendor, density,
+  diameter, nozzle range and Bambu Studio's AMS drying settings fill in a new
+  spool in one click.
+- **Usage history**: a chart of grams per day by material, and a log of every
+  loop, weigh-in and correction. Export spools and usage as CSV.
+- **Spoolman.** Import your spools from a Spoolman server, and optionally
+  report each loop's usage and every weigh-in back to it.
+- **Costs use your real spools.** Filament cost per part comes from what you
+  paid for the spool that feeds the plate.
+
 ## Hardware
 
 | Setup | Profile | Where its moves come from |
@@ -147,10 +198,11 @@ clearloop import-profile plain.gcode.3mf FL_S1_plain.gcode.3mf --name "A1 mini S
 clearloop calibrate sweep-floor tiny.gcode.3mf
 clearloop profiles
 clearloop cost plate.gcode.3mf --loops 20 --cooldown-min 15   # uses the prices saved in the app
+clearloop spools                                                # your spools and what's left
 ```
 
-Settings, imported profiles, empty-plate pictures and the event log live in
-`~/.clearloop`. Change the location with `--data`.
+Settings, imported profiles, spools, usage, empty-plate pictures and the
+event log live in `~/.clearloop`. Change the location with `--data`.
 
 ## Before your first unattended run
 

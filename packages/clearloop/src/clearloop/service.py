@@ -11,12 +11,15 @@ from pathlib import Path
 
 from . import threemf
 from .config import Defaults, PrinterConfig, Settings, SettingsStore
+from .filament import Inventory, Spool
 from .gcode.routines import LoopSettings
 from .gcode.sweep import SweepSettings
 from .monitor import PrinterWatch
 from .notify import Notifier
 from .profiles import ProfileStore
+from .spoolman import Spoolman
 from .store import Store
+from .tracking import FilamentTracker
 from .vision import BedVerifier
 
 log = logging.getLogger(__name__)
@@ -93,6 +96,11 @@ class App:
         self.link_factory = link_factory or self._default_link
         self.watches: dict[str, PrinterWatch] = {}
         self._stop = threading.Event()
+        self.inventory = Inventory(
+            self.store, lambda: self.settings.filament, self._filament_event, self._spoolman_for_reports
+        )
+        self.tracker = FilamentTracker(self)
+        self._migrate_cost_spools()
         for p in self.settings.printers:
             self._start_watch(p)
         if connect:
@@ -108,6 +116,31 @@ class App:
         self.settings.defaults = Defaults.model_validate(merged)
         self.save_settings()
         return self.settings.defaults
+
+    # ---- filament ---------------------------------------------------------------
+    def _filament_event(self, level: str, kind: str, message: str, printer: str | None = None) -> None:
+        self._emit(self.store.add_event(printer, level, kind, message))
+
+    def spoolman(self) -> Spoolman | None:
+        url = self.settings.filament.spoolman_url
+        return Spoolman(url) if url else None
+
+    def _spoolman_for_reports(self) -> Spoolman | None:
+        return self.spoolman() if self.settings.filament.spoolman_report else None
+
+    def _migrate_cost_spools(self) -> None:
+        """Spools entered in the Costs tab before the inventory existed become inventory spools."""
+        old = self.settings.costs.spools
+        if not old or self.inventory.all():
+            return
+        for sp in old:
+            self.inventory.save(
+                Spool(
+                    name=sp.name, material=sp.type or "?", color=sp.color, price=sp.price, net_g=sp.weight_g
+                )
+            )
+        self.settings.costs.spools, self.settings.costs.slot_spool = [], {}
+        self.save_settings()
 
     # ---- monitor ---------------------------------------------------------------
     @staticmethod
@@ -130,6 +163,7 @@ class App:
             p.auto_resume,
             quiet_until=lambda: self.settings.quiet_hours.until(),
             settle_s=p.verify.settle_s,
+            filament=self.tracker,
         )
         link.add_listener(w.on_state)
         if self.connect:

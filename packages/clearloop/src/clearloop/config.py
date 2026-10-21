@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import printers
 from .costing import CostSettings
+from .filament import FilamentSettings
 
 
 class _Model(BaseModel):
@@ -104,6 +105,7 @@ class Settings(_Model):
     defaults: Defaults = Field(default_factory=Defaults)
     quiet_hours: QuietHours = Field(default_factory=QuietHours)
     costs: CostSettings = Field(default_factory=CostSettings)
+    filament: FilamentSettings = Field(default_factory=FilamentSettings)
     printers: list[PrinterConfig] = Field(default_factory=list)
     notifications: list[Notifier] = Field(default_factory=list)
     app_token: str | None = None  # optional: require this token for the app's API

@@ -1,4 +1,4 @@
-"""SQLite log of monitor events and plate checks."""
+"""SQLite store: monitor events, plate checks, timings, filament inventory and usage, made files."""
 
 from __future__ import annotations
 
@@ -41,6 +41,48 @@ CREATE TABLE IF NOT EXISTS counters (
     since REAL NOT NULL,
     PRIMARY KEY (printer, key)
 );
+CREATE TABLE IF NOT EXISTS spools (
+    id TEXT PRIMARY KEY,
+    data TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    spool_id TEXT,           -- NULL: not matched to a spool yet
+    grams REAL NOT NULL,     -- positive = used, negative = added back
+    kind TEXT NOT NULL,      -- loop, partial, manual, weigh, refill
+    printer TEXT,
+    job TEXT,
+    loop_no INTEGER,
+    slot TEXT,
+    material TEXT,
+    color TEXT,
+    note TEXT
+);
+CREATE TABLE IF NOT EXISTS jobs (
+    name TEXT PRIMARY KEY,   -- normalised file name of a loop file ClearLoop made
+    ts REAL NOT NULL,
+    data TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS assignments (
+    printer TEXT NOT NULL,   -- '' = any printer
+    slot_key TEXT NOT NULL,  -- TYPE|#COLOR
+    spool_id TEXT NOT NULL,
+    PRIMARY KEY (printer, slot_key)
+);
+CREATE TABLE IF NOT EXISTS production (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    printer TEXT NOT NULL,
+    job TEXT,
+    loop_no INTEGER,
+    parts INTEGER NOT NULL,
+    grams REAL NOT NULL,
+    ok INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage(ts);
+CREATE INDEX IF NOT EXISTS idx_usage_spool ON usage(spool_id, ts);
+CREATE INDEX IF NOT EXISTS idx_production_ts ON production(ts);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_timings ON timings(printer, kind, ts);
 CREATE INDEX IF NOT EXISTS idx_checks_printer ON checks(printer, ts);
@@ -158,3 +200,140 @@ class Store:
                 "ON CONFLICT(printer, key) DO UPDATE SET value = 0, since = excluded.since",
                 (printer, key, time.time()),
             )
+
+    # ---- filament ------------------------------------------------------------------
+    def spools(self) -> list[dict]:
+        with self._lock:
+            return [json.loads(r[0]) for r in self._db.execute("SELECT data FROM spools ORDER BY rowid")]
+
+    def put_spool(self, spool: dict) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO spools (id, data) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+                (spool["id"], json.dumps(spool)),
+            )
+
+    def delete_spool(self, sid: str) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM spools WHERE id=?", (sid,))
+            self._db.execute("DELETE FROM assignments WHERE spool_id=?", (sid,))
+            self._db.execute("UPDATE usage SET spool_id=NULL WHERE spool_id=?", (sid,))
+
+    def add_usage(self, **row) -> int:
+        row.setdefault("ts", time.time())
+        cols = ",".join(row)
+        with self._lock:
+            cur = self._db.execute(
+                f"INSERT INTO usage ({cols}) VALUES ({','.join('?' * len(row))})", tuple(row.values())
+            )
+        return cur.lastrowid
+
+    def usage(
+        self, since: float = 0, limit: int = 500, spool_id: str | None = None, unmatched=False
+    ) -> list[dict]:
+        q, args = "SELECT * FROM usage WHERE ts>=?", [since]
+        if spool_id:
+            q += " AND spool_id=?"
+            args.append(spool_id)
+        if unmatched:
+            q += " AND spool_id IS NULL AND kind IN ('loop','partial')"
+        q += " ORDER BY id DESC LIMIT ?"
+        args.append(limit)
+        with self._lock:
+            return [dict(r) for r in self._db.execute(q, args)]
+
+    def usage_row(self, uid: int) -> dict | None:
+        with self._lock:
+            r = self._db.execute("SELECT * FROM usage WHERE id=?", (uid,)).fetchone()
+        return dict(r) if r else None
+
+    def set_usage_spool(self, uid: int, spool_id: str | None) -> None:
+        with self._lock:
+            self._db.execute("UPDATE usage SET spool_id=? WHERE id=?", (spool_id, uid))
+
+    def delete_usage(self, uid: int) -> None:
+        with self._lock:
+            self._db.execute("DELETE FROM usage WHERE id=?", (uid,))
+
+    def assignments(self) -> dict[tuple[str, str], str]:
+        with self._lock:
+            return {
+                (r[0], r[1]): r[2]
+                for r in self._db.execute("SELECT printer, slot_key, spool_id FROM assignments")
+            }
+
+    def assign(self, printer: str, slot_key: str, spool_id: str | None) -> None:
+        with self._lock:
+            if spool_id:
+                self._db.execute(
+                    "INSERT INTO assignments VALUES (?,?,?) ON CONFLICT(printer, slot_key) "
+                    "DO UPDATE SET spool_id=excluded.spool_id",
+                    (printer, slot_key, spool_id),
+                )
+            else:
+                self._db.execute(
+                    "DELETE FROM assignments WHERE printer=? AND slot_key=?", (printer, slot_key)
+                )
+
+    # ---- files ClearLoop made, so the monitor knows what a running job uses -------------
+    def put_job(self, name: str, data: dict) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO jobs (name, ts, data) VALUES (?,?,?) ON CONFLICT(name) "
+                "DO UPDATE SET ts=excluded.ts, data=excluded.data",
+                (name, time.time(), json.dumps(data)),
+            )
+
+    def job(self, name: str) -> dict | None:
+        with self._lock:
+            r = self._db.execute("SELECT data FROM jobs WHERE name=?", (name,)).fetchone()
+        return json.loads(r[0]) if r else None
+
+    def jobs(self, limit: int = 50) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute("SELECT name, ts, data FROM jobs ORDER BY ts DESC LIMIT ?", (limit,))
+            return [{"name": r[0], "ts": r[1], **json.loads(r[2])} for r in rows]
+
+    # ---- production ----------------------------------------------------------------
+    def add_production(self, printer: str, job: str, loop_no: int, parts: int, grams: float, ok=True) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO production (ts, printer, job, loop_no, parts, grams, ok) VALUES (?,?,?,?,?,?,?)",
+                (time.time(), printer, job, loop_no, parts, grams, int(ok)),
+            )
+
+    def production(self, since: float = 0) -> list[dict]:
+        with self._lock:
+            return [
+                dict(r)
+                for r in self._db.execute("SELECT * FROM production WHERE ts>=? ORDER BY id", (since,))
+            ]
+
+    def dump(self) -> dict:
+        """Everything worth backing up (events and checks are logs, not state)."""
+        with self._lock:
+            out = {}
+            for t in ("spools", "usage", "jobs", "assignments", "production", "timings", "counters"):
+                out[t] = [dict(r) for r in self._db.execute(f"SELECT * FROM {t}")]
+        return out
+
+    def restore(self, data: dict) -> None:
+        with self._lock:
+            self._db.execute("BEGIN")
+            try:
+                for t in ("spools", "usage", "jobs", "assignments", "production", "timings", "counters"):
+                    rows = data.get(t)
+                    if rows is None:
+                        continue
+                    cols = [r[1] for r in self._db.execute(f"PRAGMA table_info({t})")]
+                    self._db.execute(f"DELETE FROM {t}")
+                    for r in rows:
+                        keep = {k: r[k] for k in cols if k in r}
+                        self._db.execute(
+                            f"INSERT INTO {t} ({','.join(keep)}) VALUES ({','.join('?' * len(keep))})",
+                            tuple(keep.values()),
+                        )
+                self._db.execute("COMMIT")
+            except Exception:
+                self._db.execute("ROLLBACK")
+                raise

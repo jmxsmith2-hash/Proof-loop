@@ -50,6 +50,8 @@ class PlateInfo:
     object_names: dict[str, str] = field(default_factory=dict)  # label id -> name (slice_info)
     filament_slots: list[tuple[str, str, str]] = field(default_factory=list)  # (slot id, type, colour)
     slot_grams: dict[str, float] = field(default_factory=dict)  # slot id -> grams, as the slicer reports
+    # slot id -> the slicer's filament preset for that slot (name, vendor, density, drying...), from CONFIG_BLOCK
+    presets: dict[str, dict] = field(default_factory=dict)
     nozzle: str = ""
 
     def as_dict(self) -> dict:
@@ -161,6 +163,7 @@ def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
 
     sinfo = entries.get("Metadata/slice_info.config")
     used: list[str] = []
+    idx_by_slot: dict[str, int] = {}
     if sinfo:
         try:
             root = ET.fromstring(sinfo)
@@ -178,6 +181,8 @@ def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
                 if o.get("identify_id"):
                     info.object_names[o.get("identify_id")] = o.get("name", "")
             for f in p.findall("filament"):
+                if f.get("id", "").isdigit():
+                    idx_by_slot[f.get("id")] = int(f.get("id")) - 1  # slice_info ids are 1-based
                 if f.get("type"):
                     used.append(f.get("type"))
                     info.filament_slots.append(
@@ -195,7 +200,65 @@ def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
         except ValueError:
             pass
     info.filaments = sorted(set(used or cfg_filaments))
+    info.presets = _presets(config, info.filament_slots, idx_by_slot)
     return info
+
+
+# CONFIG_BLOCK keys copied per filament slot. Values are the user's own slicer preset.
+_PRESET_KEYS = {
+    "filament_settings_id": "preset",
+    "filament_vendor": "vendor",
+    "filament_type": "type",
+    "filament_ids": "filament_id",
+    "filament_density": "density",
+    "filament_diameter": "diameter",
+    "filament_cost": "slicer_cost_per_kg",
+    "nozzle_temperature": "nozzle_temp",
+    "nozzle_temperature_range_low": "nozzle_temp_low",
+    "nozzle_temperature_range_high": "nozzle_temp_high",
+    "temperature_vitrification": "softening_temp",
+}
+_PRESET_NUM = {
+    "density",
+    "diameter",
+    "slicer_cost_per_kg",
+    "nozzle_temp",
+    "nozzle_temp_low",
+    "nozzle_temp_high",
+    "softening_temp",
+}
+
+
+def _cfg_list(v: str) -> list[str]:
+    """One value per project filament: quoted names are ';'-separated, numbers ','-separated."""
+    v = v.strip()
+    parts = v.split(";") if ";" in v else v.split(",")
+    return [x.strip().strip('"') for x in parts]
+
+
+def _presets(config: dict, slots, idx_by_slot: dict[str, int]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for sid, _t, _c in slots:
+        i = idx_by_slot.get(sid)
+        if i is None:
+            continue
+        p: dict = {}
+        for key, name in _PRESET_KEYS.items():
+            vals = _cfg_list(config.get(key, ""))
+            if i < len(vals) and vals[i] != "":
+                p[name] = _num(vals[i]) if name in _PRESET_NUM else vals[i]
+        # Drying values from Bambu Studio's preset. Only taken when the file has one filament (one
+        # unambiguous list) and every value in the list agrees, so nothing is read into it.
+        if len(idx_by_slot) == 1:
+            for key, name in (
+                ("filament_dev_ams_drying_temperature", "ams_drying_temp"),
+                ("filament_dev_ams_drying_time", "ams_drying_hours"),
+            ):
+                vals = {x.strip() for x in config.get(key, "").split(",") if x.strip()}
+                if len(vals) == 1:
+                    p[name] = _num(vals.pop())
+        out[sid] = p
+    return out
 
 
 def _header_block(gcode: str) -> dict[str, str]:

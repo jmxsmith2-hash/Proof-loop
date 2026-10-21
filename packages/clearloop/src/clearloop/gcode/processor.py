@@ -63,6 +63,8 @@ class Analysis:
             "printable_height": info.printable_height,
             "bed_type": info.bed_type,
             "filaments": info.filaments,
+            "filament_slots": [list(x) for x in info.filament_slots],
+            "presets": info.presets,
             "print_seconds": info.print_seconds,
             "parts": [p.as_dict() for p in self.parts],
             "plan": self.plan.as_dict(),

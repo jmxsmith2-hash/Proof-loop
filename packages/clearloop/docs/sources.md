@@ -63,6 +63,35 @@ facts.
 * **Other printers' FarmLoop moves.** Import a FarmLoop file for your printer.
 * **Your pusher's lowest safe height.** Measure it with the sweep-floor test.
 
+## Filament facts
+
+| Fact | Used for | Ref |
+|---|---|---|
+| `print.ams.ams[]` units hold `tray[]`; reports are partial, so units and trays merge by `id`; `tray_type == ""` means the slot was emptied | Live AMS view | BD `bambu_mqtt.py` `_handle_ams_data` |
+| `tray_color` is `RRGGBBAA`; `remain` is a percentage, `-1` (or anything outside 0–100) means unknown; `humidity_raw` is relative humidity in % (the 1–5 `humidity` index is not used) | AMS view; unknown is shown as unknown | BD `bambu_mqtt.py`, `usage_tracker.py`, `utils/ams_humidity.py` |
+| Global tray ids: AMS unit n slot s = n×4 + s; AMS HT units are 128–135 with one tray; the external spool is 254 (255 is a second one on dual-nozzle printers); `tray_now` 255 = nothing loaded | Tray names (A1…D4, HT-A, Ext) and the tray being fed | BD `bambu_mqtt.py`, `spoolman_tracking.py` |
+| `tray_uuid` / `tag_uid` all zeros = no RFID tag read; periodic reports often carry zeros and must not overwrite a tag already read | RFID spools link themselves | BD `spoolman.py`, `bambu_mqtt.py` |
+| The P2S (like the A1 and P1S) doesn't report which tray each slicer slot was mapped to | Which spool fed a loop is taken from `tray_now` during the loop (one-filament plates), or a single AMS tray with the same type and colour; otherwise you assign it | BD `spoolman_tracking.py` (`mapping` not published on A1/P1S/P2S) |
+| Bambu slices use relative extrusion (`M83`); `M73 L<n>` marks layer n, the number the printer reports as `layer_num`; `T<n>` selects filament n + 1 | Filament used by a loop that stopped part-way: the net `E` sum up to the last finished layer | EV plain slice (its P2S `change_filament_gcode` uses `T[next_filament_id]`, a 0-based index); BD `threemf_tools.py` (counts layers the same way) |
+| The net `E` sum, with the file's own `filament_diameter` and `filament_density`, equals the slicer's `used_g` | Confirms the part-way method | EV: 53.887 g from the G-code vs 53.89 g in `slice_info.config` (checked by `tests/test_evidence.py`) |
+| `CONFIG_BLOCK` holds the slicer's filament preset per slot: `filament_settings_id`, `filament_vendor`, `filament_ids` (the AMS `tray_info_idx`), `filament_density`, `filament_diameter`, `filament_cost`, nozzle range, `filament_dev_ams_drying_temperature` / `_time` | Filling in a new spool from the plate; drying hints | EV plain slice |
+| Spoolman: `GET /api/v1/spool`, `PUT /api/v1/spool/{id}/use` `{"use_weight": g}`, `PATCH /api/v1/spool/{id}` `{"remaining_weight": g}`; net weight = `initial_weight` else the filament's `weight`; empty spool = `spool_weight`, else the filament's, else the vendor's | Spoolman import and reporting | BD `services/spoolman.py`, `_spoolman_helpers.py` |
+
+What ClearLoop doesn't take from these sources: Bambuddy's table of empty-spool
+weights has no cited source, and its default density and spool weight are
+fallbacks. ClearLoop uses neither. Empty-spool weights are yours to weigh, and
+part-way usage needs the file's own density, or it isn't estimated.
+
+## Filament design choices
+
+| Choice | Why |
+|---|---|
+| A finished loop is charged the slicer's grams, not the G-code sum | They agree (above), and the slicer's number is the one you see in Bambu Studio |
+| A part-way loop is charged only its finished layers | The layer in progress when it stopped is not counted; the count is a lower bound, never an overestimate |
+| A new spool starts full only if you tick "new, unopened" | Otherwise what's left is unknown until you weigh it or type it |
+| The next loop is held only when the count is known to be short | Unknown amounts never block a run. Linked spools in other AMS trays with the same type and colour count too, because the AMS switches to them |
+| Several matching spools at the same price per kg price a plate without picking one | Whichever feeds it, the price is the same |
+
 ## Costs
 
 Every **rate** in the Costs tab (spool prices, electricity, watts, printer

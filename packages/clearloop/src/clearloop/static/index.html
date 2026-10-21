@@ -114,6 +114,30 @@ pre.code{background:var(--soft);border-radius:8px;padding:10px;overflow:auto;max
 .svgwrap svg{width:100%;height:auto;display:block}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin-top:6px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.sw.big{width:30px;height:30px;border-radius:8px;margin:0;flex:none}
+.meter{height:8px;border-radius:5px;background:var(--soft);overflow:hidden;margin:6px 0}
+.meter i{display:block;height:100%;background:var(--accent);border-radius:5px}
+.spool{padding:12px 0;border-top:1px solid var(--line)}
+.spool:first-child{border-top:0}
+.spool-top{display:flex;gap:10px;align-items:center}
+.spool-acts{gap:10px}
+.filter-bar{margin:4px 0 8px}
+.filter-bar input[type=text]{flex:1;min-width:160px;width:auto}
+.filter-bar select{width:auto}
+.trays{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:6px 0 12px}
+.tray{border:1px solid var(--line);border-radius:10px;padding:8px 10px 10px;position:relative;overflow:hidden;font-size:13.5px}
+.tray>i{position:absolute;left:0;top:0;right:0;height:5px}
+.tray.feeding{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.tray.empty{color:var(--muted);background:var(--soft)}
+.tray select{margin-top:6px;font-size:12.5px;padding:4px 6px}
+.ams-strip{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.ams-strip span{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:2px 8px 2px 4px;border-radius:99px;background:var(--soft)}
+.ams-strip span.on{box-shadow:0 0 0 1.5px var(--accent)}
+.filrow{padding:8px 0;border-top:1px solid var(--line)}
+.filrow:first-child{border-top:0}
+.filrow select{max-width:320px}
+.run{padding:10px 0;border-top:1px solid var(--line)}
+.run:first-child{border-top:0}
 .hidden{display:none!important}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:20;max-width:calc(100% - 32px)}
 .thumb{width:100%;border-radius:8px;border:1px solid var(--line);background:var(--soft);aspect-ratio:4/3;object-fit:cover}
@@ -126,8 +150,10 @@ details summary{cursor:pointer;font-weight:600}
 <header><div class="bar">
   <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>ClearLoop</div>
   <nav role="tablist">
+    <button role="tab" data-tab="overview">Overview</button>
     <button role="tab" data-tab="make" aria-selected="true">Make a loop file</button>
     <button role="tab" data-tab="check">Check a file</button>
+    <button role="tab" data-tab="filament">Filament</button>
     <button role="tab" data-tab="costs">Costs</button>
     <button role="tab" data-tab="monitor">Monitor</button>
     <button role="tab" data-tab="calibrate">Calibrate</button>
@@ -137,6 +163,24 @@ details summary{cursor:pointer;font-weight:600}
 </div></header>
 
 <main>
+<!-- ============ OVERVIEW ============ -->
+<section data-panel="overview" class="hidden">
+  <h1>Overview</h1>
+  <p class="sub">Your farm at a glance: what each printer is doing, what you've made, and what needs you. Everything here is counted from your printers, never estimated.</p>
+  <div id="ovAttention"></div>
+  <div class="kpis" id="ovKpis"></div>
+  <div class="grid two">
+    <div class="grid" style="align-content:start">
+      <div class="card"><h2>Printers</h2><div id="ovRuns"></div></div>
+      <div class="card"><div class="spread"><h2>Parts made</h2><span class="hint">last 14 days, good loops only</span></div><div class="svgwrap" id="ovChart"></div><p class="hint" id="ovPerPrinter"></p></div>
+    </div>
+    <div class="grid" style="align-content:start">
+      <div class="card"><div class="spread"><h2>Spools running low</h2><a href="#" data-goto="filament" class="linkbtn">All spools</a></div><div id="ovLow"></div></div>
+      <div class="card"><div class="spread"><h2>Latest</h2><a href="#" data-goto="monitor" class="linkbtn">Monitor</a></div><ul class="list" id="ovEvents"></ul></div>
+    </div>
+  </div>
+</section>
+
 <!-- ============ MAKE ============ -->
 <section data-panel="make">
   <h1>Make a loop file</h1>
@@ -204,6 +248,11 @@ details summary{cursor:pointer;font-weight:600}
       <div class="card">
         <h2>Checks</h2>
         <ul class="list" id="checks"></ul>
+      </div>
+      <div class="card" id="makeFil">
+        <div class="spread"><h2>Filament</h2><a href="#" data-goto="filament" class="linkbtn">Spools</a></div>
+        <label class="field"><span>Printer</span><select id="fPrinter"></select><div class="hint">Pick the printer to match the plate's filament against what's in its AMS.</div></label>
+        <div id="makeFilOut" class="hint">Loading…</div>
       </div>
       <div class="card" id="makeCost">
         <div class="spread"><h2>Cost</h2><a href="#" data-goto="costs" class="linkbtn">Details and prices</a></div>
@@ -277,12 +326,7 @@ details summary{cursor:pointer;font-weight:600}
     <div class="card" style="align-self:start">
       <div class="spread"><h2>Your prices</h2><span class="saved" id="costSaved"></span></div>
       <label class="field" style="max-width:160px"><span>Currency symbol</span><input type="text" data-c="currency" data-kind="text" maxlength="4"></label>
-      <details class="cost-section" open><summary>Filament spools</summary>
-        <p class="hint">Price and weight of a spool as you buy it. Plates are matched by filament type and colour, and you can pick the spool for each colour on the left.</p>
-        <div class="list-ed hint"><span>Name</span><span>Type</span><span>Colour</span><span>Price</span><span>Spool g</span><span></span></div>
-        <div id="spoolRows"></div>
-        <button class="btn" id="addSpool">+ Add spool</button>
-      </details>
+      <div class="banner info" style="margin:6px 0 10px"><span class="ic info">i</span><div>Filament is priced from your spools in the <a href="#" data-goto="filament">Filament</a> tab: what you paid for each spool and how much filament it held. Pick the spool for each colour on the left.</div></div>
       <details class="cost-section" open><summary>Electricity and printer</summary>
         <div class="cost-grid">
           <label class="field"><span>Electricity, per kWh</span><input type="number" data-c="electricity_per_kwh" step="0.001" min="0"></label>
@@ -334,6 +378,107 @@ details summary{cursor:pointer;font-weight:600}
         </div>
         <p class="hint">Use your own marketplace's and payment provider's current fees.</p>
       </details>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FILAMENT ============ -->
+<section data-panel="filament" class="hidden">
+  <h1>Filament</h1>
+  <p class="sub">Every spool you own, what's loaded in each AMS, and where the filament went. Each finished loop is charged to the spool that fed it, using the slicer's grams. A loop that stops part-way is charged what its finished layers used, worked out from the file's own G-code. Weights you haven't entered stay unknown; nothing is guessed.</p>
+  <div class="kpis" id="filKpis"></div>
+  <div id="filAlerts"></div>
+  <div class="grid two">
+    <div class="grid" style="align-content:start">
+      <div class="card" id="amsCard">
+        <div class="spread"><h2>In your printers</h2><span class="hint">live from each AMS</span></div>
+        <div id="amsOut"></div>
+      </div>
+      <div class="card">
+        <div class="spread"><h2>Spools</h2><button class="btn primary" id="filAdd">+ Add spool</button></div>
+        <div class="row filter-bar">
+          <input type="text" id="filSearch" placeholder="Search name, brand, colour, location" aria-label="Search spools">
+          <select id="filMat" aria-label="Material"></select>
+          <select id="filSort" aria-label="Sort"><option value="remaining">Least left first</option><option value="recent">Recently used</option><option value="name">Name</option><option value="added">Newest</option></select>
+          <label class="inline hint"><input type="checkbox" id="filArchived"> show used-up and archived</label>
+        </div>
+        <div id="spoolList"></div>
+      </div>
+      <div class="card hidden" id="unmatchedCard">
+        <h2>Filament not matched to a spool</h2>
+        <p class="hint">ClearLoop couldn't tell which spool fed these loops (for example two AMS trays with the same colour and neither linked). Pick the spool and it's charged then.</p>
+        <div id="unmatchedOut"></div>
+      </div>
+      <div class="card">
+        <div class="spread"><h2>Usage</h2><select id="usageDays" style="width:auto" aria-label="Period"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></div>
+        <div class="svgwrap" id="usageChart"></div>
+        <div class="legend" id="usageLegend"></div>
+        <div class="tw" style="margin-top:10px;max-height:340px;overflow:auto"><table id="usageTable"></table></div>
+      </div>
+    </div>
+    <div class="grid" style="align-content:start">
+      <div class="card" id="spoolEditor">
+        <div class="spread"><h2 id="edTitle">Add a spool</h2><span id="edChip"></span></div>
+        <div id="edPrefill" class="row" style="margin-bottom:10px"></div>
+        <form id="spoolForm" autocomplete="off">
+          <div class="cost-grid">
+            <label class="field"><span>Material</span><input type="text" name="material" list="matList" required placeholder="PLA"></label>
+            <label class="field"><span>Colour</span><span class="inline"><input type="color" id="edColorPick" aria-label="Pick colour" style="width:44px;height:36px;padding:2px"><input type="text" name="color" placeholder="#A6A9AA"></span></label>
+            <label class="field"><span>Name</span><input type="text" name="name" placeholder="PLA Basic Grey"></label>
+            <label class="field"><span>Brand</span><input type="text" name="brand" placeholder="Bambu Lab"></label>
+            <label class="field"><span>Price paid</span><input type="number" name="price" min="0" step="0.01"></label>
+            <label class="field"><span>Filament when new, g</span><input type="number" name="net_g" min="1" step="1" placeholder="from the label"></label>
+            <label class="field"><span>Empty spool, g</span><input type="number" name="tare_g" min="0" step="1" placeholder="weigh an empty one"></label>
+            <label class="field" id="edRemainWrap"><span>Left on it now, g</span><input type="number" name="remaining_g" min="0" step="1"></label>
+            <label class="field"><span>Warn below, g</span><input type="number" name="low_g" min="0" step="10"></label>
+            <label class="field"><span>Where it's kept</span><input type="text" name="location" placeholder="Dry box 2"></label>
+          </div>
+          <label class="toggle" id="edSealedRow"><input type="checkbox" name="sealed" checked><span><b>New, unopened spool</b><span class="hint">It holds exactly what the label says. Untick for an opened spool and weigh it, or type what's left.</span></span></label>
+          <details><summary>More</summary>
+            <div class="cost-grid" style="margin-top:8px">
+              <label class="field"><span>Slicer preset</span><input type="text" name="preset" list="presetList" placeholder="Bambu PLA Basic @BBL P2S"></label>
+              <label class="field"><span>Bambu filament id</span><input type="text" name="filament_id" placeholder="GFA00"></label>
+              <label class="field"><span>Diameter, mm</span><input type="number" name="diameter" min="0.5" step="0.01"></label>
+              <label class="field"><span>Density, g/cm³</span><input type="number" name="density" min="0.1" step="0.01"></label>
+              <label class="field"><span>Drying °C</span><input type="number" name="drying_temp" min="0" step="1"></label>
+              <label class="field"><span>Drying hours</span><input type="number" name="drying_hours" min="0" step="0.5"></label>
+              <label class="field"><span>RFID tag</span><input type="text" name="tag" placeholder="read from the AMS"></label>
+              <label class="field"><span>Batch / lot</span><input type="text" name="lot"></label>
+            </div>
+            <label class="field"><span>Notes</span><input type="text" name="notes"></label>
+            <label class="toggle"><input type="checkbox" name="archived"><span><b>Archived</b><span class="hint">Hidden from lists and never picked for a loop.</span></span></label>
+          </details>
+          <div class="row" style="margin-top:10px">
+            <label class="inline" id="edCopiesWrap"><span class="hint">How many</span><input type="number" name="copies" min="1" max="50" value="1" style="max-width:70px"></label>
+            <button class="btn primary" id="edSave">Add spool</button>
+            <button type="button" class="btn" id="edCancel">Clear</button>
+            <button type="button" class="btn danger hidden" id="edDelete">Delete</button>
+          </div>
+        </form>
+        <datalist id="matList"></datalist><datalist id="presetList"></datalist>
+      </div>
+      <div class="card"><div class="spread"><h2>Shopping list</h2><button class="btn" id="shopCopy">Copy</button></div><div id="shopOut"></div></div>
+      <div class="card">
+        <h2>Filament settings</h2>
+        <form id="filSettings">
+          <label class="toggle"><input type="checkbox" name="track_usage"><span><b>Count filament used by each loop</b><span class="hint">Only files made by this ClearLoop, because only for those are the grams known.</span></span></label>
+          <label class="toggle"><input type="checkbox" name="hold_when_short"><span><b>Hold the next loop when a spool can't cover it</b><span class="hint">With the plate check on, a loop-end pause keeps waiting (heaters off) and you get an alert. A second spool of the same filament in another AMS tray counts too. Turn off if you rely on the AMS switching to spools ClearLoop doesn't know about.</span></span></label>
+          <label class="field" style="max-width:220px"><span>Warn below, g (spools without their own)</span><input type="number" name="low_g" min="0" step="10"></label>
+          <h3>Spoolman</h3>
+          <p class="hint">Already keep your spools in Spoolman? Import them, and ClearLoop can report each loop's usage back.</p>
+          <label class="field"><span>Spoolman address</span><input type="url" name="spoolman_url" placeholder="http://192.168.1.20:7912"></label>
+          <label class="toggle"><input type="checkbox" name="spoolman_report"><span><b>Report usage and weigh-ins to Spoolman</b></span></label>
+          <div class="row"><button class="btn primary">Save</button><button type="button" class="btn" id="smImport">Import from Spoolman</button></div>
+        </form>
+        <h3>Export</h3>
+        <div class="row"><a class="btn" id="csvSpools" href="/api/filament/export.csv?what=spools">Spools (CSV)</a><a class="btn" id="csvUsage" href="/api/filament/export.csv?what=usage">Usage log (CSV)</a></div>
+      </div>
+      <div class="card">
+        <h2>Backup</h2>
+        <p class="hint">One file with your settings, imported hardware profiles, spools, usage, production log and measured timings. It includes your printers' access codes, so keep it private.</p>
+        <div class="row"><a class="btn" id="backupBtn" href="/api/backup">Download backup</a>
+          <label class="btn">Restore…<input type="file" id="restoreFile" accept=".json" hidden></label></div>
+      </div>
     </div>
   </div>
 </section>
@@ -455,6 +600,8 @@ function show(tab) {
   try { history.replaceState(null, '', '#' + tab); } catch (e) {}
   if (tab === 'monitor') refreshMonitor();
   if (tab === 'costs') { coolOptions(); bindCosts(); refreshCost(); }
+  if (tab === 'filament') loadFil();
+  if (tab === 'overview') refreshOverview();
 }
 $$('nav button').forEach(b => b.onclick = () => show(b.dataset.tab));
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) { e.preventDefault(); show(g.dataset.goto); } });
@@ -468,7 +615,7 @@ function dropZone(zone, input, onFile) {
 
 async function loadState() {
   STATE = await json('/api/state');
-  COSTS = JSON.parse(JSON.stringify(STATE.costs)); bindCosts(); coolOptions();
+  COSTS = JSON.parse(JSON.stringify(STATE.costs)); bindCosts(); coolOptions(); filPrinters();
   $('#ver').textContent = 'v' + STATE.version;
   $('#calBanner').classList.toggle('hidden', !!STATE.defaults.floor_calibrated);
   $('#modelSelect').innerHTML = Object.entries(STATE.printers).map(([id, n]) => `<option value="${esc(id)}" ${id === 'N7' ? 'selected' : ''}>${esc(n)}</option>`).join('');
@@ -543,7 +690,7 @@ function renderPlate(a, keepSettings) {
   if (!keepSettings) fillSettings(a.settings, a); else fillSettings(currentSettings(), a);
   stopAnim(); drawTop(a); drawSide(a); planPrinters(); renderPlan();
   if (document.activeElement !== $('#cLoops')) $('#cLoops').value = +$('#sLoops').value || 1;
-  refreshCost();
+  refreshCost(); refreshPlateFil();
   $('#changesOut').innerHTML = '';
   $('#addToBatch').textContent = BATCH.some(b => b.token === a.token) ? '✓ In the batch' : '+ Add this plate';
   const floor = +$('#sFloor').value || 0;
@@ -690,7 +837,13 @@ function renderPlan() {
     const total = (known + m.timings.cooldown.avg) * loops, done = new Date(Date.now() + total * 1000);
     eta = `About <b>${fmtDur(total)}</b> in total, using ${esc(m.name)}'s measured cooldown. Started now, it would finish around <b>${done.toLocaleString([], {weekday: 'short', hour: '2-digit', minute: '2-digit'})}</b>`;
   } else eta += ', plus the cooldown after each loop (the Monitor times it on your printer)';
-  $('#planOut').innerHTML = `<b>${loops} loop${loops > 1 ? 's' : ''}</b> of ${per} part${per > 1 ? 's' : ''} = ${loops * per} parts${extra ? ` (${extra} spare)` : ''}. ${eta}.`;
+  let fil = '';
+  if (PLATEFIL && PLATEFIL.slots.length) {
+    const need = PLATEFIL.slots.map(x => `${(x.grams_per_loop * loops).toFixed(0)} g ${esc(x.material)}`).join(' + ');
+    const cap = PLATEFIL.max_loops;
+    fil = ` Filament: ${need}.` + (cap != null ? (cap < loops ? ` <b style="color:var(--bad)">Your spools cover ${cap} loop${cap === 1 ? '' : 's'}</b>; load more before you start.` : ` Your spools cover it (${cap} loops' worth).`) : '');
+  }
+  $('#planOut').innerHTML = `<b>${loops} loop${loops > 1 ? 's' : ''}</b> of ${per} part${per > 1 ? 's' : ''} = ${loops * per} parts${extra ? ` (${extra} spare)` : ''}. ${eta}.${fil}`;
   $('#planApply').disabled = false; $('#planApply').dataset.loops = loops;
 }
 ['#planQty', '#planPrinter'].forEach(id => $(id).addEventListener('input', renderPlan));
@@ -766,7 +919,7 @@ let COSTS = null, COST = null, costTimer = null, costSaveTimer = null, coolMin =
 try { const v = localStorage.getItem('clearloop-cool-min'); coolMin = v === null ? null : +v; } catch (e) {}
 const PALETTE = ['#1d6fe0', '#16834a', '#c77d00', '#7b4ddb', '#c0312b', '#0f8f9a', '#d64b8a', '#5d6774', '#8a6d3b', '#2f9e44', '#e8590c'];
 const money = (v, dp = 2) => v == null ? '—' : (v < 0 ? '−' : '') + (COSTS?.currency || '') + (Math.abs(v) < 1 && v !== 0 && dp < 3 ? Math.abs(v).toFixed(3) : Math.abs(v).toFixed(dp));
-function anyCostSet() { const c = COSTS || {}; return (c.spools || []).length || c.electricity_per_kwh != null || c.printer_price != null || c.labor_rate != null || c.price_per_part != null; }
+function anyCostSet() { const c = COSTS || {}; return (STATE?.spools || []).length || c.electricity_per_kwh != null || c.printer_price != null || c.labor_rate != null || c.price_per_part != null; }
 
 function bindCosts() {
   $$('[data-c]').forEach(inp => {
@@ -780,16 +933,7 @@ function bindCosts() {
     });
   });
   $$('.cur').forEach(e => e.textContent = COSTS.currency || '');
-  renderSpools(); renderExtras();
-}
-function renderSpools() {
-  $('#spoolRows').innerHTML = (COSTS.spools || []).map((sp, i) => `<div class="list-ed">
-    <input type="text" data-sp="${i}" data-f="name" value="${esc(sp.name)}" placeholder="Bambu PLA Basic" aria-label="Spool name">
-    <input type="text" data-sp="${i}" data-f="type" value="${esc(sp.type)}" placeholder="PLA" aria-label="Type">
-    <span class="inline"><span class="sw" style="background:${esc(sp.color || 'transparent')}"></span><input type="text" data-sp="${i}" data-f="color" value="${esc(sp.color)}" placeholder="#A6A9AA" aria-label="Colour"></span>
-    <input type="number" data-sp="${i}" data-f="price" value="${sp.price}" min="0" step="0.01" aria-label="Price">
-    <input type="number" data-sp="${i}" data-f="weight_g" value="${sp.weight_g}" min="1" step="50" aria-label="Spool grams">
-    <button class="linkbtn" data-rmspool="${i}" aria-label="Remove spool">✕</button></div>`).join('') || '<p class="hint">No spools yet.</p>';
+  renderExtras();
 }
 function renderExtras() {
   [['extras_per_part', '#extraPartRows'], ['extras_per_order', '#extraOrderRows']].forEach(([k, el]) => {
@@ -801,25 +945,17 @@ function renderExtras() {
 }
 document.addEventListener('input', (e) => {
   const t = e.target;
-  if (t.dataset.sp !== undefined) { const sp = COSTS.spools[+t.dataset.sp]; sp[t.dataset.f] = ['price', 'weight_g'].includes(t.dataset.f) ? +t.value : t.value.trim();
-    if (t.dataset.f === 'color') t.previousElementSibling.style.background = t.value || 'transparent'; saveCostsSoon(); }
   if (t.dataset.ex) { const x = COSTS[t.dataset.ex][+t.dataset.i]; x[t.dataset.f] = t.dataset.f === 'cost' ? +t.value : t.value; saveCostsSoon(); }
 });
 document.addEventListener('click', (e) => {
   const t = e.target;
-  if (t.dataset.rmspool !== undefined) { COSTS.spools.splice(+t.dataset.rmspool, 1); renderSpools(); saveCostsSoon(); }
   if (t.dataset.rmex) { COSTS[t.dataset.rmex].splice(+t.dataset.i, 1); renderExtras(); saveCostsSoon(); }
   if (t.dataset.addextra) { COSTS[t.dataset.addextra].push({name: '', cost: 0}); renderExtras(); }
 });
-$('#addSpool').onclick = () => {
-  const guess = PLATE?.filaments?.[0] || 'PLA';
-  COSTS.spools.push({name: '', type: guess, color: '', price: 0, weight_g: 1000}); renderSpools();
-  $(`[data-sp="${COSTS.spools.length - 1}"][data-f="name"]`).focus();
-};
 function saveCostsSoon() {
   clearTimeout(costSaveTimer); $('#costSaved').textContent = '';
   costSaveTimer = setTimeout(async () => {
-    try { const clean = {...COSTS, spools: COSTS.spools.filter(sp => sp.type && sp.weight_g > 0), extras_per_part: COSTS.extras_per_part.filter(x => x.name), extras_per_order: COSTS.extras_per_order.filter(x => x.name)};
+    try { const clean = {...COSTS, spools: [], slot_spool: {}, extras_per_part: COSTS.extras_per_part.filter(x => x.name), extras_per_order: COSTS.extras_per_order.filter(x => x.name)};
       await send('/api/costs', clean, 'PUT'); $('#costSaved').textContent = '✓ saved'; refreshCost(); }
     catch (e) { $('#costSaved').textContent = ''; toast(e.message); }
   }, 600);
@@ -843,7 +979,7 @@ $('#cPriceRange').addEventListener('input', () => { $('#cPrice').value = $('#cPr
 
 function costRequest() {
   const src = $('#cCoolSrc').value || 'none';
-  return {settings: currentSettings(), loops: +$('#cLoops').value || +$('#sLoops').value || 1,
+  return {settings: currentSettings(), loops: +$('#cLoops').value || +$('#sLoops').value || 1, printer: $('#fPrinter').value || null,
     cooldown_printer: src.startsWith('p:') ? src.slice(2) : null, cooldown_min: src === 'est' ? coolMin : null};
 }
 function refreshCost() {
@@ -872,7 +1008,7 @@ function renderCost() {
     (r.setup ? `<tr><td>Setup, once per run</td><td class="num">—</td><td class="num">${money(r.setup / t.parts, 3)}</td><td></td><td class="hint">${money(r.setup)} spread over ${t.parts} parts</td></tr>` : '');
   $('#costMaterials').innerHTML = '<tr><th>Slot</th><th>Filament</th><th>Grams</th><th>Spool</th><th>Per kg</th><th>Cost</th></tr>' + r.materials.map(m => `<tr>
     <td>${esc(m.slot)}</td><td><span class="sw" style="background:${esc(m.color)}"></span>${esc(m.type)} <span class="hint">${esc(m.color)}</span></td><td class="num">${m.grams} g</td>
-    <td><select data-slotkey="${esc(m.key)}" aria-label="Spool for slot ${esc(m.slot)}"><option value="">— choose —</option>${COSTS.spools.map((sp, i) => `<option value="${i}" ${m.spool === i ? 'selected' : ''}>${esc(sp.name || sp.type + ' ' + sp.color)}</option>`).join('')}</select></td>
+    <td><select data-slotkey="${esc(m.key)}" aria-label="Spool for slot ${esc(m.slot)}">${spoolOptions(m.type, m.spool, '— choose —')}</select>${!m.spool && m.spool_name ? `<div class="hint">priced from ${esc(m.spool_name)}</div>` : ''}</td>
     <td class="num">${m.per_kg != null ? money(m.per_kg) : '—'}</td><td class="num">${m.cost != null ? money(m.cost, 3) : '<span class="chip warn">not set</span>'}</td></tr>`).join('');
   $('#costMissing').innerHTML = r.missing.map(m => `<li><span class="ic warning">!</span><div>${esc(m)}</div></li>`).join('');
   const tm = r.times;
@@ -903,9 +1039,335 @@ function renderCost() {
 }
 document.addEventListener('change', (e) => {
   const t = e.target; if (t.dataset.slotkey === undefined) return;
-  if (t.value === '') delete COSTS.slot_spool[t.dataset.slotkey]; else COSTS.slot_spool[t.dataset.slotkey] = +t.value;
-  saveCostsSoon();
+  send('/api/filament/assign', {printer: '', key: t.dataset.slotkey, spool: t.value || null}, 'PUT').then(() => { refreshCost(); refreshPlateFil(); }).catch(err => toast(err.message));
 });
+
+// ---------- filament ----------
+let FIL = null, EDIT = null, PLATEFIL = null;
+const G = (v, d = 0) => v == null ? '—' : (+v).toFixed(d) + ' g';
+const ago = (ts) => { if (!ts) return null; const d = (Date.now() / 1000 - ts) / 86400; return d < 1 ? 'today' : d < 2 ? 'yesterday' : Math.floor(d) + ' days ago'; };
+const swatch = (c, big) => `<span class="sw${big ? ' big' : ''}" style="background:${esc(c || 'transparent')}"></span>`;
+const withToken = (u) => token ? u + (u.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token) : u;
+const statusChip = (s) => ({empty: '<span class="chip bad">used up</span>', low: '<span class="chip warn">low</span>', unknown: '<span class="chip" title="Weigh it or type what\'s left">amount unknown</span>', archived: '<span class="chip">archived</span>'}[s] || '');
+function spoolOptions(material, selected, blank = '— none —') {
+  const sp = (FIL ? FIL.spools : STATE.spools || []).filter(s => !s.archived);
+  const same = sp.filter(s => !material || s.material === (material || '').toUpperCase()), other = sp.filter(s => !same.includes(s));
+  const o = (s) => `<option value="${esc(s.id)}" ${s.id === selected ? 'selected' : ''}>${esc(s.label)}${s.remaining_g != null ? ' · ' + Math.round(s.remaining_g) + ' g' : ''}</option>`;
+  return `<option value="">${esc(blank)}</option>` + same.map(o).join('') + (other.length && material ? `<optgroup label="Other materials">${other.map(o).join('')}</optgroup>` : other.map(o).join(''));
+}
+
+async function loadFil() {
+  try { FIL = await json('/api/filament'); STATE.spools = FIL.spools; renderFil(); loadUsage(); }
+  catch (e) { toast(e.message); }
+}
+function renderFil() {
+  const s = FIL.summary, cur = STATE.costs?.currency || '';
+  $('#filKpis').innerHTML = [['Spools', s.spools], ['Filament on hand', s.on_hand_g >= 1000 ? (s.on_hand_g / 1000).toFixed(2) + ' kg' : Math.round(s.on_hand_g) + ' g'],
+    ['Worth', s.value ? cur + s.value.toFixed(2) : '—'], ['Used today', G(s.used_g['1'])], ['Used 7 days', G(s.used_g['7'])],
+    ['Used 30 days', G(s.used_g['30']) + (s.used_cost['30'] ? ` · ${cur}${s.used_cost['30'].toFixed(2)}` : '')]]
+    .map(([k, v]) => `<div class="kpi"><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join('');
+  const alerts = [];
+  if (s.unmatched) alerts.push(`<div class="banner warn"><span class="ic warning">!</span><div><b>${s.unmatched} loop${s.unmatched > 1 ? 's' : ''} used filament that isn't matched to a spool.</b> Pick the spool below so the counts stay right.</div></div>`);
+  if (s.unknown_remaining) alerts.push(`<div class="banner info"><span class="ic info">i</span><div>${s.unknown_remaining} spool${s.unknown_remaining > 1 ? 's have' : ' has'} no known amount left. Weigh ${s.unknown_remaining > 1 ? 'them' : 'it'} (enter the empty-spool weight once) or type what's left, so ClearLoop can warn you before a run comes up short.</div></div>`);
+  $('#filAlerts').innerHTML = alerts.join('');
+  // lists for the editor
+  const mats = new Set([...FIL.materials, ...(PLATE?.filaments || []), ...FIL.printers.flatMap(p => p.trays.filter(t => !t.empty).map(t => t.type))]);
+  $('#matList').innerHTML = [...mats].map(m => `<option value="${esc(m)}">`).join('');
+  const presets = new Set([...FIL.spools.map(x => x.preset).filter(Boolean), ...Object.values(PLATE?.presets || {}).map(p => p.preset).filter(Boolean)]);
+  $('#presetList').innerHTML = [...presets].map(m => `<option value="${esc(m)}">`).join('');
+  const sel = $('#filMat'), prev = sel.value;
+  sel.innerHTML = '<option value="">All materials</option>' + FIL.materials.map(m => `<option>${esc(m)}</option>`).join('');
+  sel.value = [...sel.options].some(o => o.value === prev) ? prev : '';
+  renderAms(); renderSpoolList(); renderUnmatched(); renderShopping(); fillFilSettings();
+  $('#csvSpools').href = withToken('/api/filament/export.csv?what=spools'); $('#csvUsage').href = withToken('/api/filament/export.csv?what=usage'); $('#backupBtn').href = withToken('/api/backup');
+  if (!EDIT) resetEditor();
+}
+
+function renderAms() {
+  const ps = FIL.printers;
+  if (!ps.length) { $('#amsOut').innerHTML = '<p class="hint">Add a printer in <a href="#" data-goto="monitor">Monitor</a> and its AMS trays show up here: type, colour, how full the AMS thinks each spool is, humidity, and which of your spools is in which slot. Bambu spools link themselves from their RFID tag.</p>'; return; }
+  const known = new Set(FIL.spools.map(s => s.tag).filter(Boolean));
+  $('#amsOut').innerHTML = ps.map(p => {
+    const units = p.units.map(u => `<span class="chip">${esc(u.name)}${u.humidity_pct != null ? ` · ${u.humidity_pct.toFixed(0)}% RH` : ''}${u.temp != null ? ` · ${u.temp.toFixed(0)} °C` : ''}${u.drying_min_left ? ` · drying, ${fmtDur(u.drying_min_left * 60)} left` : ''}</span>`).join(' ');
+    const trays = p.trays.length ? p.trays.map(t => {
+      if (t.empty) return `<div class="tray empty"><b>${esc(t.label)}</b> <span class="hint">empty</span></div>`;
+      const sp = FIL.spools.find(s => s.printer === p.name && s.tray === t.tray);
+      const feeding = p.tray_now === t.tray;
+      return `<div class="tray${feeding ? ' feeding' : ''}"><i style="background:${esc(t.color || 'var(--soft)')}"></i>
+        <div class="spread"><b>${esc(t.label)}</b>${feeding ? '<span class="chip info">feeding</span>' : ''}</div>
+        <div>${esc(t.sub_brand || t.type)} <span class="hint">${esc(t.color)}</span></div>
+        <div class="hint">AMS says ${t.remain_pct == null ? 'unknown' : t.remain_pct + '%'}${t.nozzle_temp_min ? ` · ${t.nozzle_temp_min}–${t.nozzle_temp_max} °C` : ''}</div>
+        ${sp ? `<div style="margin-top:4px"><b>${esc(sp.label)}</b> <span class="num">${G(sp.remaining_g)}</span></div>` : ''}
+        <select data-link="${esc(p.name)}" data-tray="${t.tray}" aria-label="Spool in ${esc(t.label)}">${spoolOptions(t.type, sp?.id, sp ? '— unlink —' : 'Link a spool…')}</select>
+        ${!sp ? `<button class="linkbtn" data-addtray="${esc(p.name)}|${t.tray}">+ add as a new spool${t.tag && !known.has(t.tag) ? ' (RFID)' : ''}</button>` : ''}</div>`;
+    }).join('') : '<p class="hint">No AMS data yet. It arrives with the printer\'s next status report.</p>';
+    return `<div class="ams-printer"><div class="spread"><h3 style="margin:6px 0">${esc(p.name)}</h3><span>${p.online ? '' : '<span class="chip">offline</span>'} ${units}</span></div><div class="trays">${trays}</div></div>`;
+  }).join('');
+}
+
+function renderSpoolList() {
+  const q = $('#filSearch').value.trim().toLowerCase(), mat = $('#filMat').value, all = $('#filArchived').checked, sort = $('#filSort').value;
+  let list = FIL.spools.filter(s => (all || !['archived', 'empty'].includes(s.status)) && (!mat || s.material === mat) &&
+    (!q || [s.label, s.brand, s.color, s.location, s.preset, s.notes, s.material].join(' ').toLowerCase().includes(q)));
+  const key = {remaining: s => s.remaining_g ?? 1e9, recent: s => -(s.last_used || 0), name: s => s.label.toLowerCase(), added: s => -s.added}[sort];
+  list = list.sort((a, b) => key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0);
+  if (!FIL.spools.length) { $('#spoolList').innerHTML = '<p class="hint">No spools yet. Add the ones on your shelf with <b>+ Add spool</b>, or link the ones in your AMS above. With spools added, ClearLoop counts what every loop uses, warns you before a run comes up short, and prices each part from what you really paid.</p>'; return; }
+  $('#spoolList').innerHTML = list.map(s => {
+    const pct = s.remaining_pct, where = s.printer ? `in <b>${esc(s.printer)}</b> ${esc(trayLabel(s.tray))}` : esc(s.location || '');
+    const meta = [where, s.opened ? 'opened ' + ago(s.opened) : (s.remaining_g != null && s.net_g && s.remaining_g >= s.net_g ? 'sealed' : ''), s.dried ? 'dried ' + ago(s.dried) : '',
+      s.forecast.days_left != null ? `about ${s.forecast.days_left < 1 ? 'a day' : Math.round(s.forecast.days_left) + ' days'} left at your last-14-day rate` : '',
+      s.tag ? 'RFID' : '', s.spoolman_id != null ? 'Spoolman #' + s.spoolman_id : ''].filter(Boolean).join(' · ');
+    return `<div class="spool" data-sid="${esc(s.id)}">
+      <div class="spool-top">${swatch(s.color, true)}<div style="flex:1;min-width:0"><div class="spread"><b>${esc(s.label)}</b><span>${statusChip(s.status)}</span></div>
+        <div class="hint">${esc([s.brand, s.material, s.preset].filter(Boolean).join(' · '))}${s.per_kg != null ? ` · ${esc(money(s.per_kg))}/kg` : ''}</div></div></div>
+      <div class="meter" title="${pct == null ? '' : pct + '%'}"><i style="width:${Math.max(0, Math.min(100, pct ?? 0))}%;background:${esc(s.color || 'var(--accent)')}"></i></div>
+      <div class="spread"><span class="num"><b>${G(s.remaining_g)}</b>${s.net_g ? ` of ${G(s.net_g)}` : ''}${pct != null ? ` · ${pct}%` : ''}${s.value != null ? ` · worth ${esc(money(s.value))}` : ''}</span>
+        <span class="row spool-acts"><button class="linkbtn" data-sa="weigh">Weigh</button><button class="linkbtn" data-sa="set">Set left</button><button class="linkbtn" data-sa="use">Used…</button><button class="linkbtn" data-sa="dried">Dried today</button><button class="linkbtn" data-sa="edit">Edit</button><button class="linkbtn" data-sa="again">Buy again</button><button class="linkbtn" data-sa="label">Label</button><button class="linkbtn" data-sa="history">History</button></span></div>
+      ${meta ? `<div class="hint">${meta}</div>` : ''}
+      <div class="spool-form hidden"></div></div>`;
+  }).join('') || '<p class="hint">No spools match.</p>';
+}
+const trayLabel = (t) => { if (t == null) return ''; if (t === 254) return 'Ext'; if (t === 255) return 'Ext 2'; if (t >= 128) return 'HT-' + String.fromCharCode(65 + t - 128); if (t >= 24 && t <= 27) return 'Lite ' + (t - 23); return String.fromCharCode(65 + Math.floor(t / 4)) + (t % 4 + 1); };
+
+$('#spoolList').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-sa]'); if (!b) return;
+  const box = b.closest('.spool'), sid = box.dataset.sid, sp = FIL.spools.find(s => s.id === sid), form = box.querySelector('.spool-form');
+  const act = b.dataset.sa;
+  const inline = (label, ph, hint, go) => {
+    form.classList.remove('hidden');
+    form.innerHTML = `<div class="row" style="margin-top:8px"><label class="inline"><span class="hint">${esc(label)}</span><input type="number" min="0" step="0.1" placeholder="${esc(ph)}"></label><button class="btn primary">Save</button><button class="btn" data-x>Cancel</button></div>${hint ? `<p class="hint">${hint}</p>` : ''}`;
+    const inp = form.querySelector('input'); inp.focus();
+    form.querySelector('[data-x]').onclick = () => form.classList.add('hidden');
+    const run = async () => { const v = parseFloat(inp.value); if (!(v >= 0)) { toast('Enter a number'); return; } try { await go(v); await loadFil(); } catch (err) { toast(err.message); } };
+    form.querySelector('.primary').onclick = run; inp.onkeydown = (ev) => { if (ev.key === 'Enter') run(); };
+  };
+  try {
+    if (act === 'weigh') {
+      if (sp.tare_g == null) { inline('Empty spool weighs', 'g', 'Weigh an empty spool of the same kind once. ClearLoop takes it off every weigh-in after that.', async (v) => { await send(`/api/filament/spools/${sid}`, {tare_g: v}, 'PUT'); toast('Saved. Now weigh the spool.'); }); return; }
+      inline('Spool on the scale', 'g', `Filament left = scale reading − ${sp.tare_g} g empty spool.`, async (v) => { const r = await send(`/api/filament/spools/${sid}/weigh`, {gross_g: v}); toast(`${Math.round(r.remaining_g)} g left on ${r.label}`); });
+    }
+    if (act === 'set') inline('Filament left', 'g', '', async (v) => send(`/api/filament/spools/${sid}/remaining`, {grams: v}));
+    if (act === 'use') inline('Used outside ClearLoop', 'g', 'For prints the monitor didn\'t count, test prints, or filament you threw away.', async (v) => send(`/api/filament/spools/${sid}/use`, {grams: v}));
+    if (act === 'dried') { await send(`/api/filament/spools/${sid}/dried`, {}); toast('Marked as dried today'); await loadFil(); }
+    if (act === 'edit') { editSpool(sp); }
+    if (act === 'again') { editSpool({...sp, id: '', remaining_g: null, opened: null, dried: null, tag: '', printer: '', tray: null, spoolman_id: null, archived: false}, true); }
+    if (act === 'label') printLabel(sp);
+    if (act === 'history') {
+      const u = await json(`/api/filament/usage?days=366&spool=${encodeURIComponent(sid)}`);
+      form.classList.remove('hidden');
+      form.innerHTML = `<div class="tw" style="margin-top:8px"><table>${usageRows(u.rows, false) || '<tr><td class="hint">Nothing recorded yet.</td></tr>'}</table></div><button class="linkbtn" data-x>close</button>`;
+      form.querySelector('[data-x]').onclick = () => form.classList.add('hidden');
+    }
+  } catch (err) { toast(err.message); }
+});
+['#filSearch', '#filMat', '#filSort', '#filArchived'].forEach(id => $(id).addEventListener('input', () => FIL && renderSpoolList()));
+
+function printLabel(s) {
+  const w = window.open('', '_blank', 'width=420,height=320'); if (!w) { toast('Allow pop-ups to print labels'); return; }
+  w.document.write(`<!doctype html><title>${esc(s.label)}</title><style>body{font:14px system-ui;margin:16px}.l{border:2px solid #000;border-radius:10px;padding:12px;width:300px}.c{width:40px;height:40px;border-radius:6px;border:1px solid #000;float:right}b{font-size:18px}small{color:#444}</style>
+    <div class="l"><div class="c" style="background:${esc(s.color || '#fff')}"></div><b>${esc(s.label)}</b><br>${esc([s.brand, s.material].filter(Boolean).join(' · '))}<br>
+    <small>${esc(s.color)}${s.net_g ? ` · ${s.net_g} g new` : ''}${s.tare_g != null ? ` · empty spool ${s.tare_g} g` : ''}</small><br>
+    <small>${s.drying_temp ? `Dry ${s.drying_temp} °C${s.drying_hours ? ' for ' + s.drying_hours + ' h' : ''} · ` : ''}added ${new Date(s.added * 1000).toLocaleDateString()}</small><br><small>ClearLoop spool ${esc(s.id)}</small></div>
+    <script>setTimeout(()=>print(),200)<\/script>`);
+  w.document.close();
+}
+
+// ---- spool editor ----
+const F = () => $('#spoolForm');
+const NUMF = ['price', 'net_g', 'tare_g', 'remaining_g', 'low_g', 'diameter', 'density', 'drying_temp', 'drying_hours'];
+function resetEditor() { EDIT = null; editSpool(null); }
+function editSpool(sp, asNew) {
+  const f = F(); f.reset();
+  EDIT = sp && sp.id && !asNew ? sp.id : null;
+  const v = sp || {};
+  ['material', 'color', 'name', 'brand', 'location', 'preset', 'filament_id', 'tag', 'lot', 'notes'].forEach(k => f[k].value = v[k] || '');
+  NUMF.forEach(k => f[k].value = v[k] ?? '');
+  f.archived.checked = !!v.archived;
+  $('#edColorPick').value = /^#[0-9A-F]{6}$/i.test(v.color || '') ? v.color.toLowerCase() : '#ffffff';
+  $('#edTitle').textContent = EDIT ? 'Edit spool' : asNew ? 'Buy another' : 'Add a spool';
+  $('#edSave').textContent = EDIT ? 'Save' : 'Add spool';
+  $('#edDelete').classList.toggle('hidden', !EDIT);
+  $('#edSealedRow').classList.toggle('hidden', !!EDIT); $('#edCopiesWrap').classList.toggle('hidden', !!EDIT);
+  $('#edRemainWrap').classList.toggle('hidden', !EDIT && f.sealed.checked);
+  $('#edChip').innerHTML = EDIT ? `<span class="chip">${esc(sp.id)}</span>` : '';
+  const pre = [];
+  if (PLATE) Object.entries(PLATE.presets || {}).forEach(([sid, p]) => { const slot = (PLATE.filament_slots || []).find(x => x[0] === sid); pre.push(`<button type="button" class="btn" data-prefill="${esc(sid)}">${swatch(slot?.[2])}From this plate: ${esc(p.preset || slot?.[1] || 'slot ' + sid)}</button>`); });
+  $('#edPrefill').innerHTML = !EDIT && pre.length ? pre.join('') : '';
+  if (sp && (sp.id || asNew)) $('#spoolEditor').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+F().sealed.addEventListener('change', () => $('#edRemainWrap').classList.toggle('hidden', !EDIT && F().sealed.checked));
+$('#edColorPick').addEventListener('input', (e) => { F().color.value = e.target.value.toUpperCase(); });
+F().color.addEventListener('input', (e) => { if (/^#?[0-9A-F]{6}$/i.test(e.target.value.trim())) $('#edColorPick').value = '#' + e.target.value.trim().replace('#', '').toLowerCase(); });
+$('#edPrefill').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-prefill]'); if (!b) return;
+  const sid = b.dataset.prefill, p = PLATE.presets[sid] || {}, slot = (PLATE.filament_slots || []).find(x => x[0] === sid) || [];
+  const f = F(); f.material.value = p.type || slot[1] || ''; f.color.value = slot[2] || ''; $('#edColorPick').value = (slot[2] || '#ffffff').toLowerCase();
+  f.preset.value = p.preset || ''; f.brand.value = p.vendor || ''; f.filament_id.value = p.filament_id || ''; f.diameter.value = p.diameter ?? ''; f.density.value = p.density ?? '';
+  f.drying_temp.value = p.ams_drying_temp ?? ''; f.drying_hours.value = p.ams_drying_hours ?? '';
+  if (!f.name.value) f.name.value = (p.preset || '').split('@')[0].trim();
+  toast(p.slicer_cost_per_kg ? `Filled from your slicer preset. Your slicer prices it at ${p.slicer_cost_per_kg}/kg; enter what you paid.` : 'Filled from your slicer preset.');
+});
+$('#amsOut').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-addtray]'); if (!b) return;
+  const [pn, tid] = b.dataset.addtray.split('|'), p = FIL.printers.find(x => x.name === pn), t = p.trays.find(x => x.tray === +tid);
+  editSpool({material: t.type, color: t.color, name: t.sub_brand || '', filament_id: t.filament_id, tag: t.tag, drying_temp: t.drying_temp, drying_hours: t.drying_hours}, true);
+  PENDING_LINK = [pn, +tid];
+  toast(t.tag ? 'Read from the spool\'s RFID tag. Add the weight and price from its label.' : 'Filled from the AMS. Add the weight and price.');
+});
+let PENDING_LINK = null;
+$('#amsOut').addEventListener('change', async (e) => {
+  const s = e.target.closest('[data-link]'); if (!s) return;
+  try { await send('/api/filament/link', {printer: s.dataset.link, tray: +s.dataset.tray, spool: s.value || null}); await loadFil(); } catch (err) { toast(err.message); }
+});
+$('#edCancel').onclick = () => { PENDING_LINK = null; resetEditor(); };
+$('#filAdd').onclick = () => { PENDING_LINK = null; resetEditor(); $('#spoolEditor').scrollIntoView({behavior: 'smooth'}); F().material.focus(); };
+$('#edDelete').onclick = async () => { if (!EDIT || !confirm('Delete this spool? Its usage history stays, unassigned.')) return;
+  try { await json(`/api/filament/spools/${EDIT}`, {method: 'DELETE'}); resetEditor(); await loadFil(); toast('Spool deleted'); } catch (err) { toast(err.message); } };
+F().onsubmit = async (e) => {
+  e.preventDefault(); const f = F(), body = {};
+  ['material', 'color', 'name', 'brand', 'location', 'preset', 'filament_id', 'tag', 'lot', 'notes'].forEach(k => body[k] = f[k].value.trim());
+  NUMF.forEach(k => body[k] = f[k].value === '' ? null : +f[k].value);
+  body.archived = f.archived.checked;
+  try {
+    if (EDIT) { await send(`/api/filament/spools/${EDIT}`, body, 'PUT'); toast('Saved'); }
+    else {
+      body.sealed = f.sealed.checked; body.copies = +f.copies.value || 1;
+      if (body.sealed && !body.net_g) { toast('Enter how much filament a new spool holds (it\'s on the label)'); f.net_g.focus(); return; }
+      if (body.sealed) body.remaining_g = null;
+      const made = await send('/api/filament/spools', body);
+      if (PENDING_LINK) { await send('/api/filament/link', {printer: PENDING_LINK[0], tray: PENDING_LINK[1], spool: made[0].id}); PENDING_LINK = null; }
+      toast(made.length > 1 ? `Added ${made.length} spools` : 'Spool added');
+    }
+    resetEditor(); await loadFil(); if (PLATE) { refreshPlateFil(); refreshCost(); }
+  } catch (err) { toast(err.message); }
+};
+
+// ---- unmatched usage, usage log, shopping list, settings ----
+function renderUnmatched() {
+  const rows = FIL.unmatched;
+  $('#unmatchedCard').classList.toggle('hidden', !rows.length);
+  $('#unmatchedOut').innerHTML = rows.map(r => `<div class="spread" style="padding:6px 0;border-top:1px solid var(--line)"><span>${swatch(r.color)}<b>${G(r.grams, 1)}</b> ${esc(r.material)} · ${esc(r.printer || '')} loop ${r.loop_no ?? '?'} <span class="hint">${new Date(r.ts * 1000).toLocaleString()} · ${esc(r.note || '')}</span></span>
+    <span class="inline"><select data-um="${r.id}" style="max-width:220px">${spoolOptions(r.material, null, 'Pick the spool…')}</select></span></div>`).join('');
+}
+$('#unmatchedOut').addEventListener('change', async (e) => { const s = e.target.closest('[data-um]'); if (!s || !s.value) return;
+  try { await send(`/api/filament/usage/${s.dataset.um}/assign`, {spool: s.value}); toast('Charged to the spool'); await loadFil(); } catch (err) { toast(err.message); } });
+
+const KIND = {loop: 'loop', partial: 'stopped loop', manual: 'by hand', weigh: 'weighed', set: 'set'};
+function usageRows(rows, withSpool = true) {
+  if (!rows.length) return '';
+  const byId = Object.fromEntries(FIL.spools.map(s => [s.id, s]));
+  return '<tr><th>When</th>' + (withSpool ? '<th>Spool</th>' : '') + '<th>Grams</th><th>What</th><th></th></tr>' + rows.map(r => {
+    const sp = byId[r.spool_id];
+    const what = r.kind === 'loop' || r.kind === 'partial' ? `${KIND[r.kind]} ${r.loop_no ?? ''} on ${esc(r.printer || '?')}<div class="hint">${esc(r.job || '')} · ${esc(r.note || '')}</div>` : `${KIND[r.kind] || esc(r.kind)}<div class="hint">${esc(r.note || '')}</div>`;
+    return `<tr><td class="num muted">${new Date(r.ts * 1000).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})}</td>` +
+      (withSpool ? `<td>${sp ? swatch(sp.color) + esc(sp.label) : r.spool_id ? '<span class="hint">deleted spool</span>' : '<span class="chip warn">not matched</span>'}</td>` : '') +
+      `<td class="num">${r.kind === 'weigh' || r.kind === 'set' ? (r.grams > 0 ? '−' : '+') + Math.abs(r.grams).toFixed(1) : r.grams.toFixed(1)}</td><td>${what}</td>
+      <td>${['loop', 'partial', 'manual'].includes(r.kind) ? `<button class="linkbtn" data-undo="${r.id}" title="Remove this entry and give the grams back">undo</button>` : ''}</td></tr>`;
+  }).join('');
+}
+async function loadUsage() {
+  try {
+    const days = +$('#usageDays').value, u = await json('/api/filament/usage?days=' + days);
+    $('#usageTable').innerHTML = usageRows(u.rows) || '<tr><td class="hint">No filament used yet. Finished loops of files made by this ClearLoop are counted here automatically.</td></tr>';
+    const mats = [...new Set(u.daily.flatMap(d => Object.keys(d.by_material)))];
+    const max = Math.max(1, ...u.daily.map(d => Object.values(d.by_material).reduce((a, b) => a + b, 0)));
+    const W = 600, H = 150, bw = W / u.daily.length;
+    const bars = u.daily.map((d, i) => { let y = H - 18; return mats.map((m, j) => { const g = d.by_material[m] || 0, h = g / max * (H - 30); y -= h; return g ? `<rect x="${(i * bw + 1).toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${h.toFixed(1)}" fill="${PALETTE[j % PALETTE.length]}"><title>${new Date(d.day * 1000).toLocaleDateString()}: ${m} ${g.toFixed(1)} g</title></rect>` : ''; }).join(''); }).join('');
+    const ticks = u.daily.map((d, i) => i % Math.ceil(u.daily.length / 6) === 0 ? `<text x="${(i * bw + bw / 2).toFixed(1)}" y="${H - 4}" font-size="10" text-anchor="${i ? 'middle' : 'start'}" fill="currentColor" opacity=".6">${new Date(d.day * 1000).toLocaleDateString([], {month: 'short', day: 'numeric'})}</text>` : '').join('');
+    $('#usageChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Filament used per day"><line x1="0" x2="${W}" y1="${H - 18}" y2="${H - 18}" stroke="currentColor" opacity=".15"/>${bars}${ticks}<text x="2" y="10" font-size="10" fill="currentColor" opacity=".6">${max.toFixed(0)} g</text></svg>`;
+    $('#usageLegend').innerHTML = mats.map((m, j) => `<span><i style="background:${PALETTE[j % PALETTE.length]}"></i>${esc(m)}</span>`).join('');
+  } catch (e) { toast(e.message); }
+}
+$('#usageDays').addEventListener('input', loadUsage);
+$('[data-panel=filament]').addEventListener('click', async (e) => { const b = e.target.closest('[data-undo]'); if (!b) return;
+  if (!confirm('Remove this entry and give its grams back to the spool?')) return;
+  try { await json(`/api/filament/usage/${b.dataset.undo}`, {method: 'DELETE'}); await loadFil(); } catch (err) { toast(err.message); } });
+
+function renderShopping() {
+  const low = FIL.spools.filter(s => !s.archived && ['low', 'empty'].includes(s.status));
+  const soon = FIL.spools.filter(s => !s.archived && s.status === 'ok' && s.forecast.days_left != null && s.forecast.days_left < 14);
+  const lines = [...low.map(s => [s, s.status === 'empty' ? 'used up' : `${Math.round(s.remaining_g)} g left`]), ...soon.map(s => [s, `about ${Math.round(s.forecast.days_left)} days left`])];
+  $('#shopOut').innerHTML = lines.length ? '<ul class="list">' + lines.map(([s, why]) => `<li>${swatch(s.color)}<div><b>${esc(s.label)}</b> <span class="hint">${esc(why)}${s.per_kg != null && s.net_g ? ` · last paid ${esc(money(s.price))}` : ''}</span></div></li>`).join('') + '</ul>'
+    : '<p class="hint">Nothing to buy. Spools appear here when they drop below their warning weight, or when your last 14 days of use would empty them within two weeks.</p>';
+  $('#shopCopy').onclick = () => { const t = lines.map(([s, why]) => `- ${s.label}${s.brand ? ' (' + s.brand + ')' : ''}: ${why}`).join('\n') || 'Nothing to buy'; navigator.clipboard?.writeText(t).then(() => toast('Copied'), () => toast(t)); };
+}
+function fillFilSettings() {
+  const f = $('#filSettings'), s = FIL.settings; if (document.activeElement?.form === f) return;
+  f.track_usage.checked = s.track_usage; f.hold_when_short.checked = s.hold_when_short; f.low_g.value = s.low_g ?? ''; f.spoolman_url.value = s.spoolman_url || ''; f.spoolman_report.checked = s.spoolman_report;
+}
+$('#filSettings').onsubmit = async (e) => { e.preventDefault(); const f = e.target;
+  try { await send('/api/filament/settings', {track_usage: f.track_usage.checked, hold_when_short: f.hold_when_short.checked, low_g: f.low_g.value === '' ? null : +f.low_g.value, spoolman_url: f.spoolman_url.value.trim() || null, spoolman_report: f.spoolman_report.checked}, 'PUT'); toast('Saved'); await loadFil(); } catch (err) { toast(err.message); } };
+$('#smImport').onclick = async () => { try { const r = await json('/api/filament/spoolman/import', {method: 'POST'}); toast(`Spoolman: ${r.added} added, ${r.updated} updated`); await loadFil(); } catch (err) { toast(err.message); } };
+$('#restoreFile').addEventListener('change', async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return;
+  if (!confirm('Replace everything in this ClearLoop (settings, printers, spools, history) with the backup?')) return;
+  try { const fd = new FormData(); fd.append('file', file); const r = await json('/api/restore', {method: 'POST', body: fd}); toast(`Restored: ${r.spools} spools, ${r.printers} printers`); await loadState(); await loadFil(); } catch (err) { toast(err.message); } });
+
+// ---- the plate's filament (Make tab) ----
+let plateFilTimer = null;
+function filPrinters() {
+  const sel = $('#fPrinter'), prev = sel.value;
+  sel.innerHTML = '<option value="">Any printer (no AMS match)</option>' + (STATE.monitor || []).map(m => `<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('');
+  sel.value = sel.dataset.chosen && [...sel.options].some(o => o.value === prev) ? prev : (STATE.monitor?.[0]?.name || '');
+}
+function refreshPlateFil() {
+  clearTimeout(plateFilTimer);
+  plateFilTimer = setTimeout(async () => {
+    if (!PLATE) return;
+    try { PLATEFIL = await send(`/api/plates/${PLATE.token}/filament`, {loops: +$('#sLoops').value || 1, printer: $('#fPrinter').value || null}); renderPlateFil(); renderPlan(); }
+    catch (e) { $('#makeFilOut').textContent = e.message; }
+  }, 200);
+}
+function renderPlateFil() {
+  const r = PLATEFIL; if (!r) return;
+  const rows = r.slots.map(s => {
+    const p = s.preset || {}, info = [p.preset, p.nozzle_temp_low ? `${p.nozzle_temp_low}–${p.nozzle_temp_high} °C nozzle` : '', p.ams_drying_temp ? `dry ${p.ams_drying_temp} °C${p.ams_drying_hours ? ' · ' + p.ams_drying_hours + ' h' : ''}` : ''].filter(Boolean).join(' · ');
+    const tr = s.tray != null ? ` · ${trayLabel(s.tray)}` : s.trays.length ? ` · trays ${s.trays.map(trayLabel).join(', ')}` : '';
+    let verdict = '<span class="hint">pick a spool to see how many loops it covers</span>';
+    if (s.available_g != null) verdict = s.short ? `<span class="chip bad">enough for ${s.loops_possible} loop${s.loops_possible === 1 ? '' : 's'}</span> <button class="linkbtn" data-setloops="${s.loops_possible}">set loops to ${s.loops_possible}</button>`
+      : `<span class="chip ok">enough for ${s.loops_possible} loops</span>`;
+    else if (s.spool) verdict = '<span class="chip">amount on the spool unknown</span> <a href="#" data-goto="filament" class="linkbtn">weigh it</a>';
+    return `<div class="filrow"><div class="spread"><span>${swatch(s.color)}<b>${esc(s.material)}</b> <span class="hint">${esc(s.color)} · slot ${esc(s.slot)}${tr}</span></span><span class="num">${s.grams_per_loop} g a loop · <b>${s.grams_total} g</b> for ${r.loops}</span></div>
+      <div class="inline" style="margin:6px 0"><select data-pick="${esc(s.key)}" aria-label="Spool for slot ${esc(s.slot)}">${spoolOptions(s.material, s.spool, !s.spool && s.spools_counted.length ? 'Whichever the AMS feeds (' + s.trays.map(trayLabel).join(', ') + ')' : 'No spool')}</select></div>
+      <div>${verdict}${s.available_g != null ? ` <span class="hint">${G(s.available_g)} available${s.spools_counted.length > 1 ? ' across ' + s.spools_counted.length + ' spools in the AMS' : ''}</span>` : ''}</div>
+      <div class="hint">${esc(s.how)}${info ? ' · ' + esc(info) : ''}</div></div>`;
+  }).join('');
+  $('#makeFilOut').innerHTML = rows || '<p class="hint">The slicer listed no filament for this plate.</p>';
+  $('#makeFilOut').classList.remove('hint');
+}
+$('#fPrinter').addEventListener('input', () => { $('#fPrinter').dataset.chosen = 1; refreshPlateFil(); refreshCost(); });
+$('#makeFilOut').addEventListener('change', async (e) => { const s = e.target.closest('[data-pick]'); if (!s) return;
+  try { await send('/api/filament/assign', {printer: $('#fPrinter').value || '', key: s.dataset.pick, spool: s.value || null}, 'PUT'); refreshPlateFil(); refreshCost(); } catch (err) { toast(err.message); } });
+$('#makeFilOut').addEventListener('click', (e) => { const b = e.target.closest('[data-setloops]'); if (!b) return;
+  $('#sLoops').value = b.dataset.setloops; syncSliders(); reanalyze(); toast('Loops set to ' + b.dataset.setloops); });
+
+// ---------- overview ----------
+async function refreshOverview() {
+  try {
+    const o = await json('/api/overview'), cur = STATE.costs?.currency || '';
+    const att = [];
+    o.runs.filter(r => r.waiting_for_you).forEach(r => att.push(`<div class="banner bad"><span class="ic danger">!</span><div><b>${esc(r.printer)} is waiting for you.</b> ${esc(r.status)} <a href="#" data-goto="monitor">Open Monitor</a></div></div>`));
+    if (o.filament.unmatched) att.push(`<div class="banner warn"><span class="ic warning">!</span><div>${o.filament.unmatched} loop${o.filament.unmatched > 1 ? 's' : ''} used filament that isn't matched to a spool. <a href="#" data-goto="filament">Match it</a></div></div>`);
+    $('#ovAttention').innerHTML = att.join('');
+    $('#ovKpis').innerHTML = [['Parts today', o.today.parts], ['Loops today', o.today.loops], ['Parts, 7 days', o.week.parts], ['Parts, 30 days', o.month.parts],
+      ['Stopped loops, 7 days', o.week.failed, o.week.failed ? 'bad' : ''], ['Filament, 7 days', G(o.filament.used_g['7']) + (o.filament.used_cost['7'] ? ' · ' + cur + o.filament.used_cost['7'].toFixed(2) : '')]]
+      .map(([k, v, c]) => `<div class="kpi ${c || ''}"><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join('');
+    $('#ovRuns').innerHTML = o.runs.length ? o.runs.map(r => {
+      const pct = r.loops ? Math.min(100, (Math.max(0, r.loop_no - 1) / r.loops) * 100) : 0;
+      return `<div class="run"><div class="spread"><b>${esc(r.printer)}</b>${r.waiting_for_you ? '<span class="chip bad">waiting for you</span>' : r.online ? '<span class="chip ok">online</span>' : '<span class="chip">offline</span>'}</div>
+        <div class="hint">${esc(r.status)}${r.phase ? ' · ' + esc(r.phase) : ''}</div>
+        ${r.loops ? `<div class="meter"><i style="width:${pct.toFixed(1)}%"></i></div><div class="spread"><span>Loop <b>${r.loop_no}</b> of ${r.loops}</span><span class="hint">${r.eta ? 'done around <b>' + new Date(r.eta * 1000).toLocaleString([], {weekday: 'short', hour: '2-digit', minute: '2-digit'}) + '</b> (' + esc(r.eta_basis) + ')' : 'finish time once a loop has been timed'}</span></div>` : r.job ? `<div class="hint">${esc(r.job)}</div>` : ''}</div>`;
+    }).join('') : '<p class="hint">No printers yet. Add one in <a href="#" data-goto="monitor">Monitor</a> to see live runs here.</p>';
+    const W = 600, H = 140, bw = W / o.daily.length, max = Math.max(1, ...o.daily.map(d => d.parts));
+    $('#ovChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Parts made per day"><line x1="0" x2="${W}" y1="${H - 18}" y2="${H - 18}" stroke="currentColor" opacity=".15"/>` +
+      o.daily.map((d, i) => { const h = d.parts / max * (H - 32); return `<rect x="${(i * bw + 2).toFixed(1)}" y="${(H - 18 - h).toFixed(1)}" width="${(bw - 4).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="var(--accent)"><title>${new Date(d.day * 1000).toLocaleDateString()}: ${d.parts} parts, ${d.loops} loops</title></rect>${d.parts ? `<text x="${(i * bw + bw / 2).toFixed(1)}" y="${(H - 22 - h).toFixed(1)}" font-size="10" text-anchor="middle" fill="currentColor">${d.parts}</text>` : ''}`; }).join('') +
+      o.daily.map((d, i) => i % 2 === 0 ? `<text x="${(i * bw + bw / 2).toFixed(1)}" y="${H - 4}" font-size="10" text-anchor="middle" fill="currentColor" opacity=".6">${new Date(d.day * 1000).toLocaleDateString([], {month: 'short', day: 'numeric'})}</text>` : '').join('') + '</svg>';
+    const pp = Object.entries(o.parts_per_printer_7d);
+    $('#ovPerPrinter').textContent = pp.length ? 'Last 7 days: ' + pp.map(([k, v]) => `${k} ${v}`).join(' · ') : 'Parts are counted from finished loops of files made by this ClearLoop.';
+    $('#ovLow').innerHTML = o.low_spools.length ? '<ul class="list">' + o.low_spools.map(s => `<li>${swatch(s.color)}<div><b>${esc(s.label)}</b> <span class="hint">${s.status === 'empty' ? 'used up' : G(s.remaining_g) + ' left'}${s.printer ? ' · in ' + esc(s.printer) + ' ' + trayLabel(s.tray) : ''}</span></div></li>`).join('') + '</ul>' : '<p class="hint">None. You\'ll see spools here when they drop below their warning weight.</p>';
+    $('#ovEvents').innerHTML = o.events.map(e => `<li><span class="ic ${e.level === 'error' ? 'danger' : e.level === 'warning' ? 'warning' : 'info'}">${e.level === 'info' ? 'i' : '!'}</span><div>${esc(e.message)}<div class="hint">${esc(e.printer || '')} · ${new Date(e.ts * 1000).toLocaleString()}</div></div></li>`).join('') || '<li class="hint">Nothing yet.</li>';
+  } catch (e) { toast(e.message); }
+}
+setInterval(() => { if (!$('[data-panel=overview]').classList.contains('hidden')) refreshOverview(); }, 10000);
 
 // ---------- check ----------
 dropZone($('#checkDrop'), $('#checkFile'), async (file) => {
@@ -930,7 +1392,8 @@ async function refreshMonitor() {
       return `<div class="card"><div class="spread"><h2>${esc(m.name)}</h2>${chip}</div>
         <p style="margin:0 0 8px">${esc(m.status)}</p>
         ${m.loop_no ? `<div class="phase">${['starting', 'printing', 'cooling, door open', 'bending the plate', 'safety check', 'door closing'].map(ph => `<span class="${(m.phase || '').startsWith(ph.split(' ')[0]) ? 'on' : ''}">${esc(ph.split(',')[0])}</span>`).join('')}</div>` : ''}
-        <dl class="kv">${m.loop_no ? `<dt>Loop</dt><dd><b>${m.loop_no}</b> · ${esc(m.phase || '—')}</dd>` : ''}<dt>Job</dt><dd>${esc(p.job || '—')}</dd><dt>Progress</dt><dd>${p.percent}% · layer ${p.layer}/${p.total_layers}</dd><dt>Bed</dt><dd>${p.bed_temp.toFixed(0)} °C</dd><dt>Last check</dt><dd>${lc}</dd><dt>Empty-plate pictures</dt><dd>${m.references ? m.references : '<span class="chip warn">none yet</span>'}</dd><dt>This week</dt><dd>${m.stats.checks} loop checks, ${m.stats.resumed} resumed automatically</dd>
+        ${p.ams && p.ams.trays.length ? `<div class="ams-strip">${p.ams.trays.map(t => t.empty ? `<span class="muted">${esc(t.label)} empty</span>` : `<span class="${p.ams.tray_now === t.tray ? 'on' : ''}" title="${esc((t.sub_brand || t.type) + (t.spool ? ' · ' + t.spool.label : ''))}">${swatch(t.color)}${esc(t.label)} ${esc(t.type)}${t.spool && t.spool.remaining_g != null ? ' · ' + Math.round(t.spool.remaining_g) + ' g' : t.remain_pct != null ? ' · ' + t.remain_pct + '%' : ''}</span>`).join('')}</div>` : ''}
+        <dl class="kv">${m.loop_no ? `<dt>Loop</dt><dd><b>${m.loop_no}</b>${m.job_loops ? ' of ' + m.job_loops : ''} · ${esc(m.phase || '—')}</dd>` : ''}<dt>Job</dt><dd>${esc(p.job || '—')}</dd><dt>Progress</dt><dd>${p.percent}% · layer ${p.layer}/${p.total_layers}</dd><dt>Bed</dt><dd>${p.bed_temp.toFixed(0)} °C</dd><dt>Last check</dt><dd>${lc}</dd><dt>Empty-plate pictures</dt><dd>${m.references ? m.references : '<span class="chip warn">none yet</span>'}</dd><dt>This week</dt><dd>${m.stats.checks} loop checks, ${m.stats.resumed} resumed automatically</dd>
           <dt>Measured</dt><dd>${m.timings.cooldown ? `cooldown ${fmtDur(m.timings.cooldown.avg)} avg (${m.timings.cooldown.n})` : 'cooldown not timed yet'}${m.timings.loop ? ` · loop ${fmtDur(m.timings.loop.avg)}` : ''}</dd>
           <dt>Plate bends</dt><dd>${m.bends.value}${m.bends.since ? ` since ${new Date(m.bends.since * 1000).toLocaleDateString()}` : ''} <button class="linkbtn" data-act="bends" data-n="${n}">new plate</button></dd></dl>
         ${m.pending_resume ? '<p><span class="chip info">holding for quiet hours</span></p>' : ''}
@@ -1010,7 +1473,11 @@ $('#importForm').onsubmit = async (e) => { e.preventDefault(); const out = $('#i
     e.target.reset(); await loadState(); }
   catch (err) { out.innerHTML = `<div class="banner bad"><span class="ic danger">✖</span><div>${esc(err.message)}</div></div>`; } };
 
-loadState().then(() => { const t = location.hash.slice(1); if (t && $(`[data-panel=${t}]`)) show(t); }).catch(e => toast(e.message));
+loadState().then(() => {
+  const t = location.hash.slice(1);
+  // A farm that's running opens on its overview; a first visit opens on making a loop file.
+  show(t && $(`[data-panel=${t}]`) ? t : (STATE.monitor.length || STATE.spools.length) ? 'overview' : 'make');
+}).catch(e => toast(e.message));
 </script>
 </body>
 </html>

@@ -11,11 +11,13 @@ from pathlib import Path
 from . import __version__, printers, threemf
 from .calibration import TESTS, build_test
 from .config import Defaults, SettingsStore
+from .filament import prices_for
 from .gcode.processor import ProcessError, analyze, process
 from .importer import ImportError_, import_profile
 from .lint import lint
+from .printer.ams import label as tray_label
 from .profiles import ProfileStore
-from .service import loop_settings
+from .service import App, loop_settings
 
 DEFAULT_DATA = Path.home() / ".clearloop"
 ICON = {"danger": "✖", "warning": "!", "info": "i", "ok": "✓"}
@@ -123,14 +125,15 @@ def cmd_cost(a) -> int:
     an = analyze(sf, prof, st)
     fixed = sum(x["seconds"] or 0 for x in an.steps if x["key"] != "print")
     cool = a.cooldown_min * 60 if a.cooldown_min is not None else None
-    c = SettingsStore(a.data).load().costs
+    app = App(a.data, connect=False)
     r = cost(
-        c,
+        app.settings.costs,
         sf.info.filament_slots,
         sf.info.slot_grams,
         len(an.parts),
         Times(sf.info.print_seconds, fixed, cool, "your estimate" if cool is not None else "unknown"),
         a.loops or d.loops,
+        prices_for(app.inventory, None, sf.info.filament_slots),
     )
     cur = r.currency
     print(f"{sf.name}: {r.parts_per_plate} parts per plate, {r.loops} loops")
@@ -151,6 +154,26 @@ def cmd_cost(a) -> int:
         )
     for m in r.missing:
         print(f"  ! {m}")
+    return 0
+
+
+def cmd_spools(a) -> int:
+    app = App(a.data, connect=False)
+    low = app.settings.filament.low_g
+    spools = app.inventory.all(archived=a.all)
+    if not spools:
+        print("no spools yet: add them in the app's Filament tab")
+        return 0
+    for sp in sorted(spools, key=lambda s: (s.material, s.label)):
+        left = "unknown" if sp.remaining_g is None else f"{sp.remaining_g:.0f} g"
+        where = f"{sp.printer} {tray_label(sp.tray)}" if sp.printer and sp.tray is not None else sp.location
+        status = sp.status(low)
+        flag = {"low": "  LOW", "empty": "  USED UP", "unknown": "  (weigh it)"}.get(status, "")
+        print(f"  {sp.id}  {sp.material:6} {sp.color or '':8} {sp.label[:28]:28} {left:>9}  {where}{flag}")
+    s = app.inventory.summary()
+    print(
+        f"\n  {s['spools']} spools, {s['on_hand_g'] / 1000:.2f} kg on hand; used {s['used_g']['7']:.0f} g in 7 days"
+    )
     return 0
 
 
@@ -295,6 +318,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("farmloop")
     p.add_argument("--name")
     p.set_defaults(fn=cmd_import)
+
+    p = sub.add_parser("spools", help="list your filament spools and what's left on them")
+    p.add_argument("--all", action="store_true", help="include archived spools")
+    p.set_defaults(fn=cmd_spools)
 
     p = sub.add_parser("profiles", help="list hardware profiles")
     p.set_defaults(fn=cmd_profiles)
