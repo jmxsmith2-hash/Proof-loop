@@ -48,6 +48,8 @@ class PlateInfo:
     max_z_height: float = 0.0
     object_heights: dict[str, float] = field(default_factory=dict)  # label id -> height (slicer header)
     object_names: dict[str, str] = field(default_factory=dict)  # label id -> name (slice_info)
+    filament_slots: list[tuple[str, str, str]] = field(default_factory=list)  # (slot id, type, colour)
+    nozzle: str = ""
 
     def as_dict(self) -> dict:
         return dict(self.__dict__)
@@ -168,6 +170,7 @@ def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
             if str(meta.get("index", "1")) != str(plate):
                 continue
             info.printer_model_id = meta.get("printer_model_id", "") or info.printer_model_id
+            info.nozzle = meta.get("nozzle_diameters", "") or info.nozzle
             if not info.print_seconds and meta.get("prediction"):
                 info.print_seconds = _num(meta["prediction"])
             for o in p.findall("object"):
@@ -176,6 +179,9 @@ def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
             for f in p.findall("filament"):
                 if f.get("type"):
                     used.append(f.get("type"))
+                    info.filament_slots.append(
+                        (f.get("id", ""), f.get("type", ""), (f.get("color") or "").upper())
+                    )
                 info.filament_grams += _num(f.get("used_g"))
     plate_json = entries.get(f"Metadata/plate_{plate}.json")
     if plate_json and not info.bed_type:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from .. import printers
 from ..profiles import HardwareProfile
@@ -18,7 +18,7 @@ from .routines import (
     find_start_anchor,
     strip_blocks,
 )
-from .sweep import SweepPlan, plan_sweep, sweep_seconds
+from .sweep import SweepPlan, plan_sweep, sweep_path, sweep_seconds
 
 # Materials FarmLoop names as needing natural cooldown (warp when cooled fast), and rigid-only support.
 WARP_PRONE = ("ASA", "ABS", "PC")
@@ -45,6 +45,7 @@ class Analysis:
     hardware_wait_s: float = 0.0
     sweep_s: float = 0.0
     steps: list[dict] = field(default_factory=list)
+    path: list[dict] = field(default_factory=list)  # the sweep's toolhead moves, for the animation
 
     @property
     def ok(self) -> bool:
@@ -71,6 +72,7 @@ class Analysis:
             "hardware_wait_s": round(self.hardware_wait_s),
             "sweep_s": round(self.sweep_s),
             "steps": self.steps,
+            "path": self.path,
             "ok": self.ok,
         }
 
@@ -202,6 +204,7 @@ def analyze(sliced: SlicedFile, profile: HardwareProfile, settings: LoopSettings
                     "The FarmBoard start step goes in the same place; watch the first loop."
                 )
 
+    a.path = sweep_path(a.plan, profile.sweep)
     use_bender = settings.bender_fitted and profile.has_bender_steps
     a.hardware_wait_s = dwell_seconds(profile.door_open + profile.door_close + profile.start_block)
     if use_bender:
@@ -273,6 +276,33 @@ def output_name(name: str, profile: HardwareProfile) -> str:
     return f"FL_S{profile.stage}_{base}"
 
 
+def _loop_text(
+    gcode: str,
+    profile: HardwareProfile,
+    settings: LoopSettings,
+    plan: SweepPlan,
+    is_p2s: bool,
+    loop_no: int,
+    last: bool,
+) -> str:
+    """One complete plate (header, config, executable block) with ClearLoop's blocks added."""
+    lay = layout(gcode)
+    lines = lay.lines
+    end_region = lines[lay.end_gcode_start : lay.exec_end]
+    out = list(lines)
+    out.insert(lay.exec_end, end_block(profile, settings, plan, end_region, is_p2s, last, loop_no))
+    if profile.start_block:
+        i = find_start_anchor(lines, lay.exec_start, lay.start_gcode_end, profile.start_anchor or "^$")
+        out.insert(i + 1, block("START", profile.start_block))
+    return "".join(out)
+
+
+def _join_loops(bodies: list[str]) -> str:
+    # Same multi-loop layout as the FarmLoop app: whole plates, one after the other.
+    n = len(bodies)
+    return "".join((f"{LOOP_SEPARATOR}{k + 1} OF {n} ===\n" if k else "") + b for k, b in enumerate(bodies))
+
+
 def process(sliced: SlicedFile, profile: HardwareProfile, settings: LoopSettings) -> Result:
     if settings.loops < 1:
         raise ProcessError("loops must be at least 1")
@@ -280,25 +310,85 @@ def process(sliced: SlicedFile, profile: HardwareProfile, settings: LoopSettings
     if a.problems:
         raise ProcessError("; ".join(a.problems))
     gcode = clean_input(sliced)
-    lay = layout(gcode)
-    lines = lay.lines
-    end_region = lines[lay.end_gcode_start : lay.exec_end]
     is_p2s = sliced.info.printer_model_id == printers.P2S
+    bodies = [
+        _loop_text(gcode, profile, settings, a.plan, is_p2s, k, k == settings.loops)
+        for k in range(1, settings.loops + 1)
+    ]
+    text = _join_loops(bodies)
+    return Result(sliced.to_bytes(text), text, output_name(sliced.name, profile), a)
 
-    tail = lines[lay.exec_end + 1 :]
-    loops: list[str] = []
-    for k in range(1, settings.loops + 1):
-        out = list(lines[: lay.exec_end + 1]) + tail
-        cycle = end_block(profile, settings, a.plan, end_region, is_p2s, k == settings.loops, k)
-        out.insert(lay.exec_end, cycle)
-        if profile.start_block:
-            i = find_start_anchor(lines, lay.exec_start, lay.start_gcode_end, profile.start_anchor or "^$")
-            out.insert(i + 1, block("START", profile.start_block))
-        loops.append("".join(out))
-    # Same multi-loop layout as the FarmLoop app: the whole plate, repeated.
-    text = "".join(
-        (f"{LOOP_SEPARATOR}{k + 1} OF {settings.loops} ===\n" if k else "") + body
-        for k, body in enumerate(loops)
+
+def changes(sliced: SlicedFile, profile: HardwareProfile, settings: LoopSettings) -> dict:
+    """Exactly what ClearLoop adds to the first loop, for people who want to read the G-code."""
+    a = analyze(sliced, profile, settings)
+    if a.problems:
+        raise ProcessError("; ".join(a.problems))
+    gcode = clean_input(sliced)
+    body = _loop_text(
+        gcode, profile, settings, a.plan, sliced.info.printer_model_id == printers.P2S, 1, settings.loops == 1
     )
-    data = sliced.to_bytes(text)
-    return Result(data, text, output_name(sliced.name, profile), a)
+    blocks = [{"name": m.group(1), "gcode": m.group(0)} for m in BLOCK_RE.finditer(body)]
+    return {
+        "blocks": blocks,
+        "loops": settings.loops,
+        "lines_added": sum(b["gcode"].count("\n") for b in blocks),
+    }
+
+
+def compatibility(first: SlicedFile, other: SlicedFile) -> list[str]:
+    """Reasons two plates can't share one file. The printer takes its filament list from the first plate."""
+    a, b = first.info, other.info
+    out = []
+    if a.printer_model_id != b.printer_model_id:
+        out.append(
+            f"{other.name} was sliced for a different printer ({printers.model_name(b.printer_model_id)})"
+        )
+    if a.filament_slots != b.filament_slots:
+        out.append(
+            f"{other.name} uses different filaments or slots ({', '.join(f'{t} {c}' for _, t, c in b.filament_slots)} "
+            f"vs {', '.join(f'{t} {c}' for _, t, c in a.filament_slots)}). The printer maps filaments once per "
+            "file, so every plate in a batch must use the same filament slots"
+        )
+    if a.bed_type != b.bed_type:
+        out.append(f"{other.name} is sliced for a different build plate ({b.bed_type} vs {a.bed_type})")
+    if a.nozzle != b.nozzle:
+        if not a.nozzle or not b.nozzle:
+            out.append(
+                f"{other.name if not b.nozzle else first.name} doesn't say which nozzle it was sliced for"
+            )
+        else:
+            out.append(f"{other.name} is sliced for a different nozzle ({b.nozzle} vs {a.nozzle} mm)")
+    return out
+
+
+def process_batch(
+    items: list[tuple[SlicedFile, int]], profile: HardwareProfile, settings: LoopSettings
+) -> Result:
+    """Several plates in one file, e.g. plate A three times, then plate B twice."""
+    items = [(sf, n) for sf, n in items if n > 0]
+    if not items:
+        raise ProcessError("add at least one plate with a count of 1 or more")
+    first = items[0][0]
+    problems = [p for sf, _ in items[1:] for p in compatibility(first, sf)]
+    if problems:
+        raise ProcessError("; ".join(problems))
+    total = sum(n for _, n in items)
+    run = replace(settings, loops=total)
+    analyses = []
+    for sf, _ in items:
+        an = analyze(sf, profile, replace(run, sweep=replace(run.sweep, part_push_z={})))
+        if an.problems:
+            raise ProcessError(f"{sf.name}: " + "; ".join(an.problems))
+        analyses.append(an)
+    is_p2s = first.info.printer_model_id == printers.P2S
+    bodies, k = [], 0
+    for (sf, n), an in zip(items, analyses, strict=True):
+        gcode = clean_input(sf)
+        for _ in range(n):
+            k += 1
+            bodies.append(_loop_text(gcode, profile, run, an.plan, is_p2s, k, k == total))
+    text = _join_loops(bodies)
+    base = (first.name or "plate.gcode.3mf").rsplit("/", 1)[-1]
+    name = output_name(base if len(items) == 1 else f"batch-{total}x-{base}", profile)
+    return Result(first.to_bytes(text), text, name, analyses[0])

@@ -1,10 +1,17 @@
-"""Push notifications: ntfy, Discord webhooks, or any JSON webhook."""
+"""Push notifications: ntfy, Discord webhooks, or any JSON webhook.
+
+A failed plate check sends the camera picture along: ntfy takes it as a PUT
+body with ``Filename``/``Message`` headers, Discord as a multipart upload with
+``payload_json``. Both formats match Bambuddy's notification service.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
+import secrets
 import threading
+import urllib.error
 import urllib.request
 
 log = logging.getLogger(__name__)
@@ -16,38 +23,72 @@ class Notifier:
         self.configs = list(configs)
         self.farm_name = farm_name
 
-    def send(self, event: dict) -> None:
+    def send(self, event: dict, image: bytes | None = None) -> None:
         for cfg in self.configs:
             if LEVELS.get(event["level"], 0) >= LEVELS[cfg.min_level]:
-                threading.Thread(target=self._deliver, args=(cfg, event), daemon=True).start()
+                threading.Thread(target=self._deliver, args=(cfg, event, image), daemon=True).start()
 
-    def _deliver(self, cfg, event: dict) -> None:
-        title = f"{self.farm_name}: {event.get('printer') or 'farm'} {event['kind']}"
+    def _deliver(self, cfg, event: dict, image: bytes | None) -> None:
+        title = f"{self.farm_name}: {event.get('printer') or ''} {event['kind'].replace('_', ' ')}".strip()
         try:
-            req = _request(cfg, title, event)
-            with urllib.request.urlopen(req, timeout=10):
-                pass
-        except Exception as e:  # notifications must never break the loop
+            for req in requests_for(cfg, title, event, image):
+                try:
+                    with urllib.request.urlopen(req, timeout=15):
+                        return
+                except urllib.error.HTTPError as e:
+                    # ntfy servers can disable attachments: fall back to the text-only request.
+                    log.info("notification via %s refused (%s); trying without the picture", cfg.kind, e.code)
+        except Exception as e:  # notifications must never break monitoring
             log.warning("notification via %s failed: %s", cfg.kind, e)
 
 
-def _request(cfg, title: str, event: dict) -> urllib.request.Request:
+def requests_for(cfg, title: str, event: dict, image: bytes | None) -> list[urllib.request.Request]:
+    """The request(s) to try, in order: with the picture first if there is one."""
+    msg = event["message"]
+    out: list[urllib.request.Request] = []
     if cfg.kind == "ntfy":
-        req = urllib.request.Request(cfg.url, data=event["message"].encode(), method="POST")
+        prio = {"error": "urgent", "warning": "high"}.get(event["level"], "default")
+        if image:
+            req = urllib.request.Request(cfg.url, data=image, method="PUT")
+            req.add_header("Filename", "plate.jpg")
+            req.add_header("Message", msg.replace("\n", "\\n"))
+            req.add_header("Title", title)
+            req.add_header("Priority", prio)
+            out.append(req)
+        req = urllib.request.Request(cfg.url, data=msg.encode(), method="POST")
         req.add_header("Title", title)
-        req.add_header("Priority", {"error": "urgent", "warning": "high"}.get(event["level"], "default"))
-        req.add_header(
-            "Tags", {"error": "rotating_light", "warning": "warning"}.get(event["level"], "printer")
-        )
+        req.add_header("Priority", prio)
+        out.append(req)
     elif cfg.kind == "discord":
-        body = {"content": f"**{title}**\n{event['message']}"}
-        req = urllib.request.Request(cfg.url, data=json.dumps(body).encode(), method="POST")
+        payload = {"content": f"**{title}**\n{msg}"}
+        if image:
+            boundary = secrets.token_hex(12)
+            payload["embeds"] = [{"image": {"url": "attachment://plate.jpg"}}]
+            body = (
+                (
+                    f'--{boundary}\r\nContent-Disposition: form-data; name="payload_json"\r\n'
+                    f"Content-Type: application/json\r\n\r\n{json.dumps(payload)}\r\n"
+                    f'--{boundary}\r\nContent-Disposition: form-data; name="files[0]"; filename="plate.jpg"\r\n'
+                    "Content-Type: image/jpeg\r\n\r\n"
+                ).encode()
+                + image
+                + f"\r\n--{boundary}--\r\n".encode()
+            )
+            req = urllib.request.Request(cfg.url, data=body, method="POST")
+            req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
+            out.append(req)
+        req = urllib.request.Request(
+            cfg.url, data=json.dumps({"content": f"**{title}**\n{msg}"}).encode(), method="POST"
+        )
         req.add_header("Content-Type", "application/json")
+        out.append(req)
     else:
         req = urllib.request.Request(
             cfg.url, data=json.dumps({"title": title, **event}).encode(), method="POST"
         )
         req.add_header("Content-Type", "application/json")
+        out.append(req)
     if cfg.token:
-        req.add_header("Authorization", f"Bearer {cfg.token}")
-    return req
+        for r in out:
+            r.add_header("Authorization", f"Bearer {cfg.token}")
+    return out

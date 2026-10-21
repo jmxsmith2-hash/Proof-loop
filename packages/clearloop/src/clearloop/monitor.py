@@ -26,6 +26,14 @@ from .vision import BedCheck, BedVerifier
 
 log = logging.getLogger(__name__)
 
+PHASE = {
+    1: "starting",
+    2: "cooling, door open",
+    3: "bending the plate",
+    4: "safety check",
+    5: "door closing",
+}
+
 SENTINEL_TEXT = {
     1: "FarmBoard reset: print starting, door closing",
     2: "print done: door opening, cooling",
@@ -55,8 +63,9 @@ class PrinterWatch:
         link,
         verifier: BedVerifier,
         store: Store,
-        emit: Callable[[dict], None] | None = None,
+        emit: Callable[..., None] | None = None,
         auto_resume: bool = True,
+        quiet_until: Callable[[], str | None] | None = None,
         settle_s: float = 3.0,
         run_async: Callable[[Callable[[], None]], None] | None = None,
         attempts: int = 3,
@@ -66,8 +75,11 @@ class PrinterWatch:
         self.link = link
         self.verifier = verifier
         self.store = store
-        self._emit = emit or (lambda e: None)
+        self._emit = emit or (lambda e, image=None: None)
         self.auto_resume = auto_resume
+        # Returns "HH:MM" while quiet hours are on (no new loop starts), else None.
+        self.quiet_until = quiet_until or (lambda: None)
+        self.pending_resume = False  # plate verified empty during quiet hours; resume when they end
         self.settle_s = settle_s
         self.run_async = run_async or (lambda fn: threading.Thread(target=fn, daemon=True).start())
         self.attempts = attempts
@@ -82,9 +94,17 @@ class PrinterWatch:
         self._sentinel = 0.0
         self._seen_hms: set[str] = set()
         self._checking = False
+        self.phase = ""
+        self.loop_no = 0
+        self._job = ""
+        self._marks: dict[int, float] = {}  # sentinel -> when it arrived, for the current loop
+        self._last_layer = 0
+        self._last_start = 0.0
 
-    def event(self, level: str, kind: str, message: str, data: dict | None = None) -> None:
-        self._emit(self.store.add_event(self.name, level, kind, message, data))
+    def event(
+        self, level: str, kind: str, message: str, data: dict | None = None, image: bytes | None = None
+    ) -> None:
+        self._emit(self.store.add_event(self.name, level, kind, message, data), image=image)
 
     # ---- printer updates -----------------------------------------------------------
     def on_state(self, s: PrinterState) -> None:
@@ -105,15 +125,55 @@ class PrinterWatch:
             if s.commands_rejected:
                 self.status = "the printer rejects commands: turn on Developer Mode (LAN-only mode)"
 
-            t = s.nozzle_target
-            if t != self._sentinel:
-                self._sentinel = t
-                if t in SENTINEL_TEXT and is_loop_job(s):
-                    self.event("info", "loop", SENTINEL_TEXT[int(t)])
+            self._track_loop(s)
 
             if s.gcode_state != self._gcode_state:
                 prev, self._gcode_state = self._gcode_state, s.gcode_state
                 self._on_gcode_state(prev, s)
+
+    def _track_loop(self, s: PrinterState) -> None:
+        """Loop number, current phase and measured phase times, from what the printer reports."""
+        now = time.time()
+        job = "|".join(job_names(s))
+        if job and job != self._job:
+            self._job, self.loop_no, self._marks, self._last_layer = job, 1, {}, 0
+        loop_job = is_loop_job(s)
+        t = s.nozzle_target
+        if t != self._sentinel:
+            self._sentinel = t
+            code = int(t) if t in PHASE else 0
+            if code and loop_job:
+                self.phase = PHASE[code]
+                self.event("info", "loop", SENTINEL_TEXT[code])
+                if code == 1:
+                    if 1 in self._marks:
+                        self.loop_no += 1
+                        self.store.add_timing(self.name, "loop", now - self._marks[1])
+                    self._marks = {1: now}
+                    self._last_start = now
+                else:
+                    self._marks[code] = now
+                if code == 3:
+                    self.store.bump(self.name, "bends")
+                    if 2 in self._marks:
+                        self.store.add_timing(self.name, "cooldown", now - self._marks[2])
+                if code == 5 and 2 in self._marks:
+                    self.store.add_timing(self.name, "cycle", now - self._marks[2])
+        # Stage 1 files have no FarmBoard signals: a new loop shows as the layer count starting over.
+        if (
+            loop_job
+            and s.total_layers
+            and self._last_layer >= s.total_layers
+            and 0 < s.layer_num < self._last_layer
+        ):
+            if now - self._last_start > 600:
+                self.loop_no += 1
+        if loop_job and s.layer_num and s.layer_num != self._last_layer and s.gcode_state == "RUNNING":
+            if not self._marks or max(self._marks) == 1:
+                self.phase = (
+                    f"printing layer {s.layer_num}/{s.total_layers}" if s.total_layers else "printing"
+                )
+        self._last_layer = s.layer_num
 
     def _on_gcode_state(self, prev: str, s: PrinterState) -> None:
         st = s.gcode_state
@@ -162,21 +222,24 @@ class PrinterWatch:
                     "no picture of the empty plate yet: add one in Monitor, then press 'Check again'",
                 )
                 return
-            check, err = None, None
+            check, err, jpeg = None, None, None
             for attempt in range(self.attempts):
                 try:
-                    check = self.verifier.check(self.link.snapshot())
+                    jpeg = self.link.snapshot()
+                    check = self.verifier.check(jpeg)
                     break
                 except Exception as e:  # cameras drop frames; retry before giving up
                     err = e
                     if attempt + 1 < self.attempts:
                         time.sleep(self.retry_s)
-            self._finish_check(reason, check, None if check else f"camera: {err}")
+            self._finish_check(reason, check, None if check else f"camera: {err}", jpeg)
         finally:
             with self.lock:
                 self._checking = False
 
-    def _finish_check(self, reason: str, check: BedCheck | None, problem: str | None) -> None:
+    def _finish_check(
+        self, reason: str, check: BedCheck | None, problem: str | None, jpeg: bytes | None = None
+    ) -> None:
         with self.lock:
             self.last_check = check
             self.last_check_ts = time.time()
@@ -196,8 +259,21 @@ class PrinterWatch:
                     f"plate not checked ({reason}): {problem}. The printer keeps waiting.",
                 )
             elif check.clear:
-                if reason == "loop end" and self.auto_resume and self.link.state.gcode_state == "PAUSE":
+                quiet = self.quiet_until()
+                at_pause = reason == "loop end" and self.link.state.gcode_state == "PAUSE"
+                if at_pause and self.auto_resume and quiet:
+                    self.pending_resume = True
+                    self.status = f"plate empty: the next loop starts when quiet hours end ({quiet})"
+                    self.event(
+                        "info",
+                        "quiet_hours",
+                        f"plate empty; holding the next loop until {quiet} (quiet hours)",
+                    )
+                    self.store.add_check(self.name, reason, True, check.changed_fraction, False)
+                    return
+                if at_pause and self.auto_resume:
                     resumed = bool(self.link.resume())
+                    self.pending_resume = False
                 self.waiting_for_you = reason == "loop end" and not resumed
                 self.status = "plate empty: next loop started" if resumed else "plate empty"
                 self.event(
@@ -216,6 +292,7 @@ class PrinterWatch:
                     "plate_not_clear",
                     f"parts left on the plate ({reason}). The printer is waiting; clear the plate.",
                     check.as_dict(),
+                    image=jpeg,
                 )
             self.store.add_check(
                 self.name,
@@ -233,6 +310,17 @@ class PrinterWatch:
             else "manual"
         )
         self._start_check(reason, settle=0.0)
+
+    def tick(self) -> None:
+        """Called every few seconds: start the held loop once quiet hours are over (after a fresh check)."""
+        with self.lock:
+            if self.pending_resume and not self.quiet_until() and self.link.state.gcode_state == "PAUSE":
+                self.pending_resume = False
+                self.check_again()
+
+    def reset_bends(self) -> None:
+        self.store.reset_counter(self.name, "bends")
+        self.event("info", "plate", "bend counter reset (new build plate)")
 
     def resume_anyway(self) -> bool:
         with self.lock:
@@ -252,4 +340,9 @@ class PrinterWatch:
                 "last_check_ts": self.last_check_ts,
                 "printer": self.link.state.as_dict(),
                 "stats": self.store.stats(self.name, time.time() - 7 * 86400),
+                "phase": self.phase,
+                "loop_no": self.loop_no,
+                "pending_resume": self.pending_resume,
+                "timings": self.store.timings(self.name),
+                "bends": self.store.counter(self.name, "bends"),
             }

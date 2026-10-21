@@ -43,6 +43,32 @@ Your browser opens ClearLoop at `http://localhost:8484`. Or run it with Docker:
    Optional tests show how your bed cools and confirm the FarmBoard door and
    bender respond.
 
+## More things it does
+
+- **Watch the sweep before you print.** Press *Play the sweep* to see the
+  exact pusher moves from the file, in the top and side views, at 5–40×.
+- **Plan a run.** Enter "I need 40 parts" and ClearLoop works out the loops.
+  Once the Monitor has timed your cooldowns, it also tells you when the run
+  will finish.
+- **Batch files.** Put different plates in one file, for example 3× plate A
+  then 2× plate B. ClearLoop refuses plates that don't share the same filament
+  slots, build plate and nozzle, because the printer maps filament once per
+  file.
+- **See exactly what was added.** *What ClearLoop adds to your file* shows
+  the inserted G-code blocks, with copy buttons. Your slicer's G-code is
+  untouched.
+- **Find printers automatically.** *Monitor › Find printers* listens for the
+  printers' own network announcements and fills in the IP, serial and model.
+  You still type the access code.
+- **Live loop status.** For each printer the Monitor shows the loop number,
+  the current phase (printing, cooling, bending, door), average cooldown and
+  loop times measured on your printer, and a plate-bend counter you reset
+  when you fit a new plate.
+- **Quiet hours.** Plates are still checked overnight, but the next loop waits
+  until morning, with the printer paused and its heaters off.
+- **Photo alerts.** When parts are left behind, the camera picture arrives
+  with the ntfy or Discord notification.
+
 ## Hardware
 
 | Setup | Profile | Where its moves come from |

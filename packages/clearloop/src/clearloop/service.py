@@ -73,8 +73,11 @@ class App:
         self.connect = connect
         self.link_factory = link_factory or self._default_link
         self.watches: dict[str, PrinterWatch] = {}
+        self._stop = threading.Event()
         for p in self.settings.printers:
             self._start_watch(p)
+        if connect:
+            threading.Thread(target=self._ticker, daemon=True, name="clearloop-ticker").start()
 
     # ---- settings ---------------------------------------------------------------
     def save_settings(self) -> None:
@@ -100,7 +103,14 @@ class App:
     def _start_watch(self, p: PrinterConfig) -> PrinterWatch:
         link = self.link_factory(p)
         w = PrinterWatch(
-            p.name, link, self.verifier(p), self.store, self._emit, p.auto_resume, p.verify.settle_s
+            p.name,
+            link,
+            self.verifier(p),
+            self.store,
+            self._emit,
+            p.auto_resume,
+            quiet_until=lambda: self.settings.quiet_hours.until(),
+            settle_s=p.verify.settle_s,
         )
         link.add_listener(w.on_state)
         if self.connect:
@@ -108,8 +118,16 @@ class App:
         self.watches[p.name] = w
         return w
 
-    def _emit(self, event: dict) -> None:
-        self.notifier.send(event)
+    def _emit(self, event: dict, image: bytes | None = None) -> None:
+        self.notifier.send(event, image)
+
+    def _ticker(self) -> None:
+        while not self._stop.wait(15):
+            for w in list(self.watches.values()):
+                try:
+                    w.tick()
+                except Exception:
+                    log.exception("%s: tick failed", w.name)
 
     def add_printer(self, p: PrinterConfig) -> PrinterWatch:
         if any(x.name == p.name for x in self.settings.printers):
@@ -135,6 +153,7 @@ class App:
         raise KeyError(name)
 
     def shutdown(self) -> None:
+        self._stop.set()
         for w in self.watches.values():
             close = getattr(w.link, "close", None)
             if close:

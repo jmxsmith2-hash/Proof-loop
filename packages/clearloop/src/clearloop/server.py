@@ -11,8 +11,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from . import __version__, printers, threemf
 from .calibration import TESTS, build_test
-from .config import Defaults, Notifier, PrinterConfig
-from .gcode.processor import ProcessError, analyze, process
+from .config import Defaults, Notifier, PrinterConfig, QuietHours
+from .gcode.processor import ProcessError, analyze, changes, compatibility, process, process_batch
 from .importer import ImportError_, import_profile
 from .lint import lint
 from .service import App, loop_settings
@@ -114,6 +114,7 @@ def create_app(app: App) -> FastAPI:
             "printers": {k: v for k, v in printers.MODEL_IDS.items()},
             "monitor": [w.as_dict() for w in app.watches.values()],
             "notifications": [n.model_dump(exclude={"token"}) for n in app.settings.notifications],
+            "quiet_hours": app.settings.quiet_hours.model_dump(),
         }
 
     # ---- make a loop file ---------------------------------------------------------
@@ -145,6 +146,73 @@ def create_app(app: App) -> FastAPI:
         sf = app.uploads.get(token)
         defaults, st = _settings(app, body)
         r = process(sf, profile(defaults.profile_id), st)
+        return Response(
+            r.data,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{r.filename}"',
+                "X-ClearLoop-Filename": r.filename,
+            },
+        )
+
+    @api.post("/api/plates/{token}/changes", dependencies=guard)
+    def plate_changes(token: str, body: dict):
+        sf = app.uploads.get(token)
+        defaults, st = _settings(app, body)
+        return changes(sf, profile(defaults.profile_id), st)
+
+    # ---- batch: several plates in one file --------------------------------------------
+    def batch_items(body: dict):
+        items = []
+        for it in body.get("items", []):
+            try:
+                items.append((app.uploads.get(str(it["token"])), int(it.get("count", 1))))
+            except (KeyError, TypeError, ValueError) as e:
+                raise HTTPException(
+                    422, "each batch item needs a token from an uploaded plate and a count"
+                ) from e
+        if not items:
+            raise HTTPException(422, "add plates to the batch first")
+        return items
+
+    @api.post("/api/batch/preview", dependencies=guard)
+    def batch_preview(body: dict):
+        items = batch_items(body)
+        defaults, st = _settings(app, body.get("settings"))
+        prof = profile(defaults.profile_id)
+        first = items[0][0]
+        rows, problems = [], []
+        for sf, n in items:
+            row = {
+                "file": sf.name,
+                "count": n,
+                "parts": 0,
+                "print_seconds": sf.info.print_seconds,
+                "problems": [],
+            }
+            row["problems"] += compatibility(first, sf) if sf is not first else []
+            try:
+                a = analyze(sf, prof, st)
+                row["parts"] = len(a.parts)
+                row["problems"] += a.problems
+                row["sweep_s"] = round(a.sweep_s)
+            except ProcessError as e:
+                row["problems"].append(str(e))
+            problems += row["problems"]
+            rows.append(row)
+        return {
+            "items": rows,
+            "loops": sum(n for _, n in items),
+            "parts": sum(r["parts"] * r["count"] for r in rows),
+            "print_seconds": sum(r["print_seconds"] * r["count"] for r in rows),
+            "ok": not problems,
+        }
+
+    @api.post("/api/batch/download", dependencies=guard)
+    def batch_download(body: dict):
+        items = batch_items(body)
+        defaults, st = _settings(app, body.get("settings"))
+        r = process_batch(items, profile(defaults.profile_id), st)
         return Response(
             r.data,
             media_type="application/octet-stream",
@@ -235,6 +303,36 @@ def create_app(app: App) -> FastAPI:
     def remove_printer(name: str):
         app.remove_printer(name)
         return {"removed": name}
+
+    @api.get("/api/discover", dependencies=guard)
+    def discover_printers(seconds: float = 6.0):
+        from .printer.discovery import DiscoveryError, discover
+
+        try:
+            found = discover(min(max(seconds, 2.0), 15.0))
+        except DiscoveryError as e:
+            raise HTTPException(503, str(e)) from e
+        known = {p.serial for p in app.settings.printers}
+        for f in found:
+            f["model"] = (
+                printers.model_name(f["model_id"]) if f["model_id"] in printers.MODEL_IDS else f["model_id"]
+            )
+            f["added"] = f["serial"] in known
+        return found
+
+    @api.put("/api/quiet-hours", dependencies=guard)
+    def put_quiet(body: dict):
+        try:
+            app.settings.quiet_hours = QuietHours.model_validate(body)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        app.save_settings()
+        return app.settings.quiet_hours.model_dump()
+
+    @api.post("/api/monitor/{name}/bends/reset", dependencies=guard)
+    def reset_bends(name: str):
+        watch(name).reset_bends()
+        return watch(name).as_dict()
 
     @api.get("/api/monitor/{name}/snapshot", dependencies=guard)
     def snapshot(name: str):

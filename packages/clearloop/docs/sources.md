@@ -33,6 +33,9 @@ facts.
 | HMS 0500-0500-0001-0007 = "MQTT command verification failed" (Developer Mode off) | Monitor tells you to turn on Developer Mode | BD `bambu_mqtt.py` |
 | A1, A1 mini, P1P, P1S camera: TLS on port 6000, 80-byte auth packet, 16-byte header + JPEG | Plate check | BD `camera.py` |
 | X1, X2D, H2, P2S camera: RTSPS on port 322; Debian's GnuTLS ffmpeg drops P2S streams, so a local OpenSSL proxy is used | Plate check | BD `camera.py` |
+| Printers announce themselves with SSDP on UDP port 2021 (multicast 239.255.255.250, `ST: urn:bambulab-com:device:3dprinter:1`), with `USN` = serial, `DevName.bambu.com`, `DevModel.bambu.com` = model id | *Find printers* | BD `discovery.py` |
+| ntfy takes a picture as a PUT body with `Filename` and `Message` headers; Discord as multipart with `payload_json` + `files[0]` | Photo alerts | BD `notification_service.py` |
+| A batch's filament mapping comes from the file's first plate | Batches require the same filament slots, plate and nozzle | Inference from the 3MF layout (one `slice_info.config` per file), so ClearLoop refuses anything else |
 | `Metadata/plate_N.gcode.md5` is upper-case MD5 hex; FarmLoop changes only the plate G-code and its checksum | File writing | EV (compared every archive member) |
 
 ## FarmLoop hardware facts

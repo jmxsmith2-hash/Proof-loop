@@ -207,3 +207,26 @@ def sweep_seconds(plan: SweepPlan, geo: SweepGeometry, max_xy: float, max_z: flo
                 z = tz
                 total += 2 * t(depth, p.feed, max_xy)
     return total
+
+
+def sweep_path(plan: SweepPlan, geo: SweepGeometry) -> list[dict]:
+    """The sweep as a list of toolhead positions, read back from the exact G-code ClearLoop writes.
+
+    The toolhead's XY position before the sweep depends on the printer's own end G-code, so the
+    path starts behind the plate at the first lane; every move after that is the file's own.
+    """
+    import re
+
+    word = re.compile(r"([XYZF])\s*([-+]?\d+\.?\d*)")
+    first_x = plan.passes[0].lanes[0].x if plan.passes and plan.passes[0].lanes else 0.0
+    pos = {"X": first_x, "Y": geo.y_rear, "Z": plan.travel_z, "F": float(geo.z_feed)}
+    path = []
+    for line in sweep_gcode(plan, geo).splitlines():
+        code = line.split(";", 1)[0].strip()
+        if not code.startswith(("G1 ", "G0 ")):
+            continue
+        w = {k: float(v) for k, v in word.findall(code)}
+        pos = {**pos, **w}
+        push = "Y" in w and w["Y"] == geo.y_front
+        path.append({"x": pos["X"], "y": pos["Y"], "z": round(pos["Z"], 2), "f": pos["F"], "push": push})
+    return path

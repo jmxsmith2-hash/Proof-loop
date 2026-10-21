@@ -49,6 +49,17 @@ input[type=number]{max-width:140px}
 .slide input[type=number]{max-width:84px}
 input[type=range]{width:100%;accent-color:var(--accent);margin:0}
 .pslide{display:grid;grid-template-columns:minmax(90px,1fr) 52px auto;gap:8px;align-items:center;min-width:220px}
+.anim-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 6px}
+.anim-bar .muted{font-size:12.5px}
+.anim-bar select{width:auto}
+.batch-row{display:grid;grid-template-columns:minmax(0,1fr) 120px auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.batch-row:first-child{border-top:0}
+.stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.stepper button{border:0;background:var(--soft);color:var(--ink);width:30px;height:30px;font:inherit;cursor:pointer}
+.stepper span{min-width:34px;text-align:center;font-variant-numeric:tabular-nums}
+.phase{display:flex;gap:4px;margin:6px 0 10px;flex-wrap:wrap}
+.phase span{font-size:11.5px;padding:3px 7px;border-radius:99px;background:var(--soft);color:var(--muted)}
+.phase span.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
 .linkbtn{border:0;background:none;color:var(--accent);font:inherit;font-size:12.5px;cursor:pointer;padding:0}
 .inline input[type=number]{max-width:110px}
 .toggle{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;cursor:pointer}
@@ -127,6 +138,9 @@ details summary{cursor:pointer;font-weight:600}
         <div class="spread"><h2 id="plateTitle">Plate</h2><span id="plateChip"></span></div>
         <dl class="kv" id="plateFacts"></dl>
         <h3>Top view <span class="muted" style="font-weight:400">· front of the printer at the bottom</span></h3>
+        <div class="anim-bar"><button class="btn" id="playSweep">▶ Play the sweep</button>
+          <select id="animSpeed" aria-label="Playback speed"><option value="5">5× speed</option><option value="15" selected>15×</option><option value="40">40×</option></select>
+          <span class="muted" id="animInfo">Watch the exact pusher moves from the file.</span></div>
         <div class="svgwrap" id="topView"></div>
         <div class="legend"><span><i style="background:var(--accent);opacity:.35"></i>part</span><span><i style="background:var(--ok)"></i>sweep lane</span><span>numbers = push heights (Z, mm)</span></div>
         <h3>Side view <span class="muted" style="font-weight:400">· parts and where the pusher reaches them</span></h3>
@@ -137,6 +151,20 @@ details summary{cursor:pointer;font-weight:600}
         <h2>One loop, step by step</h2>
         <div class="timeline" id="timeline"></div>
         <p class="hint" id="loopTotal"></p>
+      </div>
+      <div class="card">
+        <h2>Plan a production run</h2>
+        <div class="row" style="align-items:flex-end">
+          <label class="field" style="margin:0"><span>Parts needed</span><input type="number" id="planQty" min="1" max="100000" placeholder="e.g. 40"></label>
+          <label class="field" style="margin:0;flex:1;min-width:180px"><span>Cooldown time from</span><select id="planPrinter"></select></label>
+          <button class="btn" id="planApply" disabled>Use these loops</button>
+        </div>
+        <p id="planOut" class="hint" style="margin-top:10px">Enter how many parts you need. ClearLoop works out the loops and, once the Monitor has timed your cooldowns, when the run will finish.</p>
+      </div>
+      <div class="card">
+        <div class="spread"><h2>What ClearLoop adds to your file</h2><button class="btn" id="showChanges">Show the G-code</button></div>
+        <p class="hint">Your slicer's G-code is untouched. These are the only lines added, in the first loop.</p>
+        <div id="changesOut"></div>
       </div>
     </div>
 
@@ -157,6 +185,13 @@ details summary{cursor:pointer;font-weight:600}
       <div class="card">
         <h2>Checks</h2>
         <ul class="list" id="checks"></ul>
+      </div>
+      <div class="card" id="batchCard">
+        <div class="spread"><h2>Batch</h2><button class="btn" id="addToBatch">+ Add this plate</button></div>
+        <p class="hint" id="batchHint">Mix plates in one file, for example 3× plate A then 2× plate B. Drop another plate after adding this one. Every plate must use the same filament slots, build plate and nozzle, because the printer maps filament once per file.</p>
+        <div id="batchRows"></div>
+        <div id="batchOut"></div>
+        <button class="btn primary hidden" id="batchDownload" style="width:100%;justify-content:center;margin-top:10px">Download batch file</button>
       </div>
       <div class="card">
         <button class="btn primary big" id="download" style="width:100%;justify-content:center">Download loop file</button>
@@ -187,7 +222,8 @@ details summary{cursor:pointer;font-weight:600}
     </div>
     <div class="grid" style="align-content:start">
       <div class="card">
-        <h2>Add a printer</h2>
+        <div class="spread"><h2>Add a printer</h2><button type="button" class="btn" id="findPrinters">Find printers</button></div>
+        <div id="foundPrinters"></div>
         <form id="addPrinter">
           <label class="field"><span>Name</span><input type="text" name="name" required placeholder="P2S left"></label>
           <label class="field"><span>Model</span><select name="model_id" id="modelSelect"></select></label>
@@ -198,7 +234,18 @@ details summary{cursor:pointer;font-weight:600}
         </form>
       </div>
       <div class="card">
+        <h2>Quiet hours</h2>
+        <p class="hint">Plates are still checked overnight, but the next loop waits until morning. The printer stays paused with its heaters off.</p>
+        <form id="quietForm">
+          <label class="toggle"><input type="checkbox" name="enabled"><span><b>Hold new loops during quiet hours</b></span></label>
+          <div class="row"><label class="field" style="margin:0"><span>From</span><input type="text" name="start" placeholder="22:00" style="max-width:100px"></label>
+          <label class="field" style="margin:0"><span>Until</span><input type="text" name="end" placeholder="07:00" style="max-width:100px"></label>
+          <button class="btn primary" style="align-self:flex-end">Save</button></div>
+        </form>
+      </div>
+      <div class="card">
         <h2>Notifications</h2>
+        <p class="hint" style="margin-top:-4px">When a plate check finds parts left behind, the camera picture comes with the alert.</p>
         <p class="hint">Get a phone alert when a plate check fails. ntfy is free: install the app, pick a private topic, paste its URL.</p>
         <form id="notifyForm">
           <label class="field"><span>Service</span><select name="kind"><option value="ntfy">ntfy</option><option value="discord">Discord webhook</option><option value="webhook">Other webhook (JSON)</option></select></label>
@@ -363,7 +410,9 @@ function renderPlate(a, keepSettings) {
     ['Print time', fmtDur(a.print_seconds)], ['Parts', a.parts.length], ['Sliced with', a.slicer || '—'],
   ].map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   if (!keepSettings) fillSettings(a.settings, a); else fillSettings(currentSettings(), a);
-  drawTop(a); drawSide(a);
+  stopAnim(); drawTop(a); drawSide(a); planPrinters(); renderPlan();
+  $('#changesOut').innerHTML = '';
+  $('#addToBatch').textContent = BATCH.some(b => b.token === a.token) ? '✓ In the batch' : '+ Add this plate';
   const floor = +$('#sFloor').value || 0;
   $('#partTable').innerHTML = '<tr><th>Part</th><th>Height</th><th>Push at</th><th></th></tr>' + a.parts.map(p => {
     const z = a.plan.part_push[p.label], reached = z != null && z < p.height;
@@ -395,10 +444,12 @@ function renderPlate(a, keepSettings) {
 }
 
 function heightColor(h, max) { const t = max ? h / max : 0; return `hsl(${215 - t * 30} 75% ${62 - t * 22}%)`; }
+let TOPMAP = null, SIDEMAP = null, ANIM = null;
 function drawTop(a) {
   const [W, H] = a.bed, pad = 14, s = 360 / Math.max(W, H);
   const w = W * s, h = H * s, max = Math.max(...a.parts.map(p => p.height), 1);
   const X = x => pad + x * s, Y = y => pad + (H - y) * s;
+  TOPMAP = {X, Y};
   const pass = a.plan.passes[0] || {lanes: []};
   const uniq = [...new Map(pass.lanes.map(l => [l.x, l])).values()].sort((p, q) => p.x - q.x);
   let lanes = '', lastX = -1e9, row = 0;
@@ -411,12 +462,13 @@ function drawTop(a) {
   const parts = a.parts.map(p => `<g><rect x="${X(p.xmin)}" y="${Y(p.ymax)}" width="${(p.xmax - p.xmin) * s}" height="${(p.ymax - p.ymin) * s}" rx="2" fill="${heightColor(p.height, max)}" fill-opacity=".55" stroke="var(--accent)"/>
       <title>${esc(p.name)} · ${p.height} mm</title><text x="${X((p.xmin + p.xmax) / 2)}" y="${Y((p.ymin + p.ymax) / 2) + 3}" font-size="10" text-anchor="middle" fill="var(--ink)">${p.height.toFixed(0)} mm</text></g>`).join('');
   $('#topView').innerHTML = `<svg viewBox="0 ${-14} ${w + pad * 2} ${h + pad * 2 + 30}" role="img" aria-label="Top view of the plate">
-    <rect x="${pad}" y="${pad}" width="${w}" height="${h}" rx="6" fill="var(--soft)" stroke="var(--line)"/>${lanes}${parts}
+    <rect x="${pad}" y="${pad}" width="${w}" height="${h}" rx="6" fill="var(--soft)" stroke="var(--line)"/>${lanes}${parts}<g id="animTop"></g>
     <text x="${pad + w / 2}" y="${h + pad * 2 + 10}" font-size="11" text-anchor="middle" fill="var(--muted)">front · door · parts leave this way ↓</text></svg>`;
 }
 function drawSide(a) {
   const W = a.bed[0], Hmax = Math.max(...a.parts.map(p => p.height), 20) * 1.15, pw = 380, ph = 150, pad = 26;
   const X = x => pad + x / W * pw, Y = z => 8 + ph - z / Hmax * ph;
+  SIDEMAP = {X, Y, Hmax};
   const bars = a.parts.map(p => `<rect x="${X(p.xmin)}" y="${Y(p.height)}" width="${Math.max(2, X(p.xmax) - X(p.xmin))}" height="${Y(0) - Y(p.height)}" fill="var(--accent)" fill-opacity=".3" stroke="var(--accent)"><title>${esc(p.name)} · ${p.height} mm</title></rect>`).join('');
   const seen = new Set(); let dots = '';
   (a.plan.passes[0] || {lanes: []}).lanes.forEach(l => { if (seen.has(l.x)) return; seen.add(l.x);
@@ -425,7 +477,7 @@ function drawSide(a) {
     <line x1="${pad}" x2="${pad + pw}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--muted)"/>
     <line x1="${pad}" x2="${pad + pw}" y1="${Y(+$('#sFloor').value || 0)}" y2="${Y(+$('#sFloor').value || 0)}" stroke="var(--warn)" stroke-dasharray="3 3"/>
     <text x="${pad + pw}" y="${Y(+$('#sFloor').value || 0) - 3}" font-size="9" text-anchor="end" fill="var(--warn)">sweep floor</text>
-    ${bars}${dots}<text x="${pad}" y="${ph + 26}" font-size="10" fill="var(--muted)">X 0</text><text x="${pad + pw}" y="${ph + 26}" font-size="10" text-anchor="end" fill="var(--muted)">X ${W}</text></svg>`;
+    ${bars}${dots}<g id="animSide"></g><text x="${pad}" y="${ph + 26}" font-size="10" fill="var(--muted)">X 0</text><text x="${pad + pw}" y="${ph + 26}" font-size="10" text-anchor="end" fill="var(--muted)">X ${W}</text></svg>`;
 }
 
 $('#partTable').addEventListener('input', (e) => {
@@ -446,6 +498,134 @@ $('#download').onclick = async () => {
   catch (e) { toast(e.message); }
 };
 $('#saveDefaults').onclick = async () => { try { STATE.defaults = await send('/api/defaults', currentSettings(), 'PUT'); toast('Saved as your defaults'); } catch (e) { toast(e.message); } };
+
+
+// ---------- sweep animation: replays the exact moves in the file ----------
+function stopAnim() { if (ANIM) { cancelAnimationFrame(ANIM.raf); ANIM = null; } $('#playSweep').textContent = '▶ Play the sweep'; }
+$('#playSweep').onclick = () => {
+  if (ANIM) { stopAnim(); return; }
+  if (!PLATE || !PLATE.path || PLATE.path.length < 2) return;
+  const pts = PLATE.path, speed = +$('#animSpeed').value;
+  // time of each segment from its distance and feed (mm/min), so slow and fast passes look right
+  const segs = []; let total = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const d = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z); const t = d / Math.max(1, b.f / 60);
+    segs.push({a, b, t0: total, t}); total += t;
+  }
+  const gTop = $('#animTop'), gSide = $('#animSide');
+  gTop.innerHTML = '<path id="trail" fill="none" stroke="var(--ok)" stroke-width="2.5" stroke-opacity=".55" stroke-linecap="round" d=""/><circle id="head" r="5" fill="var(--warn)" stroke="#fff" stroke-width="1.5"/>';
+  gSide.innerHTML = '<circle id="headSide" r="4.5" fill="var(--warn)" stroke="#fff" stroke-width="1.5"/>';
+  let trail = '', lastSeg = -1;
+  const start = performance.now();
+  $('#playSweep').textContent = '■ Stop';
+  const frame = (now) => {
+    const t = (now - start) / 1000 * speed;
+    let i = segs.findIndex(sg => t < sg.t0 + sg.t); if (i < 0) i = segs.length - 1;
+    const sg = segs[i], k = sg.t ? Math.min(1, Math.max(0, (t - sg.t0) / sg.t)) : 1;
+    const x = sg.a.x + (sg.b.x - sg.a.x) * k, y = sg.a.y + (sg.b.y - sg.a.y) * k, z = sg.a.z + (sg.b.z - sg.a.z) * k;
+    const hx = TOPMAP.X(x), hy = TOPMAP.Y(y);
+    $('#head').setAttribute('cx', hx); $('#head').setAttribute('cy', hy);
+    if (sg.b.push) {
+      // each push is its own stroke, so lanes never get joined by diagonal lines
+      if (i !== lastSeg) { trail += ` M${TOPMAP.X(sg.a.x).toFixed(1)} ${TOPMAP.Y(sg.a.y).toFixed(1)}`; lastSeg = i; }
+      trail += ` L${hx.toFixed(1)} ${hy.toFixed(1)}`; $('#trail').setAttribute('d', trail);
+    }
+    if (z <= SIDEMAP.Hmax) { $('#headSide').setAttribute('cx', SIDEMAP.X(x)); $('#headSide').setAttribute('cy', SIDEMAP.Y(z)); }
+    $('#animInfo').textContent = `X${x.toFixed(0)} Y${y.toFixed(0)} Z${z.toFixed(1)} · ${sg.b.push ? 'pushing' : 'moving'} · ${fmtDur(Math.min(t, total))} of ${fmtDur(total)}`;
+    if (t < total) ANIM.raf = requestAnimationFrame(frame); else { stopAnim(); $('#animInfo').textContent = `Done: ${pts.filter(p => p.push).length} pushes in about ${fmtDur(total)}.`; }
+  };
+  ANIM = {raf: requestAnimationFrame(frame)};
+};
+
+// ---------- production planner ----------
+function planPrinters() {
+  const sel = $('#planPrinter'), prev = sel.value;
+  const timed = (STATE.monitor || []).filter(m => m.timings && m.timings.cooldown);
+  sel.innerHTML = (timed.length ? timed.map(m => `<option value="${esc(m.name)}">${esc(m.name)}: cooldown ${fmtDur(m.timings.cooldown.avg)} avg</option>`).join('') : '') + '<option value="">Not measured yet</option>';
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+}
+function renderPlan() {
+  if (!PLATE) return;
+  const qty = +$('#planQty').value, per = PLATE.parts.length;
+  if (!qty || !per) { $('#planApply').disabled = true; return; }
+  const loops = Math.ceil(qty / per), extra = loops * per - qty;
+  const m = (STATE.monitor || []).find(x => x.name === $('#planPrinter').value);
+  const known = PLATE.steps.reduce((t, s) => t + (s.seconds || 0), 0);
+  let eta = `About ${fmtDur(known * loops)} of printing and fixed steps`;
+  if (m && m.timings.cooldown) {
+    const total = (known + m.timings.cooldown.avg) * loops, done = new Date(Date.now() + total * 1000);
+    eta = `About <b>${fmtDur(total)}</b> in total, using ${esc(m.name)}'s measured cooldown. Started now, it would finish around <b>${done.toLocaleString([], {weekday: 'short', hour: '2-digit', minute: '2-digit'})}</b>`;
+  } else eta += ', plus the cooldown after each loop (the Monitor times it on your printer)';
+  $('#planOut').innerHTML = `<b>${loops} loop${loops > 1 ? 's' : ''}</b> of ${per} part${per > 1 ? 's' : ''} = ${loops * per} parts${extra ? ` (${extra} spare)` : ''}. ${eta}.`;
+  $('#planApply').disabled = false; $('#planApply').dataset.loops = loops;
+}
+['#planQty', '#planPrinter'].forEach(id => $(id).addEventListener('input', renderPlan));
+$('#planApply').onclick = () => { $('#sLoops').value = $('#planApply').dataset.loops; syncSliders(); reanalyze(); toast('Loops set to ' + $('#planApply').dataset.loops); };
+
+// ---------- what ClearLoop adds ----------
+$('#showChanges').onclick = async () => {
+  try {
+    const c = await send(`/api/plates/${PLATE.token}/changes`, currentSettings());
+    $('#changesOut').innerHTML = `<p class="hint">${c.lines_added} lines added per loop${c.loops > 1 ? `, repeated for all ${c.loops} loops` : ''}.</p>` +
+      c.blocks.map((b, i) => `<h3>${b.name === 'START' ? 'At the start, after the start template line' : 'After the print, before the end of the executable block'} <button class="linkbtn" data-copy="${i}">copy</button></h3><pre class="code mono">${esc(b.gcode)}</pre>`).join('');
+    $('#changesOut').querySelectorAll('[data-copy]').forEach(btn => btn.onclick = async () => { try { await navigator.clipboard.writeText(c.blocks[+btn.dataset.copy].gcode); toast('Copied'); } catch (e) { toast('Copy not allowed here; select the text instead'); } });
+  } catch (e) { toast(e.message); }
+};
+
+// ---------- batch ----------
+let BATCH = [];
+$('#addToBatch').onclick = () => {
+  if (!PLATE) return;
+  if (BATCH.some(b => b.token === PLATE.token)) { toast('This plate is already in the batch'); return; }
+  BATCH.push({token: PLATE.token, file: PLATE.file, parts: PLATE.parts.length, count: +$('#sLoops').value || 1});
+  $('#addToBatch').textContent = '✓ In the batch';
+  renderBatch(); toast('Added. Drop another plate to add it too.');
+};
+function renderBatch() {
+  $('#batchRows').innerHTML = BATCH.map((b, i) => `<div class="batch-row"><div><b>${esc(b.file)}</b><div class="hint">${b.parts} part${b.parts > 1 ? 's' : ''} per plate</div></div>
+    <div class="stepper"><button data-b="${i}" data-d="-1" aria-label="fewer">−</button><span>${b.count}×</span><button data-b="${i}" data-d="1" aria-label="more">+</button></div>
+    <div class="row"><button class="linkbtn" data-up="${i}" ${i ? '' : 'disabled'}>↑</button><button class="linkbtn" data-rm="${i}">remove</button></div></div>`).join('');
+  $('#batchDownload').classList.toggle('hidden', !BATCH.length);
+  if (BATCH.length) previewBatch(); else $('#batchOut').innerHTML = '';
+}
+$('#batchRows').addEventListener('click', (e) => {
+  const t = e.target;
+  if (t.dataset.d) { const b = BATCH[+t.dataset.b]; b.count = Math.max(1, Math.min(50, b.count + +t.dataset.d)); }
+  else if (t.dataset.up) { const i = +t.dataset.up; [BATCH[i - 1], BATCH[i]] = [BATCH[i], BATCH[i - 1]]; }
+  else if (t.dataset.rm) { BATCH.splice(+t.dataset.rm, 1); }
+  else return;
+  renderBatch();
+});
+const batchBody = () => ({items: BATCH.map(b => ({token: b.token, count: b.count})), settings: {...currentSettings(), part_push: {}}});
+async function previewBatch() {
+  try {
+    const r = await send('/api/batch/preview', batchBody());
+    const probs = r.items.flatMap(it => it.problems);
+    $('#batchOut').innerHTML = `<p class="hint"><b>${r.loops} loops</b>, ${r.parts} parts, about ${fmtDur(r.print_seconds)} of printing plus cooldowns.</p>` +
+      (probs.length ? `<ul class="list">${probs.map(p => `<li><span class="ic danger">✖</span><div>${esc(p)}</div></li>`).join('')}</ul>` : '');
+    $('#batchDownload').disabled = !r.ok;
+  } catch (e) { $('#batchOut').innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; $('#batchDownload').disabled = true; }
+}
+$('#batchDownload').onclick = async () => {
+  try { const r = await api('/api/batch/download', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(batchBody())}); toast('Saved ' + await saveBlob(r, 'batch.gcode.3mf')); }
+  catch (e) { toast(e.message); }
+};
+
+// ---------- monitor: discovery and quiet hours ----------
+$('#findPrinters').onclick = async () => {
+  const out = $('#foundPrinters'); out.innerHTML = '<p class="hint">Listening for printers on your network (about 6 s)…</p>';
+  try {
+    const found = await json('/api/discover');
+    out.innerHTML = found.length ? `<ul class="list">${found.map((f, i) => `<li><div style="flex:1"><b>${esc(f.name)}</b><div class="hint">${esc(f.model || '?')} · ${esc(f.host)} · ${esc(f.serial)}</div></div>${f.added ? '<span class="chip ok">added</span>' : `<button class="btn" data-use="${i}">Use</button>`}</li>`).join('')}</ul>`
+      : '<p class="hint">No printers answered. Check that this computer is on the same network, or type the details below.</p>';
+    out.querySelectorAll('[data-use]').forEach(b => b.onclick = () => { const f = found[+b.dataset.use], form = $('#addPrinter');
+      form.name.value = f.name; form.host.value = f.host; form.serial.value = f.serial; if (STATE.printers[f.model_id]) form.model_id.value = f.model_id;
+      form.access_code.focus(); toast('Now enter the access code from the printer screen'); });
+  } catch (e) { out.innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; }
+};
+$('#quietForm').onsubmit = async (e) => { e.preventDefault(); const f = e.target;
+  try { await send('/api/quiet-hours', {enabled: f.enabled.checked, start: f.start.value || '22:00', end: f.end.value || '07:00'}, 'PUT'); toast('Quiet hours saved'); } catch (err) { toast(err.message); } };
 
 // ---------- check ----------
 dropZone($('#checkDrop'), $('#checkFile'), async (file) => {
@@ -469,7 +649,11 @@ async function refreshMonitor() {
       const lc = m.last_check ? `${m.last_check.clear ? '<span class="chip ok">plate empty</span>' : '<span class="chip bad">parts left</span>'} <span class="muted">${new Date(m.last_check_ts * 1000).toLocaleTimeString()}</span>` : '<span class="muted">no check yet</span>';
       return `<div class="card"><div class="spread"><h2>${esc(m.name)}</h2>${chip}</div>
         <p style="margin:0 0 8px">${esc(m.status)}</p>
-        <dl class="kv"><dt>Job</dt><dd>${esc(p.job || '—')}</dd><dt>Progress</dt><dd>${p.percent}% · layer ${p.layer}/${p.total_layers}</dd><dt>Bed</dt><dd>${p.bed_temp.toFixed(0)} °C</dd><dt>Last check</dt><dd>${lc}</dd><dt>Empty-plate pictures</dt><dd>${m.references ? m.references : '<span class="chip warn">none yet</span>'}</dd><dt>This week</dt><dd>${m.stats.checks} loop checks, ${m.stats.resumed} resumed automatically</dd></dl>
+        ${m.loop_no ? `<div class="phase">${['starting', 'printing', 'cooling, door open', 'bending the plate', 'safety check', 'door closing'].map(ph => `<span class="${(m.phase || '').startsWith(ph.split(' ')[0]) ? 'on' : ''}">${esc(ph.split(',')[0])}</span>`).join('')}</div>` : ''}
+        <dl class="kv">${m.loop_no ? `<dt>Loop</dt><dd><b>${m.loop_no}</b> · ${esc(m.phase || '—')}</dd>` : ''}<dt>Job</dt><dd>${esc(p.job || '—')}</dd><dt>Progress</dt><dd>${p.percent}% · layer ${p.layer}/${p.total_layers}</dd><dt>Bed</dt><dd>${p.bed_temp.toFixed(0)} °C</dd><dt>Last check</dt><dd>${lc}</dd><dt>Empty-plate pictures</dt><dd>${m.references ? m.references : '<span class="chip warn">none yet</span>'}</dd><dt>This week</dt><dd>${m.stats.checks} loop checks, ${m.stats.resumed} resumed automatically</dd>
+          <dt>Measured</dt><dd>${m.timings.cooldown ? `cooldown ${fmtDur(m.timings.cooldown.avg)} avg (${m.timings.cooldown.n})` : 'cooldown not timed yet'}${m.timings.loop ? ` · loop ${fmtDur(m.timings.loop.avg)}` : ''}</dd>
+          <dt>Plate bends</dt><dd>${m.bends.value}${m.bends.since ? ` since ${new Date(m.bends.since * 1000).toLocaleDateString()}` : ''} <button class="linkbtn" data-act="bends" data-n="${n}">new plate</button></dd></dl>
+        ${m.pending_resume ? '<p><span class="chip info">holding for quiet hours</span></p>' : ''}
         ${p.hms.length ? `<p class="hint" style="color:var(--bad)">HMS: ${p.hms.map(h => esc(h.code + ' (' + h.level + ')')).join(', ')}</p>` : ''}
         <img class="thumb hidden" alt="Camera picture" data-img="${n}">
         <div class="row" style="margin-top:10px">
@@ -482,6 +666,8 @@ async function refreshMonitor() {
     }).join('');
     const ev = await json('/api/events?limit=40');
     $('#events').innerHTML = '<tr><th>Time</th><th>Printer</th><th>What happened</th></tr>' + (ev.length ? '' : '<tr><td colspan="3" class="muted">Nothing yet. Events appear here as printers connect and loops run.</td></tr>') + ev.map(e => `<tr><td class="num muted">${new Date(e.ts * 1000).toLocaleString()}</td><td>${esc(e.printer || '')}</td><td>${e.level === 'error' ? '<span class="chip bad">!</span> ' : e.level === 'warning' ? '<span class="chip warn">!</span> ' : ''}${esc(e.message)}</td></tr>`).join('');
+    const q = STATE.quiet_hours, qf = $('#quietForm');
+    if (q && document.activeElement?.form !== qf) { qf.enabled.checked = q.enabled; qf.start.value = q.start; qf.end.value = q.end; }
     const nt = STATE.notifications[0];
     if (nt) { const f = $('#notifyForm'); f.kind.value = nt.kind; f.url.value = nt.url; f.min_level.value = nt.min_level; }
   } catch (e) { toast(e.message); }
@@ -496,6 +682,7 @@ $('#printerCards').addEventListener('click', async (e) => {
     if (b.dataset.act === 'ref') { if (!confirm('Is the plate empty right now? This picture is what "empty" looks like.')) return; await json(`/api/monitor/${n}/references`, {method: 'POST'}); toast('Saved. Add a few, with the door open and closed and the light on and off.'); }
     if (b.dataset.act === 'check') { await json(`/api/monitor/${n}/check`, {method: 'POST'}); toast('Checking the plate…'); setTimeout(refreshMonitor, 4000); }
     if (b.dataset.act === 'resume') { if (!confirm('Resume the next loop without a passing plate check?')) return; await json(`/api/monitor/${n}/resume`, {method: 'POST'}); }
+    if (b.dataset.act === 'bends') { if (!confirm('Fitted a new build plate? This resets its bend counter.')) return; await json(`/api/monitor/${n}/bends/reset`, {method: 'POST'}); }
     if (b.dataset.act === 'remove') { if (!confirm('Stop monitoring this printer?')) return; await json(`/api/monitor/printers/${n}`, {method: 'DELETE'}); }
     refreshMonitor();
   } catch (err) { toast(err.message); }

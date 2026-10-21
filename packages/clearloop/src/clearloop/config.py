@@ -73,8 +73,35 @@ class Notifier(_Model):
     token: str | None = None
 
 
+class QuietHours(_Model):
+    """While on, the monitor still checks plates but holds the next loop until the window ends."""
+
+    enabled: bool = False
+    start: str = "22:00"
+    end: str = "07:00"
+
+    @field_validator("start", "end")
+    @classmethod
+    def _hhmm(cls, v: str) -> str:
+        h, _, m = v.partition(":")
+        if not (h.isdigit() and m.isdigit() and 0 <= int(h) < 24 and 0 <= int(m) < 60):
+            raise ValueError("use HH:MM, e.g. 22:00")
+        return f"{int(h):02d}:{int(m):02d}"
+
+    def until(self, now=None) -> str | None:
+        """The end time while quiet hours are on, else None."""
+        if not self.enabled:
+            return None
+        from datetime import datetime
+
+        t = (now or datetime.now()).strftime("%H:%M")
+        inside = self.start <= t < self.end if self.start <= self.end else (t >= self.start or t < self.end)
+        return self.end if inside else None
+
+
 class Settings(_Model):
     defaults: Defaults = Field(default_factory=Defaults)
+    quiet_hours: QuietHours = Field(default_factory=QuietHours)
     printers: list[PrinterConfig] = Field(default_factory=list)
     notifications: list[Notifier] = Field(default_factory=list)
     app_token: str | None = None  # optional: require this token for the app's API
