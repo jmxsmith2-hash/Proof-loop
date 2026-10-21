@@ -45,6 +45,11 @@ label.field>span{display:block;font-weight:600;font-size:13px;margin-bottom:4px}
 input[type=text],input[type=number],input[type=password],input[type=url],select{width:100%;font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
 input[type=number]{max-width:140px}
 .inline{display:flex;gap:8px;align-items:center}
+.slide{display:grid;grid-template-columns:minmax(0,1fr) 84px auto;gap:10px;align-items:center}
+.slide input[type=number]{max-width:84px}
+input[type=range]{width:100%;accent-color:var(--accent);margin:0}
+.pslide{display:grid;grid-template-columns:minmax(90px,1fr) 52px auto;gap:8px;align-items:center;min-width:220px}
+.linkbtn{border:0;background:none;color:var(--accent);font:inherit;font-size:12.5px;cursor:pointer;padding:0}
 .inline input[type=number]{max-width:110px}
 .toggle{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;cursor:pointer}
 .toggle input{margin-top:3px;width:16px;height:16px;flex:none}
@@ -139,10 +144,11 @@ details summary{cursor:pointer;font-weight:600}
       <div class="card">
         <h2>Settings</h2>
         <label class="field"><span>Hardware</span><select id="sProfile"></select><div class="hint" id="profileHint"></div></label>
-        <label class="field"><span>Loops</span><div class="inline"><input type="number" id="sLoops" min="1" max="50"><span class="muted">times this plate is printed</span></div></label>
-        <label class="field"><span>Release temperature</span><div class="inline"><input type="number" id="sRelease" min="15" max="60" step="1"><span class="muted">°C</span></div><div class="hint">The bed cools to this before anything moves. FarmLoop's default is 30 °C.</div></label>
-        <label class="field"><span>Sweep floor</span><div class="inline"><input type="number" id="sFloor" min="0.5" max="30" step="0.1"><span class="muted">mm</span><span id="floorChip"></span></div><div class="hint">The lowest the pusher goes. Measure it with the sweep-floor test.</div></label>
-        <label class="field"><span>Natural cooldown</span><div class="inline"><input type="number" id="sNatural" min="0" max="120" step="5"><span class="muted">min, 0 = off</span></div><div class="hint" id="naturalHint">Door shut and fans off before the door opens. Helps ASA, ABS and PC keep their shape.</div></label>
+        <label class="field"><span>Loops</span><div class="slide"><input type="range" data-num="sLoops" min="1" max="50" step="1" aria-label="sLoops"><input type="number" id="sLoops" min="1" max="50" step="1"><span class="muted">times</span></div><div class="hint">How many times this plate is printed.</div></label>
+        <label class="field"><span>Release temperature</span><div class="slide"><input type="range" data-num="sRelease" min="15" max="60" step="1" aria-label="sRelease"><input type="number" id="sRelease" min="15" max="60" step="1"><span class="muted">°C</span></div><div class="hint">The bed cools to this before anything moves. FarmLoop's default is 30 °C.</div></label>
+        <label class="field"><span>Sweep floor <span id="floorChip"></span></span><div class="slide"><input type="range" data-num="sFloor" min="0.5" max="15" step="0.1" aria-label="sFloor"><input type="number" id="sFloor" min="0.5" max="15" step="0.1"><span class="muted">mm</span></div><div class="hint">The lowest the pusher ever goes, for every part. Measure it with the sweep-floor test.</div></label>
+        <label class="field"><span>Push depth</span><div class="slide"><input type="range" data-num="sDepth" min="0" max="50" step="0.5" aria-label="sDepth"><input type="number" id="sDepth" min="0" max="50" step="0.5"><span class="muted">mm</span></div><div class="hint">How far below each part's top the pusher hits it. FarmLoop always uses 10 mm. More depth pushes nearer the base, which helps tall parts that would otherwise tip over. Short parts are never pushed below the sweep floor. To set one part on its own, use its slider in the parts list.</div></label>
+        <label class="field"><span>Natural cooldown</span><div class="slide"><input type="range" data-num="sNatural" min="0" max="120" step="5" aria-label="sNatural"><input type="number" id="sNatural" min="0" max="120" step="5"><span class="muted">min</span></div><div class="hint" id="naturalHint">Door shut and fans off before the door opens. Helps ASA, ABS and PC keep their shape.</div></label>
         <div id="benderRow"><label class="toggle"><input type="checkbox" id="sBender"><span><b>Bender fitted</b><span class="hint">Turn off if you removed the FarmBoard bender. The door still closes at the end.</span></span></label></div>
         <label class="field" id="fanRow"><span>Fan while cooling</span><select id="sFan"><option value="profile">Kit default (as FarmLoop does it)</option><option value="exhaust">Exhaust fan: vents the chamber (P2S)</option><option value="off">Off</option></select></label>
         <label class="toggle"><input type="checkbox" id="sMonitor"><span><b>Wait for ClearLoop Monitor between loops</b><span class="hint">The printer pauses after each sweep until the camera confirms the plate is empty. If anything is left, or the monitor isn't running, it keeps waiting until you press Resume.</span></span></label>
@@ -251,7 +257,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let token = ''; try { token = localStorage.getItem('clearloop-token') || ''; } catch (e) {}
-let STATE = null, PLATE = null, pending = null;
+let STATE = null, PLATE = null, pending = null, partPush = {};
 
 async function api(path, opts = {}) {
   opts.headers = Object.assign({}, opts.headers || {}, token ? {Authorization: 'Bearer ' + token} : {});
@@ -301,7 +307,7 @@ dropZone($('#makeDrop'), $('#makeFile'), async (file) => {
     const fd = new FormData(); fd.append('file', file);
     const res = await json('/api/plates', {method: 'POST', body: fd});
     if (res.no_profile) { showNoProfile(res); $('#makeResult').classList.add('hidden'); }
-    else { PLATE = res; renderPlate(res); }
+    else { partPush = {}; PLATE = res; renderPlate(res); }
   } catch (e) { $('#makeError').innerHTML = `<span class="ic danger">✖</span><div>${esc(e.message)}</div>`; $('#makeError').classList.remove('hidden'); $('#makeResult').classList.add('hidden'); }
   $('#makeDrop strong').textContent = 'Drop another plate, or click to choose';
 });
@@ -317,15 +323,16 @@ function showNoProfile(res) {
 function currentSettings() {
   return {
     profile_id: $('#sProfile').value, loops: +$('#sLoops').value || 1, release_temp: +$('#sRelease').value,
-    floor_z: +$('#sFloor').value, natural_cooldown_min: +$('#sNatural').value || 0, bender_fitted: $('#sBender').checked,
-    cooldown_fan: $('#sFan').value, wait_for_monitor: $('#sMonitor').checked,
+    floor_z: +$('#sFloor').value, push_offset: +$('#sDepth').value, natural_cooldown_min: +$('#sNatural').value || 0, bender_fitted: $('#sBender').checked,
+    cooldown_fan: $('#sFan').value, wait_for_monitor: $('#sMonitor').checked, part_push: partPush,
   };
 }
 function fillSettings(s, a) {
   const profiles = STATE.profiles.filter(p => p.printer_model_id === a.printer_model_id);
   $('#sProfile').innerHTML = profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${p.builtin ? '' : ' (imported)'}</option>`).join('');
   $('#sProfile').value = s.profile_id;
-  $('#sLoops').value = s.loops; $('#sRelease').value = s.release_temp; $('#sFloor').value = s.floor_z;
+  $('#sLoops').value = s.loops; $('#sRelease').value = s.release_temp; $('#sFloor').value = s.floor_z; $('#sDepth').value = s.push_offset;
+  syncSliders();
   $('#sNatural').value = s.natural_cooldown_min; $('#sBender').checked = s.bender_fitted; $('#sFan').value = s.cooldown_fan; $('#sMonitor').checked = s.wait_for_monitor;
   const prof = STATE.profiles.find(p => p.id === s.profile_id) || {};
   $('#profileHint').textContent = (prof.description || '') + (prof.builtin ? ' Built in, from public FarmLoop output.' : '');
@@ -335,7 +342,12 @@ function fillSettings(s, a) {
   const warp = (a.filaments || []).filter(f => /^(ASA|ABS|PC)/i.test(f));
   $('#naturalHint').innerHTML = warp.length && !s.natural_cooldown_min ? `<b style="color:var(--warn)">${esc(warp.join(', '))} on this plate:</b> consider a natural cooldown so parts don't warp when the door opens.` : 'Door shut and fans off before the door opens. Helps ASA, ABS and PC keep their shape.';
 }
-['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sNatural', '#sBender', '#sFan', '#sMonitor'].forEach(id => $(id).addEventListener('input', () => { clearTimeout(pending); pending = setTimeout(reanalyze, 350); }));
+const schedule = () => { clearTimeout(pending); pending = setTimeout(reanalyze, 350); };
+['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor'].forEach(id => $(id).addEventListener('input', schedule));
+// Every slider is paired with its number box; either one can be used.
+function syncSliders() { $$('input[type=range][data-num]').forEach(r => { r.value = $('#' + r.dataset.num).value; }); }
+$$('input[type=range][data-num]').forEach(r => r.addEventListener('input', () => { $('#' + r.dataset.num).value = r.value; schedule(); }));
+$$('input[type=range][data-num]').forEach(r => $('#' + r.dataset.num).addEventListener('input', () => { r.value = $('#' + r.dataset.num).value; }));
 async function reanalyze() {
   if (!PLATE) return;
   try { PLATE = await send(`/api/plates/${PLATE.token}/analyze`, currentSettings()); renderPlate(PLATE, true); }
@@ -352,9 +364,16 @@ function renderPlate(a, keepSettings) {
   ].map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   if (!keepSettings) fillSettings(a.settings, a); else fillSettings(currentSettings(), a);
   drawTop(a); drawSide(a);
-  $('#partTable').innerHTML = '<tr><th>Part</th><th>Height</th><th>Lowest push</th><th></th></tr>' + a.parts.map(p => {
-    const z = a.plan.part_push[p.label]; const reached = z != null && z < p.height;
-    return `<tr><td>${esc(p.name)}</td><td class="num">${p.height.toFixed(1)} mm</td><td class="num">${z != null ? 'Z' + z : '—'}</td><td>${reached ? '<span class="chip ok">swept</span>' : '<span class="chip bad">not reached</span>'}</td></tr>`;
+  const floor = +$('#sFloor').value || 0;
+  $('#partTable').innerHTML = '<tr><th>Part</th><th>Height</th><th>Push at</th><th></th></tr>' + a.parts.map(p => {
+    const z = a.plan.part_push[p.label], reached = z != null && z < p.height;
+    const target = a.plan.part_target[p.label], mine = (a.plan.part_custom || []).includes(p.label);
+    const max = Math.max(floor, Math.floor(p.height * 2) / 2);
+    return `<tr><td>${esc(p.name)}<div class="hint">label ${esc(p.label)}</div></td><td class="num">${p.height.toFixed(1)} mm</td>
+      <td><div class="pslide"><input type="range" data-part="${esc(p.label)}" min="${floor}" max="${max}" step="0.5" value="${target}" aria-label="Push height for ${esc(p.name)}">
+        <span class="num" data-partval="${esc(p.label)}">Z${target}</span>
+        ${mine ? `<span><span class="chip info">yours</span> <button class="linkbtn" data-reset="${esc(p.label)}" title="Back to part height minus push depth">reset</button></span>` : '<span class="hint" title="part height minus push depth">auto</span>'}</div></td>
+      <td>${reached ? '<span class="chip ok">swept</span>' : '<span class="chip bad">not reached</span>'}</td></tr>`;
   }).join('');
   // timeline
   let known = 0;
@@ -409,6 +428,18 @@ function drawSide(a) {
     ${bars}${dots}<text x="${pad}" y="${ph + 26}" font-size="10" fill="var(--muted)">X 0</text><text x="${pad + pw}" y="${ph + 26}" font-size="10" text-anchor="end" fill="var(--muted)">X ${W}</text></svg>`;
 }
 
+$('#partTable').addEventListener('input', (e) => {
+  const r = e.target.closest('[data-part]'); if (!r) return;
+  $(`[data-partval="${CSS.escape(r.dataset.part)}"]`).textContent = 'Z' + r.value;
+});
+$('#partTable').addEventListener('change', (e) => {
+  const r = e.target.closest('[data-part]'); if (!r) return;
+  partPush[r.dataset.part] = +r.value; reanalyze();
+});
+$('#partTable').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-reset]'); if (!b) return;
+  delete partPush[b.dataset.reset]; reanalyze();
+});
 $('#download').onclick = async () => {
   try { const r = await api(`/api/plates/${PLATE.token}/download`, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(currentSettings())});
     const name = await saveBlob(r, 'loop.gcode.3mf'); toast('Saved ' + name); }

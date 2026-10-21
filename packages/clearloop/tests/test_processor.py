@@ -176,3 +176,28 @@ def test_timeline_only_states_known_durations():
     by = {s["key"]: s for s in a.steps}
     assert by["cool"]["seconds"] is None and by["check"]["seconds"] is None
     assert by["bend"]["seconds"] == round(0.5 + 0.15 * 2 + 0.3 * 2 + 0.15 + 6 + 85)
+
+
+def test_push_depth_and_per_part_heights():
+    sf = load(plain(BUCKET))
+    deeper = analyze(sf, STAGE2, LoopSettings(sweep=SweepSettings(push_offset=25)))
+    assert deeper.plan.part_target == {"93": 145.0, "104": 2.0}  # 170 - 25; the short part stays at the floor
+    mine = analyze(sf, STAGE2, LoopSettings(sweep=SweepSettings(part_push_z={"93": 60.0, "104": 3.0})))
+    assert mine.plan.part_target == {"93": 60.0, "104": 3.0}
+    assert mine.plan.part_custom == {"93", "104"}
+    lanes = {ln.x: ln.tiers for ln in mine.plan.passes[0].lanes}
+    assert lanes[130.0] == [60.0, 3.0]
+    assert lanes[220.0] == [60.0]  # empty lanes follow the plate's highest push
+    assert "G1 Z60.00" in end_block(
+        process(sf, STAGE2, LoopSettings(sweep=SweepSettings(part_push_z={"93": 60.0}))).gcode
+    )
+
+
+def test_per_part_height_can_never_go_below_the_floor_or_above_the_part():
+    sf = load(plain(BUCKET))
+    low = analyze(sf, STAGE2, LoopSettings(sweep=SweepSettings(floor_z=2.5, part_push_z={"104": 0.5})))
+    assert low.plan.part_target["104"] == 2.5 and any("below your sweep floor" in w for w in low.warnings)
+    high = analyze(sf, STAGE2, LoopSettings(sweep=SweepSettings(part_push_z={"104": 9.0})))
+    assert not high.ok and "pass over it" in high.problems[0]
+    with pytest.raises(ProcessError):
+        process(sf, STAGE2, LoopSettings(sweep=SweepSettings(part_push_z={"104": 9.0})))

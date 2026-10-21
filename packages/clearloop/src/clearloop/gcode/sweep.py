@@ -32,6 +32,9 @@ class SweepSettings:
     travel_margin: float = 5.0  # travel this far above the tallest part
     rear_clearance: float = 10.0  # warn when a part reaches within this distance of the sweep's start line
     merge_mm: float = 1.0  # tiers closer than this are swept once, at the lower height
+    # Your own push height for individual parts (label -> Z), set with the sliders in the app.
+    # Never applied below floor_z: the floor protects the plate.
+    part_push_z: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -53,6 +56,8 @@ class SweepPlan:
     travel_z: float
     coverage: tuple[float, float]
     part_push: dict[str, float] = field(default_factory=dict)  # label -> lowest push height reaching it
+    part_target: dict[str, float] = field(default_factory=dict)  # label -> the push height planned for it
+    part_custom: set[str] = field(default_factory=set)  # labels whose height you set yourself
     warnings: list[str] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)  # blocking: the file is not safe to produce
 
@@ -71,13 +76,23 @@ class SweepPlan:
                 for p in self.passes
             ],
             "part_push": {k: round(v, 2) for k, v in self.part_push.items()},
+            "part_target": {k: round(v, 2) for k, v in self.part_target.items()},
+            "part_custom": sorted(self.part_custom),
             "warnings": self.warnings,
             "problems": self.problems,
         }
 
 
-def _tiers(heights: list[float], s: SweepSettings) -> list[float]:
-    zs = sorted({max(s.floor_z, h - s.push_offset) for h in heights}, reverse=True)
+def target_z(p: Part, s: SweepSettings) -> float:
+    """The push height for one part: yours if you set one, else FarmLoop's rule (height minus offset)."""
+    z = s.part_push_z.get(p.label)
+    if z is None:
+        z = p.height - s.push_offset
+    return max(s.floor_z, z)
+
+
+def _tiers(zs_in: list[float], s: SweepSettings) -> list[float]:
+    zs = sorted(set(zs_in), reverse=True)
     out: list[float] = []
     for z in zs:
         if out and out[-1] - z < s.merge_mm:
@@ -105,9 +120,24 @@ def plan_sweep(
             f"the tallest part ({tallest:.1f} mm) leaves less than {s.travel_margin:g} mm of travel clearance "
             f"under the printer's {printable_height:g} mm height; travel moves use Z{printable_height:g}"
         )
-    plate_top_tier = max(s.floor_z, tallest - s.push_offset) if parts else s.floor_z
+    targets = {p.label: target_z(p, s) for p in parts}
+    plan.part_target = dict(targets)
+    plate_top_tier = max(targets.values()) if parts else s.floor_z
 
     for p in parts:
+        custom = s.part_push_z.get(p.label)
+        if custom is not None:
+            plan.part_custom.add(p.label)
+            if custom < s.floor_z:
+                plan.warnings.append(
+                    f"{p.name}: you set Z{custom:g}, below your sweep floor; it is pushed at the floor (Z{s.floor_z:g}) instead"
+                )
+            if targets[p.label] >= p.height:
+                # Leaving a part behind means the next loop prints onto it: block, don't just warn.
+                plan.problems.append(
+                    f"{p.name}: the push height you set (Z{targets[p.label]:g}) is not below the part's top "
+                    f"({p.height:.1f} mm), so the pusher would pass over it. Lower it or reset it to automatic."
+                )
         if p.height < s.floor_z:
             plan.warnings.append(
                 f"{p.name} is {p.height:.1f} mm tall, lower than your sweep floor (Z{s.floor_z:g}); the pusher "
@@ -128,7 +158,7 @@ def plan_sweep(
         pass_plan = PassPlan(vp.feed, [])
         for x in vp.lanes:
             inside = [p for p in parts if p.xmax >= x - half and p.xmin <= x + half]
-            tiers = _tiers([p.height for p in inside], s) if inside else [plate_top_tier]
+            tiers = _tiers([targets[p.label] for p in inside], s) if inside else [plate_top_tier]
             pass_plan.lanes.append(LanePlan(x, tiers, [p.label for p in inside]))
             for p in inside:
                 lowest = min(tiers)

@@ -64,6 +64,7 @@ facts.
 
 | Setting | Default | Why |
 |---|---|---|
+| Push depth | 10 mm, adjustable 0–50 mm; per-part heights can be set too | FarmLoop's rule is the default; you can change it per plate or per part. Every height is clamped to the sweep floor, and one that doesn't reach below a part's top blocks the file. |
 | Sweep floor | Z2 until calibrated | FarmLoop's own rule reaches Z2 on a 12 mm part, the shortest part the P2S playbook build treats as safe. The app asks you to calibrate it. |
 | Travel height | tallest part + 5 mm, capped at the printable height | Sideways moves always clear every part |
 | Rear clearance | 10 mm | Parts closer than this to the sweep's start line are refused: the pusher drops there |

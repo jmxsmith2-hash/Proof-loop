@@ -23,9 +23,16 @@ MAX_UPLOAD = 300 * 1024 * 1024
 
 
 def _settings(app: App, body: dict | None) -> tuple:
-    d = {**app.settings.defaults.model_dump(), **(body or {})}
-    defaults = Defaults.model_validate(d)
-    return defaults, loop_settings(defaults)
+    body = dict(body or {})
+    raw = body.pop("part_push", None) or {}
+    try:
+        part_push = {str(k): float(v) for k, v in raw.items() if v is not None}
+    except (TypeError, ValueError, AttributeError) as e:
+        raise HTTPException(422, "part_push must map part labels to heights in mm") from e
+    if any(not 0 <= z <= 1000 for z in part_push.values()):
+        raise HTTPException(422, "push heights must be between 0 and 1000 mm")
+    defaults = Defaults.model_validate({**app.settings.defaults.model_dump(), **body})
+    return defaults, loop_settings(defaults, part_push)
 
 
 def create_app(app: App) -> FastAPI:
@@ -187,6 +194,7 @@ def create_app(app: App) -> FastAPI:
     @api.put("/api/defaults", dependencies=guard)
     def put_defaults(body: dict):
         try:
+            body = {k: v for k, v in body.items() if k != "part_push"}  # per-plate, never a default
             return app.update_defaults(body).model_dump()
         except ValueError as e:
             raise HTTPException(422, str(e)) from e

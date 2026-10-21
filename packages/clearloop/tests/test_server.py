@@ -107,3 +107,17 @@ def test_app_token(tmp_path):
     app.settings.app_token = "secret"
     assert c.get("/api/state").status_code == 401
     assert c.get("/api/state", headers={"Authorization": "Bearer secret"}).status_code == 200
+
+
+def test_per_part_push_is_used_but_never_saved(tmp_path):
+    c, app = client(tmp_path)
+    r = up(c, plain(BUCKET)).json()
+    body = {"push_offset": 20, "part_push": {"104": 3}}
+    a = c.post(f"/api/plates/{r['token']}/analyze", json=body).json()
+    assert a["plan"]["part_target"] == {"93": 150.0, "104": 3.0} and a["plan"]["part_custom"] == ["104"]
+    d = c.post(f"/api/plates/{r['token']}/download", json=body)
+    assert "G1 Z150.00" in threemf.loads(d.content).gcode
+    c.put("/api/defaults", json=body)
+    saved = app.settings_store.load().defaults
+    assert saved.push_offset == 20 and "part_push" not in saved.model_dump()
+    assert c.post(f"/api/plates/{r['token']}/analyze", json={"part_push": {"104": "x"}}).status_code == 422

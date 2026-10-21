@@ -27,7 +27,15 @@ def _profiles(a) -> ProfileStore:
 
 def _defaults(a) -> Defaults:
     d = SettingsStore(a.data).load().defaults.model_dump()
-    for key in ("profile_id", "loops", "release_temp", "floor_z", "natural_cooldown_min", "cooldown_fan"):
+    for key in (
+        "profile_id",
+        "loops",
+        "release_temp",
+        "floor_z",
+        "push_offset",
+        "natural_cooldown_min",
+        "cooldown_fan",
+    ):
         v = getattr(a, key, None)
         if v is not None:
             d[key] = v
@@ -36,6 +44,19 @@ def _defaults(a) -> Defaults:
     if getattr(a, "wait_for_monitor", False):
         d["wait_for_monitor"] = True
     return Defaults.model_validate(d)
+
+
+def _part_push(a) -> dict[str, float]:
+    out = {}
+    for item in getattr(a, "part_push", None) or []:
+        label, _, z = item.partition("=")
+        try:
+            out[label.strip()] = float(z)
+        except ValueError:
+            raise SystemExit(
+                f"--part-push expects LABEL=HEIGHT, e.g. --part-push 104=1.5 (got {item!r})"
+            ) from None
+    return out
 
 
 def _pick_profile(a, sf: threemf.SlicedFile, d: Defaults):
@@ -56,7 +77,7 @@ def cmd_make(a) -> int:
     sf = threemf.load(a.input, plate=a.plate)
     d = _defaults(a)
     prof = _pick_profile(a, sf, d)
-    st = loop_settings(d)
+    st = loop_settings(d, _part_push(a))
     try:
         an = analyze(sf, prof, st)
         _print_analysis(an, prof)
@@ -78,9 +99,11 @@ def _print_analysis(an, prof) -> None:
     print(f"profile: {prof.name}")
     for p in an.parts:
         push = an.plan.part_push.get(p.label)
+        mine = " (your setting)" if p.label in an.plan.part_custom else ""
         print(
-            f"  part {p.name!r}: {p.height:.1f} mm tall at X{p.xmin:.0f}-{p.xmax:.0f} Y{p.ymin:.0f}-{p.ymax:.0f}"
-            + (f", pushed down to Z{push:g}" if push is not None else ", NOT reached by the sweep")
+            f"  part {p.label} {p.name!r}: {p.height:.1f} mm tall at X{p.xmin:.0f}-{p.xmax:.0f} "
+            f"Y{p.ymin:.0f}-{p.ymax:.0f}, push at Z{an.plan.part_target[p.label]:g}{mine}"
+            + ("" if push is not None and push < p.height else ", NOT reached by the sweep")
         )
     for n in an.notes:
         print(f"  i {n}")
@@ -163,6 +186,18 @@ def _loop_args(p: argparse.ArgumentParser) -> None:
     )
     p.add_argument(
         "--floor", dest="floor_z", type=float, help="lowest sweep height, from the sweep-floor test"
+    )
+    p.add_argument(
+        "--push-depth",
+        dest="push_offset",
+        type=float,
+        help="push this far below each part's top (FarmLoop uses 10 mm)",
+    )
+    p.add_argument(
+        "--part-push",
+        action="append",
+        metavar="LABEL=Z",
+        help="your own push height for one part (labels are shown by `clearloop make`); repeatable",
     )
     p.add_argument(
         "--natural-cooldown", dest="natural_cooldown_min", type=int, help="minutes, door shut, fans off"

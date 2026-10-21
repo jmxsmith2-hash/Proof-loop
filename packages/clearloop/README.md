@@ -30,7 +30,11 @@ Your browser opens ClearLoop at `http://localhost:8484`. Or run it with Docker:
 1. **Make a loop file.** In Bambu Studio, slice your plate and use *File ›
    Export › Export plate sliced file*. Drop the `.gcode.3mf` into ClearLoop.
    It recognises the printer, shows every part with the height the pusher will
-   reach it at, and tells you about anything it can't do safely.
+   reach it at, and tells you about anything it can't do safely. Every
+   setting has a slider. **Push depth** sets how far below each part's top the
+   pusher hits (FarmLoop always uses 10 mm), and each part has its own slider
+   if one needs a different height. Nothing ever goes below your calibrated
+   sweep floor, and a height that would miss a part is refused.
 2. **Download** the `FL_S2_…` file and send it the way you always do (Bambu
    Studio *Print plate*, Bambu Handy, or Bambuddy). Keep the file name:
    FarmBoard kits look for the prefix.

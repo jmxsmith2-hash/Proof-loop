@@ -22,7 +22,8 @@ from .vision import BedVerifier
 log = logging.getLogger(__name__)
 
 
-def loop_settings(d: Defaults | dict) -> LoopSettings:
+def loop_settings(d: Defaults | dict, part_push: dict[str, float] | None = None) -> LoopSettings:
+    """``part_push`` holds per-part push heights for one plate; they're never saved as defaults."""
     d = d if isinstance(d, Defaults) else Defaults.model_validate(d)
     return LoopSettings(
         loops=d.loops,
@@ -31,7 +32,7 @@ def loop_settings(d: Defaults | dict) -> LoopSettings:
         bender_fitted=d.bender_fitted,
         cooldown_fan=d.cooldown_fan,
         wait_for_monitor=d.wait_for_monitor,
-        sweep=SweepSettings(push_offset=d.push_offset, floor_z=d.floor_z),
+        sweep=SweepSettings(push_offset=d.push_offset, floor_z=d.floor_z, part_push_z=dict(part_push or {})),
     )
 
 
