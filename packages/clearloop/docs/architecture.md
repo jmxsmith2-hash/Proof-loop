@@ -22,6 +22,7 @@
 | `profiles.py` | Hardware profile model and store. |
 | `importer.py` | Learns a profile by diffing a plain slice against FarmLoop's version of it. |
 | `lint.py` | Safety checks for any loop file. |
+| `costing.py` | Cost per part, loop and run, selling price, fees and capacity, from your own rates and the file's grams and times. Unset rates are reported, never filled in. |
 | `calibration.py` | Guided test prints (sweep floor, cooldown, door, bend). |
 | `printer/state.py`, `printer/bambu.py` | MQTT status, pause/resume, camera frames. |
 | `vision.py` | Empty-plate comparison against reference pictures. |

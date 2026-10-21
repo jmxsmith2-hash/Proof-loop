@@ -49,6 +49,7 @@ class PlateInfo:
     object_heights: dict[str, float] = field(default_factory=dict)  # label id -> height (slicer header)
     object_names: dict[str, str] = field(default_factory=dict)  # label id -> name (slice_info)
     filament_slots: list[tuple[str, str, str]] = field(default_factory=list)  # (slot id, type, colour)
+    slot_grams: dict[str, float] = field(default_factory=dict)  # slot id -> grams, as the slicer reports
     nozzle: str = ""
 
     def as_dict(self) -> dict:
@@ -183,6 +184,10 @@ def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
                         (f.get("id", ""), f.get("type", ""), (f.get("color") or "").upper())
                     )
                 info.filament_grams += _num(f.get("used_g"))
+                if f.get("id"):
+                    info.slot_grams[f.get("id")] = info.slot_grams.get(f.get("id"), 0.0) + _num(
+                        f.get("used_g")
+                    )
     plate_json = entries.get(f"Metadata/plate_{plate}.json")
     if plate_json and not info.bed_type:
         try:

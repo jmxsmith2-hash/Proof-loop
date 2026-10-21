@@ -63,6 +63,27 @@ facts.
 * **Other printers' FarmLoop moves.** Import a FarmLoop file for your printer.
 * **Your pusher's lowest safe height.** Measure it with the sweep-floor test.
 
+## Costs
+
+Every **rate** in the Costs tab (spool prices, electricity, watts, printer
+price and life, labour, fees, tax, shipping) is yours to enter. ClearLoop ships
+no prices and no power figures; a cost whose rate is missing is reported as
+"not set" and left out of the total, which is then marked as a minimum.
+
+The **quantities** come from your file and printer:
+
+| Quantity | Where it comes from |
+|---|---|
+| Grams per filament slot | `slice_info.config` → `filament used_g`, as the slicer reports it |
+| Print time | `slice_info.config` → `prediction` (the slicer's estimate) |
+| FarmBoard waits, sweep and door time | The G-code ClearLoop adds, timed from its own dwells and moves |
+| Cooldown time | Measured by the Monitor on your printer (T1 → T2), else the cycle time minus sweep and door, else your own estimate, else "unknown" |
+| Parts per plate | The file's object labels |
+
+The cost formulas are plain arithmetic: wear = price ÷ life; failed loops add
+cost ÷ (1 − failure rate) − cost; break-even price = (cost + per-order costs
+per part) ÷ (1 ÷ (1 + tax) − fee % − payment %).
+
 ## ClearLoop design choices (not hardware facts)
 
 | Setting | Default | Why |

@@ -11,6 +11,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from . import printers
+from .costing import CostSettings
 
 
 class _Model(BaseModel):
@@ -102,6 +103,7 @@ class QuietHours(_Model):
 class Settings(_Model):
     defaults: Defaults = Field(default_factory=Defaults)
     quiet_hours: QuietHours = Field(default_factory=QuietHours)
+    costs: CostSettings = Field(default_factory=CostSettings)
     printers: list[PrinterConfig] = Field(default_factory=list)
     notifications: list[Notifier] = Field(default_factory=list)
     app_token: str | None = None  # optional: require this token for the app's API

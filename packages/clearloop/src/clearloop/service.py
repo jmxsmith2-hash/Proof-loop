@@ -36,6 +36,25 @@ def loop_settings(d: Defaults | dict, part_push: dict[str, float] | None = None)
     )
 
 
+def cooldown_for(app: App, printer: str | None, minutes: float | None, sweep_s: float, door_close_s: float):
+    """Cooldown seconds and where the number came from. Measured beats estimated; unknown stays unknown."""
+    w = app.watches.get(printer or "")
+    if w:
+        t = app.store.timings(w.name)
+        if "cooldown" in t:
+            return t["cooldown"]["avg"], f"measured on {w.name} (average of {t['cooldown']['n']} loops)"
+        if "cycle" in t:
+            # Without a bender there is no T2: door open -> door close covers cooldown + sweep + T3.
+            est = max(0.0, t["cycle"]["avg"] - sweep_s - door_close_s)
+            return (
+                est,
+                f"measured on {w.name}: door open to door close, minus the sweep ({t['cycle']['n']} loops)",
+            )
+    if minutes is not None:
+        return minutes * 60, "your estimate"
+    return None, "not measured yet"
+
+
 class UploadCache:
     """Recently uploaded plates, kept in memory so settings can be tweaked without re-uploading."""
 

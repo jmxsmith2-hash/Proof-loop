@@ -60,6 +60,24 @@ input[type=range]{width:100%;accent-color:var(--accent);margin:0}
 .phase{display:flex;gap:4px;margin:6px 0 10px;flex-wrap:wrap}
 .phase span{font-size:11.5px;padding:3px 7px;border-radius:99px;background:var(--soft);color:var(--muted)}
 .phase span.on{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--soft);border-radius:10px;padding:10px 12px}
+.kpi small{display:block;color:var(--muted);font-size:12px}
+.kpi b{font-size:20px;font-variant-numeric:tabular-nums}
+.kpi.good b{color:var(--ok)}.kpi.bad b{color:var(--bad)}
+.stack{display:flex;height:16px;border-radius:8px;overflow:hidden;background:var(--soft);margin:6px 0 4px}
+.stack i{display:block;height:100%}
+.sw{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:6px;border:1px solid var(--line)}
+.cost-section summary{font-size:14.5px;padding:6px 0}
+.cost-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:4px 14px;margin:8px 0 4px}
+.cost-grid label.field{margin:0 0 8px}
+.cost-grid input{max-width:none}
+.list-ed{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.8fr) minmax(0,.9fr) minmax(0,.8fr) minmax(0,.8fr) auto;gap:6px;align-items:center;margin:4px 0}
+.list-ed.two{grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto}
+.list-ed input{padding:5px 7px}
+@media (max-width:600px){.list-ed:not(.two){grid-template-columns:repeat(4,minmax(0,1fr))}.list-ed:not(.two)>:first-child{grid-column:1/4}.list-ed:not(.two)>:last-child{grid-column:4;grid-row:1;justify-self:start}}
+#costTable td.hint{min-width:170px}#costMaterials select{min-width:140px}
+.saved{font-size:12.5px;color:var(--ok)}
 .linkbtn{border:0;background:none;color:var(--accent);font:inherit;font-size:12.5px;cursor:pointer;padding:0}
 .inline input[type=number]{max-width:110px}
 .toggle{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;cursor:pointer}
@@ -70,7 +88,7 @@ button.primary,a.primary{background:var(--accent);border-color:transparent;color
 button.danger{color:var(--bad)}
 button:disabled{opacity:.5;cursor:not-allowed}
 .big{font-size:16px;padding:11px 18px}
-.chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--soft);color:var(--muted);font-weight:600}
+.chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--soft);color:var(--muted);font-weight:600;white-space:nowrap}
 .chip.ok{background:var(--ok-soft);color:var(--ok)}.chip.warn{background:var(--warn-soft);color:var(--warn)}
 .chip.bad{background:var(--bad-soft);color:var(--bad)}.chip.info{background:var(--info-soft);color:var(--info)}
 .list{list-style:none;margin:0;padding:0}
@@ -110,6 +128,7 @@ details summary{cursor:pointer;font-weight:600}
   <nav role="tablist">
     <button role="tab" data-tab="make" aria-selected="true">Make a loop file</button>
     <button role="tab" data-tab="check">Check a file</button>
+    <button role="tab" data-tab="costs">Costs</button>
     <button role="tab" data-tab="monitor">Monitor</button>
     <button role="tab" data-tab="calibrate">Calibrate</button>
     <button role="tab" data-tab="profiles">Hardware</button>
@@ -186,6 +205,10 @@ details summary{cursor:pointer;font-weight:600}
         <h2>Checks</h2>
         <ul class="list" id="checks"></ul>
       </div>
+      <div class="card" id="makeCost">
+        <div class="spread"><h2>Cost</h2><a href="#" data-goto="costs" class="linkbtn">Details and prices</a></div>
+        <div id="makeCostOut" class="hint">Enter your prices in the <a href="#" data-goto="costs">Costs</a> tab to see what each part costs and earns.</div>
+      </div>
       <div class="card" id="batchCard">
         <div class="spread"><h2>Batch</h2><button class="btn" id="addToBatch">+ Add this plate</button></div>
         <p class="hint" id="batchHint">Mix plates in one file, for example 3× plate A then 2× plate B. Drop another plate after adding this one. Every plate must use the same filament slots, build plate and nozzle, because the printer maps filament once per file.</p>
@@ -207,6 +230,112 @@ details summary{cursor:pointer;font-weight:600}
   <p class="sub">Drop any loop file, from the FarmLoop app or from ClearLoop, to look for known problems before it runs on your printer.</p>
   <label class="drop" id="checkDrop"><input type="file" accept=".3mf" hidden id="checkFile"><strong>Drop a .gcode.3mf to check</strong><small>Nothing is changed; this only reads the file.</small></label>
   <div id="checkOut" class="card hidden" style="margin-top:16px"></div>
+</section>
+
+
+<!-- ============ COSTS ============ -->
+<section data-panel="costs" class="hidden">
+  <div class="spread"><div><h1>Costs</h1>
+  <p class="sub">What each part really costs and earns. ClearLoop never invents prices: rates are yours to enter, grams and times come from the file, and the cooldown comes from your printer. Anything you haven't set is listed below instead of guessed.</p></div></div>
+  <div class="grid two">
+    <div class="grid" style="align-content:start">
+      <div class="card" id="costEmpty"><h2>No plate yet</h2><p>Drop a plate in <a href="#" data-goto="make">Make a loop file</a>, then come back here to see its costs.</p></div>
+      <div class="card hidden" id="costPlate">
+        <div class="spread"><h2 id="costTitle">This plate</h2><span id="costChip"></span></div>
+        <div class="row" style="align-items:flex-end;margin-bottom:12px">
+          <label class="field" style="margin:0"><span>Loops</span><input type="number" id="cLoops" min="1" max="5000"></label>
+          <label class="field" style="margin:0;flex:1;min-width:200px"><span>Cooldown time</span><select id="cCoolSrc"></select></label>
+          <label class="field" style="margin:0" id="cCoolMinWrap"><span>Minutes</span><input type="number" id="cCoolMin" min="0" max="600" step="1" placeholder="e.g. 15"></label>
+        </div>
+        <div class="kpis" id="costKpis"></div>
+        <div class="stack" id="costStack" aria-hidden="true"></div>
+        <div class="legend" id="costLegend"></div>
+        <div class="tw" style="margin-top:10px"><table id="costTable"></table></div>
+        <h3>Filament</h3>
+        <div class="tw"><table id="costMaterials"></table></div>
+        <ul class="list" id="costMissing" style="margin-top:8px"></ul>
+        <p class="hint" id="costTimes"></p>
+      </div>
+      <div class="card hidden" id="costSelling">
+        <h2>Selling</h2>
+        <label class="field"><span>Price per part</span><div class="slide"><input type="range" id="cPriceRange" min="0" max="100" step="0.1"><input type="number" id="cPrice" min="0" step="0.01"><span class="muted cur"></span></div></label>
+        <div class="kpis" id="sellKpis"></div>
+        <div class="tw"><table id="sellTable"></table></div>
+      </div>
+      <div class="card hidden" id="costCapacity">
+        <h2>Capacity and earnings</h2>
+        <div class="cost-grid">
+          <label class="field"><span>Printers</span><input type="number" data-c="printers" min="1" max="1000" step="1"></label>
+          <label class="field"><span>Hours a day</span><input type="number" data-c="hours_per_day" min="1" max="24" step="0.5"></label>
+          <label class="field"><span>Days a month</span><input type="number" data-c="days_per_month" min="1" max="31" step="1"></label>
+        </div>
+        <div class="kpis" id="capKpis"></div>
+        <p class="hint">Based on this plate's real loop time, including the cooldown, with failed loops taken out.</p>
+      </div>
+    </div>
+
+    <div class="card" style="align-self:start">
+      <div class="spread"><h2>Your prices</h2><span class="saved" id="costSaved"></span></div>
+      <label class="field" style="max-width:160px"><span>Currency symbol</span><input type="text" data-c="currency" data-kind="text" maxlength="4"></label>
+      <details class="cost-section" open><summary>Filament spools</summary>
+        <p class="hint">Price and weight of a spool as you buy it. Plates are matched by filament type and colour, and you can pick the spool for each colour on the left.</p>
+        <div class="list-ed hint"><span>Name</span><span>Type</span><span>Colour</span><span>Price</span><span>Spool g</span><span></span></div>
+        <div id="spoolRows"></div>
+        <button class="btn" id="addSpool">+ Add spool</button>
+      </details>
+      <details class="cost-section" open><summary>Electricity and printer</summary>
+        <div class="cost-grid">
+          <label class="field"><span>Electricity, per kWh</span><input type="number" data-c="electricity_per_kwh" step="0.001" min="0"></label>
+          <label class="field"><span>Printer while printing, W</span><input type="number" data-c="watts_printing" step="1" min="0"></label>
+          <label class="field"><span>Cooling and ejecting, W</span><input type="number" data-c="watts_idle" step="1" min="0"></label>
+          <label class="field"><span>Printer price</span><input type="number" data-c="printer_price" step="1" min="0"></label>
+          <label class="field"><span>Expected life, hours</span><input type="number" data-c="printer_life_hours" step="100" min="1"></label>
+          <label class="field"><span>Maintenance, per hour</span><input type="number" data-c="maintenance_per_hour" step="0.01" min="0"></label>
+        </div>
+        <p class="hint">Measure the watts with a smart plug: average them over a whole print, then over a cooldown with the bed off.</p>
+      </details>
+      <details class="cost-section"><summary>Build plates and FarmLoop kit</summary>
+        <div class="cost-grid">
+          <label class="field"><span>Plate price</span><input type="number" data-c="plate_price" step="0.01" min="0"></label>
+          <label class="field"><span>Loops per plate</span><input type="number" data-c="plate_life_loops" step="10" min="1"></label>
+          <label class="field"><span>FarmLoop kit price</span><input type="number" data-c="kit_price" step="0.01" min="0"></label>
+          <label class="field"><span>Loops the kit lasts</span><input type="number" data-c="kit_life_loops" step="100" min="1"></label>
+        </div>
+        <p class="hint">The Monitor counts plate bends, so you can see how many loops your plates really last.</p>
+      </details>
+      <details class="cost-section"><summary>Labour, overhead and failures</summary>
+        <div class="cost-grid">
+          <label class="field"><span>Labour, per hour</span><input type="number" data-c="labor_rate" step="0.5" min="0"></label>
+          <label class="field"><span>Hands-on minutes per loop</span><input type="number" data-c="labor_min_per_loop" step="0.5" min="0"></label>
+          <label class="field"><span>Setup minutes per run</span><input type="number" data-c="labor_min_per_run" step="1" min="0"></label>
+          <label class="field"><span>Overhead per month</span><input type="number" data-c="overhead_per_month" step="1" min="0"></label>
+          <label class="field"><span>Printer hours per month</span><input type="number" data-c="printer_hours_per_month" step="10" min="1"></label>
+          <label class="field"><span>Failed loops, %</span><input type="number" data-c="failure_rate_pct" data-kind="zero" step="0.5" min="0" max="90"></label>
+        </div>
+        <p class="hint">Overhead is rent, software, insurance and so on, spread over the hours your printers run. A failed loop costs the same as a good one and makes nothing.</p>
+      </details>
+      <details class="cost-section"><summary>Packaging and extras</summary>
+        <h3 style="margin-top:4px">Per part <span class="muted" style="font-weight:400">(bags, magnets, inserts…)</span></h3>
+        <div id="extraPartRows"></div><button class="btn" data-addextra="extras_per_part">+ Add</button>
+        <h3>Per order <span class="muted" style="font-weight:400">(box, label, thank-you card…)</span></h3>
+        <div id="extraOrderRows"></div><button class="btn" data-addextra="extras_per_order">+ Add</button>
+      </details>
+      <details class="cost-section"><summary>Selling, fees and shipping</summary>
+        <div class="cost-grid">
+          <label class="field"><span>Parts per order</span><input type="number" data-c="parts_per_order" data-kind="one" step="1" min="1"></label>
+          <label class="field"><span>Tax included in price, %</span><input type="number" data-c="tax_included_pct" data-kind="zero" step="0.5" min="0"></label>
+          <label class="field"><span>Marketplace fee, %</span><input type="number" data-c="marketplace_fee_pct" data-kind="zero" step="0.1" min="0"></label>
+          <label class="field"><span>Marketplace fee per order</span><input type="number" data-c="marketplace_fee_per_order" data-kind="zero" step="0.01" min="0"></label>
+          <label class="field"><span>Payment fee, %</span><input type="number" data-c="payment_fee_pct" data-kind="zero" step="0.1" min="0"></label>
+          <label class="field"><span>Payment fee per order</span><input type="number" data-c="payment_fee_per_order" data-kind="zero" step="0.01" min="0"></label>
+          <label class="field"><span>Shipping cost per order</span><input type="number" data-c="shipping_cost_per_order" data-kind="zero" step="0.01" min="0"></label>
+          <label class="field"><span>Shipping charged per order</span><input type="number" data-c="shipping_charged_per_order" data-kind="zero" step="0.01" min="0"></label>
+          <label class="field"><span>Target margin, %</span><input type="number" data-c="target_margin_pct" data-kind="zero" step="1" min="0" max="95"></label>
+        </div>
+        <p class="hint">Use your own marketplace's and payment provider's current fees.</p>
+      </details>
+    </div>
+  </div>
 </section>
 
 <!-- ============ MONITOR ============ -->
@@ -325,6 +454,7 @@ function show(tab) {
   $$('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== tab));
   try { history.replaceState(null, '', '#' + tab); } catch (e) {}
   if (tab === 'monitor') refreshMonitor();
+  if (tab === 'costs') { coolOptions(); bindCosts(); refreshCost(); }
 }
 $$('nav button').forEach(b => b.onclick = () => show(b.dataset.tab));
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) { e.preventDefault(); show(g.dataset.goto); } });
@@ -338,6 +468,7 @@ function dropZone(zone, input, onFile) {
 
 async function loadState() {
   STATE = await json('/api/state');
+  COSTS = JSON.parse(JSON.stringify(STATE.costs)); bindCosts(); coolOptions();
   $('#ver').textContent = 'v' + STATE.version;
   $('#calBanner').classList.toggle('hidden', !!STATE.defaults.floor_calibrated);
   $('#modelSelect').innerHTML = Object.entries(STATE.printers).map(([id, n]) => `<option value="${esc(id)}" ${id === 'N7' ? 'selected' : ''}>${esc(n)}</option>`).join('');
@@ -411,6 +542,8 @@ function renderPlate(a, keepSettings) {
   ].map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   if (!keepSettings) fillSettings(a.settings, a); else fillSettings(currentSettings(), a);
   stopAnim(); drawTop(a); drawSide(a); planPrinters(); renderPlan();
+  if (document.activeElement !== $('#cLoops')) $('#cLoops').value = +$('#sLoops').value || 1;
+  refreshCost();
   $('#changesOut').innerHTML = '';
   $('#addToBatch').textContent = BATCH.some(b => b.token === a.token) ? '✓ In the batch' : '+ Add this plate';
   const floor = +$('#sFloor').value || 0;
@@ -626,6 +759,153 @@ $('#findPrinters').onclick = async () => {
 };
 $('#quietForm').onsubmit = async (e) => { e.preventDefault(); const f = e.target;
   try { await send('/api/quiet-hours', {enabled: f.enabled.checked, start: f.start.value || '22:00', end: f.end.value || '07:00'}, 'PUT'); toast('Quiet hours saved'); } catch (err) { toast(err.message); } };
+
+
+// ---------- costs ----------
+let COSTS = null, COST = null, costTimer = null, costSaveTimer = null, coolMin = null;
+try { const v = localStorage.getItem('clearloop-cool-min'); coolMin = v === null ? null : +v; } catch (e) {}
+const PALETTE = ['#1d6fe0', '#16834a', '#c77d00', '#7b4ddb', '#c0312b', '#0f8f9a', '#d64b8a', '#5d6774', '#8a6d3b', '#2f9e44', '#e8590c'];
+const money = (v, dp = 2) => v == null ? '—' : (v < 0 ? '−' : '') + (COSTS?.currency || '') + (Math.abs(v) < 1 && v !== 0 && dp < 3 ? Math.abs(v).toFixed(3) : Math.abs(v).toFixed(dp));
+function anyCostSet() { const c = COSTS || {}; return (c.spools || []).length || c.electricity_per_kwh != null || c.printer_price != null || c.labor_rate != null || c.price_per_part != null; }
+
+function bindCosts() {
+  $$('[data-c]').forEach(inp => {
+    const k = inp.dataset.c, v = COSTS[k];
+    if (document.activeElement !== inp) inp.value = v == null ? '' : v;
+    if (inp.dataset.bound) return; inp.dataset.bound = 1;
+    inp.addEventListener('input', () => {
+      const raw = inp.value.trim(), kind = inp.dataset.kind;
+      COSTS[k] = kind === 'text' ? raw : raw === '' ? (kind === 'zero' ? 0 : kind === 'one' ? 1 : null) : +raw;
+      saveCostsSoon();
+    });
+  });
+  $$('.cur').forEach(e => e.textContent = COSTS.currency || '');
+  renderSpools(); renderExtras();
+}
+function renderSpools() {
+  $('#spoolRows').innerHTML = (COSTS.spools || []).map((sp, i) => `<div class="list-ed">
+    <input type="text" data-sp="${i}" data-f="name" value="${esc(sp.name)}" placeholder="Bambu PLA Basic" aria-label="Spool name">
+    <input type="text" data-sp="${i}" data-f="type" value="${esc(sp.type)}" placeholder="PLA" aria-label="Type">
+    <span class="inline"><span class="sw" style="background:${esc(sp.color || 'transparent')}"></span><input type="text" data-sp="${i}" data-f="color" value="${esc(sp.color)}" placeholder="#A6A9AA" aria-label="Colour"></span>
+    <input type="number" data-sp="${i}" data-f="price" value="${sp.price}" min="0" step="0.01" aria-label="Price">
+    <input type="number" data-sp="${i}" data-f="weight_g" value="${sp.weight_g}" min="1" step="50" aria-label="Spool grams">
+    <button class="linkbtn" data-rmspool="${i}" aria-label="Remove spool">✕</button></div>`).join('') || '<p class="hint">No spools yet.</p>';
+}
+function renderExtras() {
+  [['extras_per_part', '#extraPartRows'], ['extras_per_order', '#extraOrderRows']].forEach(([k, el]) => {
+    $(el).innerHTML = (COSTS[k] || []).map((x, i) => `<div class="list-ed two">
+      <input type="text" data-ex="${k}" data-i="${i}" data-f="name" value="${esc(x.name)}" placeholder="what" aria-label="Extra">
+      <input type="number" data-ex="${k}" data-i="${i}" data-f="cost" value="${x.cost}" min="0" step="0.01" aria-label="Cost">
+      <button class="linkbtn" data-rmex="${k}" data-i="${i}" aria-label="Remove">✕</button></div>`).join('');
+  });
+}
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.dataset.sp !== undefined) { const sp = COSTS.spools[+t.dataset.sp]; sp[t.dataset.f] = ['price', 'weight_g'].includes(t.dataset.f) ? +t.value : t.value.trim();
+    if (t.dataset.f === 'color') t.previousElementSibling.style.background = t.value || 'transparent'; saveCostsSoon(); }
+  if (t.dataset.ex) { const x = COSTS[t.dataset.ex][+t.dataset.i]; x[t.dataset.f] = t.dataset.f === 'cost' ? +t.value : t.value; saveCostsSoon(); }
+});
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (t.dataset.rmspool !== undefined) { COSTS.spools.splice(+t.dataset.rmspool, 1); renderSpools(); saveCostsSoon(); }
+  if (t.dataset.rmex) { COSTS[t.dataset.rmex].splice(+t.dataset.i, 1); renderExtras(); saveCostsSoon(); }
+  if (t.dataset.addextra) { COSTS[t.dataset.addextra].push({name: '', cost: 0}); renderExtras(); }
+});
+$('#addSpool').onclick = () => {
+  const guess = PLATE?.filaments?.[0] || 'PLA';
+  COSTS.spools.push({name: '', type: guess, color: '', price: 0, weight_g: 1000}); renderSpools();
+  $(`[data-sp="${COSTS.spools.length - 1}"][data-f="name"]`).focus();
+};
+function saveCostsSoon() {
+  clearTimeout(costSaveTimer); $('#costSaved').textContent = '';
+  costSaveTimer = setTimeout(async () => {
+    try { const clean = {...COSTS, spools: COSTS.spools.filter(sp => sp.type && sp.weight_g > 0), extras_per_part: COSTS.extras_per_part.filter(x => x.name), extras_per_order: COSTS.extras_per_order.filter(x => x.name)};
+      await send('/api/costs', clean, 'PUT'); $('#costSaved').textContent = '✓ saved'; refreshCost(); }
+    catch (e) { $('#costSaved').textContent = ''; toast(e.message); }
+  }, 600);
+}
+
+function coolOptions() {
+  const sel = $('#cCoolSrc'), prev = sel.value;
+  const measured = (STATE.monitor || []).filter(m => m.timings && (m.timings.cooldown || m.timings.cycle));
+  sel.innerHTML = measured.map(m => `<option value="p:${esc(m.name)}">Measured on ${esc(m.name)}</option>`).join('') +
+    '<option value="est">My estimate</option><option value="none">Unknown</option>';
+  sel.value = [...sel.options].some(o => o.value === prev) ? prev : measured.length ? sel.options[0].value : coolMin != null ? 'est' : 'none';
+  $('#cCoolMinWrap').classList.toggle('hidden', sel.value !== 'est');
+  if (coolMin != null) $('#cCoolMin').value = coolMin;
+}
+['#cLoops', '#cCoolSrc', '#cCoolMin'].forEach(id => $(id).addEventListener('input', () => {
+  if (id === '#cCoolMin') { coolMin = $('#cCoolMin').value === '' ? null : +$('#cCoolMin').value; try { localStorage.setItem('clearloop-cool-min', coolMin ?? ''); } catch (e) {} }
+  $('#cCoolMinWrap').classList.toggle('hidden', $('#cCoolSrc').value !== 'est'); refreshCost();
+}));
+$('#cPrice').addEventListener('input', () => { const v = $('#cPrice').value; COSTS.price_per_part = v === '' ? null : +v; $('#cPriceRange').value = v || 0; saveCostsSoon(); });
+$('#cPriceRange').addEventListener('input', () => { $('#cPrice').value = $('#cPriceRange').value; COSTS.price_per_part = +$('#cPriceRange').value; saveCostsSoon(); });
+
+function costRequest() {
+  const src = $('#cCoolSrc').value || 'none';
+  return {settings: currentSettings(), loops: +$('#cLoops').value || +$('#sLoops').value || 1,
+    cooldown_printer: src.startsWith('p:') ? src.slice(2) : null, cooldown_min: src === 'est' ? coolMin : null};
+}
+function refreshCost() {
+  clearTimeout(costTimer);
+  costTimer = setTimeout(async () => {
+    if (!PLATE || !COSTS) { $('#costEmpty').classList.remove('hidden'); ['#costPlate', '#costSelling', '#costCapacity'].forEach(id => $(id).classList.add('hidden')); return; }
+    try { COST = await send(`/api/plates/${PLATE.token}/cost`, costRequest()); renderCost(); } catch (e) { toast(e.message); }
+  }, 250);
+}
+function renderCost() {
+  const r = COST, t = r.totals, sell = r.selling;
+  $('#costEmpty').classList.add('hidden'); $('#costPlate').classList.remove('hidden'); $('#costSelling').classList.remove('hidden'); $('#costCapacity').classList.remove('hidden');
+  $('#costTitle').textContent = PLATE.file;
+  $('#costChip').innerHTML = t.complete ? '<span class="chip ok">complete</span>' : `<span class="chip warn">${r.missing.length} missing</span>`;
+  const kp = [['Per part', money(t.per_part, 3)], ['Per loop', money(t.per_loop)], [`Whole run (${r.loops} loop${r.loops > 1 ? 's' : ''}, ${t.parts} parts)`, money(t.run)], ['Per printer hour', money(t.per_hour)]];
+  if (sell) kp.push(['Profit per part', money(sell.profit, 3), sell.profit >= 0 ? 'good' : 'bad'], ['Margin', sell.margin_pct == null ? '—' : sell.margin_pct.toFixed(1) + '%', sell.profit >= 0 ? 'good' : 'bad']);
+  $('#costKpis').innerHTML = kp.map(([k, v, c]) => `<div class="kpi ${c || ''}"><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join('');
+  const lines = r.lines.filter(l => l.per_loop), sum = lines.reduce((a, l) => a + l.per_loop, 0) || 1;
+  $('#costStack').innerHTML = lines.map((l, i) => `<i style="width:${(l.per_loop / sum * 100).toFixed(2)}%;background:${PALETTE[i % PALETTE.length]}" title="${esc(l.label)}"></i>`).join('');
+  $('#costLegend').innerHTML = lines.map((l, i) => `<span><i style="background:${PALETTE[i % PALETTE.length]}"></i>${esc(l.label)} ${(l.per_loop / sum * 100).toFixed(0)}%</span>`).join('');
+  const per = r.parts_per_plate || 1;
+  $('#costTable').innerHTML = '<tr><th>Cost</th><th>Per loop</th><th>Per part</th><th>Share</th><th>How</th></tr>' + r.lines.map(l => `<tr>
+    <td>${esc(l.label)}</td><td class="num">${l.per_loop == null ? '<span class="chip warn">not set</span>' : money(l.per_loop, 3)}</td>
+    <td class="num">${l.per_loop == null ? '—' : money(l.per_loop / per, 3)}</td><td class="num">${l.per_loop ? (l.per_loop / sum * 100).toFixed(1) + '%' : '—'}</td>
+    <td class="hint">${esc(l.missing || l.how)}</td></tr>`).join('') +
+    (r.setup ? `<tr><td>Setup, once per run</td><td class="num">—</td><td class="num">${money(r.setup / t.parts, 3)}</td><td></td><td class="hint">${money(r.setup)} spread over ${t.parts} parts</td></tr>` : '');
+  $('#costMaterials').innerHTML = '<tr><th>Slot</th><th>Filament</th><th>Grams</th><th>Spool</th><th>Per kg</th><th>Cost</th></tr>' + r.materials.map(m => `<tr>
+    <td>${esc(m.slot)}</td><td><span class="sw" style="background:${esc(m.color)}"></span>${esc(m.type)} <span class="hint">${esc(m.color)}</span></td><td class="num">${m.grams} g</td>
+    <td><select data-slotkey="${esc(m.key)}" aria-label="Spool for slot ${esc(m.slot)}"><option value="">— choose —</option>${COSTS.spools.map((sp, i) => `<option value="${i}" ${m.spool === i ? 'selected' : ''}>${esc(sp.name || sp.type + ' ' + sp.color)}</option>`).join('')}</select></td>
+    <td class="num">${m.per_kg != null ? money(m.per_kg) : '—'}</td><td class="num">${m.cost != null ? money(m.cost, 3) : '<span class="chip warn">not set</span>'}</td></tr>`).join('');
+  $('#costMissing').innerHTML = r.missing.map(m => `<li><span class="ic warning">!</span><div>${esc(m)}</div></li>`).join('');
+  const tm = r.times;
+  $('#costTimes').textContent = `Loop time ${fmtDur(tm.loop_s)}: print ${fmtDur(tm.print_s)} (slicer estimate), FarmBoard waits and sweep ${fmtDur(tm.fixed_s)}, cooldown ${tm.cooldown_s == null ? 'unknown' : fmtDur(tm.cooldown_s) + ' (' + tm.cooldown_source + ')'}.`;
+  // selling
+  if (document.activeElement !== $('#cPrice')) $('#cPrice').value = COSTS.price_per_part ?? '';
+  $('#cPriceRange').max = Math.max(20, Math.ceil(((sell?.price_for_target || t.per_part * 4) * 2) || 20));
+  $('#cPriceRange').value = COSTS.price_per_part ?? 0;
+  if (sell) {
+    $('#sellKpis').innerHTML = [['Profit per part', money(sell.profit, 3), sell.profit >= 0 ? 'good' : 'bad'], ['Break-even price', money(sell.breakeven_price)],
+      [`Price for ${sell.target_margin_pct}% margin`, money(sell.price_for_target)], ['Markup on cost', sell.markup_pct == null ? '—' : sell.markup_pct.toFixed(0) + '%']]
+      .map(([k, v, c]) => `<div class="kpi ${c || ''}"><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join('');
+    $('#sellTable').innerHTML = [['Price', sell.price], ['Tax included in it', -sell.tax], ['Marketplace and payment fees (%)', -sell.percent_fees],
+      ['Per-order costs, per part (fees, shipping, box)', -sell.per_order_costs], ['Cost to make', -sell.cost], ['Profit', sell.profit]]
+      .map(([k, v], i, a) => `<tr${i === a.length - 1 ? ' style="font-weight:700"' : ''}><td>${esc(k)}</td><td class="num">${money(v, 3)}</td></tr>`).join('');
+  } else { $('#sellKpis').innerHTML = '<p class="hint">Enter your selling price to see profit, margin, break-even and the price for your target margin.</p>'; $('#sellTable').innerHTML = ''; }
+  // capacity
+  const cap = r.capacity;
+  $('#capKpis').innerHTML = cap ? [['Loops a day', cap.loops_per_day], ['Parts a day', cap.parts_per_day], ['Parts a month', cap.parts_per_month],
+    ...(cap.revenue_per_month != null ? [['Revenue a month', money(cap.revenue_per_month, 0)], ['Profit a month', money(cap.profit_per_month, 0), cap.profit_per_month >= 0 ? 'good' : 'bad']] : [])]
+    .map(([k, v, c]) => `<div class="kpi ${c || ''}"><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join('')
+    : '<p class="hint">Needs a cooldown time: measured by the Monitor, or your estimate above.</p>';
+  // Make tab summary
+  $('#makeCostOut').innerHTML = anyCostSet() ? `<div class="kpis" style="margin:0"><div class="kpi"><small>Per part</small><b>${money(t.per_part, 3)}</b></div>
+    ${sell ? `<div class="kpi ${sell.profit >= 0 ? 'good' : 'bad'}"><small>Profit per part</small><b>${money(sell.profit, 3)}</b></div>` : ''}</div>
+    ${t.complete ? '' : `<p class="hint" style="margin-top:6px">${r.missing.length} cost${r.missing.length > 1 ? 's' : ''} not set yet, so this is a minimum.</p>`}`
+    : 'Enter your prices in the <a href="#" data-goto="costs">Costs</a> tab to see what each part costs and earns.';
+}
+document.addEventListener('change', (e) => {
+  const t = e.target; if (t.dataset.slotkey === undefined) return;
+  if (t.value === '') delete COSTS.slot_spool[t.dataset.slotkey]; else COSTS.slot_spool[t.dataset.slotkey] = +t.value;
+  saveCostsSoon();
+});
 
 // ---------- check ----------
 dropZone($('#checkDrop'), $('#checkFile'), async (file) => {

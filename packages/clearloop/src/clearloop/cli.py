@@ -113,6 +113,47 @@ def _print_analysis(an, prof) -> None:
         print(f"  ✖ {p}")
 
 
+def cmd_cost(a) -> int:
+    from .costing import Times, cost
+
+    sf = threemf.load(a.input)
+    d = _defaults(a)
+    prof = _pick_profile(a, sf, d)
+    st = loop_settings(d)
+    an = analyze(sf, prof, st)
+    fixed = sum(x["seconds"] or 0 for x in an.steps if x["key"] != "print")
+    cool = a.cooldown_min * 60 if a.cooldown_min is not None else None
+    c = SettingsStore(a.data).load().costs
+    r = cost(
+        c,
+        sf.info.filament_slots,
+        sf.info.slot_grams,
+        len(an.parts),
+        Times(sf.info.print_seconds, fixed, cool, "your estimate" if cool is not None else "unknown"),
+        a.loops or d.loops,
+    )
+    cur = r.currency
+    print(f"{sf.name}: {r.parts_per_plate} parts per plate, {r.loops} loops")
+    for ln in r.lines:
+        val = f"{cur}{ln.per_loop:.3f} per loop" if ln.per_loop is not None else "not set"
+        print(f"  {ln.label:18} {val:>17}   {ln.missing or ln.how}")
+    if r.setup:
+        print(f"  {'Setup (per run)':18} {cur}{r.setup:.3f}")
+    t = r.totals
+    print(
+        f"\n  per part {cur}{t['per_part']:.3f} · per loop {cur}{t['per_loop']:.3f} · run {cur}{t['run']:.2f}"
+    )
+    if r.selling:
+        s_ = r.selling
+        print(
+            f"  selling at {cur}{s_['price']:g}: profit {cur}{s_['profit']:.3f} per part ({s_['margin_pct']}% margin), "
+            f"break-even {cur}{s_['breakeven_price']}, {s_['target_margin_pct']:g}% margin needs {cur}{s_['price_for_target']}"
+        )
+    for m in r.missing:
+        print(f"  ! {m}")
+    return 0
+
+
 def cmd_check(a) -> int:
     sf = threemf.load(a.input)
     findings = lint(sf)
@@ -234,6 +275,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--plate", type=int)
     _loop_args(p)
     p.set_defaults(fn=cmd_make)
+
+    p = sub.add_parser("cost", help="what a plate costs and earns, from your prices (set them in the app)")
+    p.add_argument("input")
+    p.add_argument(
+        "--cooldown-min", type=float, help="your cooldown estimate, if the Monitor hasn't measured one"
+    )
+    _loop_args(p)
+    p.set_defaults(fn=cmd_cost)
 
     p = sub.add_parser("check", help="check any loop file (FarmLoop or ClearLoop) for known problems")
     p.add_argument("input")

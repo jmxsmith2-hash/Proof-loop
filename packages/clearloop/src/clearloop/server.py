@@ -12,10 +12,19 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from . import __version__, printers, threemf
 from .calibration import TESTS, build_test
 from .config import Defaults, Notifier, PrinterConfig, QuietHours
-from .gcode.processor import ProcessError, analyze, changes, compatibility, process, process_batch
+from .costing import CostSettings, Times, cost
+from .gcode.processor import (
+    ProcessError,
+    analyze,
+    changes,
+    compatibility,
+    dwell_seconds,
+    process,
+    process_batch,
+)
 from .importer import ImportError_, import_profile
 from .lint import lint
-from .service import App, loop_settings
+from .service import App, cooldown_for, loop_settings
 
 log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
@@ -115,6 +124,7 @@ def create_app(app: App) -> FastAPI:
             "monitor": [w.as_dict() for w in app.watches.values()],
             "notifications": [n.model_dump(exclude={"token"}) for n in app.settings.notifications],
             "quiet_hours": app.settings.quiet_hours.model_dump(),
+            "costs": app.settings.costs.model_dump(),
         }
 
     # ---- make a loop file ---------------------------------------------------------
@@ -161,6 +171,37 @@ def create_app(app: App) -> FastAPI:
         defaults, st = _settings(app, body)
         return changes(sf, profile(defaults.profile_id), st)
 
+    # ---- costs -------------------------------------------------------------------------
+    def plate_cost(sf, prof, st, loops: int, body: dict, setup: bool = True):
+        a = analyze(sf, prof, st)
+        fixed = sum(x["seconds"] or 0 for x in a.steps if x["key"] != "print")
+        cool, src = cooldown_for(
+            app,
+            body.get("cooldown_printer"),
+            body.get("cooldown_min"),
+            a.sweep_s,
+            dwell_seconds(prof.door_close),
+        )
+        c = app.settings.costs if setup else app.settings.costs.model_copy(update={"labor_min_per_run": None})
+        times = Times(sf.info.print_seconds, fixed, cool, src)
+        return cost(c, sf.info.filament_slots, sf.info.slot_grams, len(a.parts), times, loops).as_dict()
+
+    @api.put("/api/costs", dependencies=guard)
+    def put_costs(body: dict):
+        try:
+            app.settings.costs = CostSettings.model_validate(body)
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        app.save_settings()
+        return app.settings.costs.model_dump()
+
+    @api.post("/api/plates/{token}/cost", dependencies=guard)
+    def cost_of_plate(token: str, body: dict):
+        sf = app.uploads.get(token)
+        defaults, st = _settings(app, body.get("settings"))
+        loops = int(body.get("loops") or defaults.loops)
+        return plate_cost(sf, profile(defaults.profile_id), st, max(1, loops), body)
+
     # ---- batch: several plates in one file --------------------------------------------
     def batch_items(body: dict):
         items = []
@@ -206,6 +247,22 @@ def create_app(app: App) -> FastAPI:
             "parts": sum(r["parts"] * r["count"] for r in rows),
             "print_seconds": sum(r["print_seconds"] * r["count"] for r in rows),
             "ok": not problems,
+            "cost": batch_cost(items, prof, st, body) if not problems else None,
+        }
+
+    def batch_cost(items, prof, st, body: dict) -> dict:
+        costs = [plate_cost(sf, prof, st, n, body, setup=False) for sf, n in items]
+        c = app.settings.costs
+        setup = (
+            c.labor_min_per_run / 60 * c.labor_rate if None not in (c.labor_rate, c.labor_min_per_run) else 0
+        )
+        total = sum(x["totals"]["run"] for x in costs) + setup
+        parts = sum(x["totals"]["parts"] for x in costs)
+        return {
+            "currency": c.currency,
+            "run": round(total, 4),
+            "per_part": round(total / max(1, parts), 4),
+            "complete": all(x["totals"]["complete"] for x in costs),
         }
 
     @api.post("/api/batch/download", dependencies=guard)

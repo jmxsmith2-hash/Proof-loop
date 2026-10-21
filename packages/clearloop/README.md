@@ -68,6 +68,17 @@ Your browser opens ClearLoop at `http://localhost:8484`. Or run it with Docker:
   until morning, with the printer paused and its heaters off.
 - **Photo alerts.** When parts are left behind, the camera picture arrives
   with the ntfy or Discord notification.
+- **Know what every part costs.** The *Costs* tab works out the cost per
+  part, per loop and per run: filament for each slot (grams from the slicer,
+  priced from your own spools), electricity, printer wear and maintenance,
+  build plate and kit wear, labour, overhead, failed loops and packaging. Enter
+  a selling price and it shows profit, margin, break-even price, the price for
+  your target margin after tax, marketplace, payment and shipping fees, and
+  what your printers can make in a day or a month. Loop times use the
+  cooldown the Monitor measured on your printer, or your own estimate.
+  ClearLoop never invents a price: anything you haven't entered is listed as
+  missing rather than guessed. The Make tab shows the per-part cost too, and
+  batches are costed plate by plate.
 
 ## Hardware
 
@@ -135,6 +146,7 @@ clearloop check FL_S2_plate.gcode.3mf
 clearloop import-profile plain.gcode.3mf FL_S1_plain.gcode.3mf --name "A1 mini Stage 1"
 clearloop calibrate sweep-floor tiny.gcode.3mf
 clearloop profiles
+clearloop cost plate.gcode.3mf --loops 20 --cooldown-min 15   # uses the prices saved in the app
 ```
 
 Settings, imported profiles, empty-plate pictures and the event log live in
