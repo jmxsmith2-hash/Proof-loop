@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
@@ -33,17 +34,26 @@ STATIC = Path(__file__).parent / "static"
 MAX_UPLOAD = 300 * 1024 * 1024
 
 
-def _settings(app: App, body: dict | None) -> tuple:
-    body = dict(body or {})
-    raw = body.pop("part_push", None) or {}
+def _part_push(raw) -> dict[str, float]:
     try:
-        part_push = {str(k): float(v) for k, v in raw.items() if v is not None}
+        part_push = {str(k): float(v) for k, v in (raw or {}).items() if v is not None}
     except (TypeError, ValueError, AttributeError) as e:
         raise HTTPException(422, "part_push must map part labels to heights in mm") from e
     if any(not 0 <= z <= 1000 for z in part_push.values()):
         raise HTTPException(422, "push heights must be between 0 and 1000 mm")
+    return part_push
+
+
+def _settings(app: App, body: dict | None) -> tuple:
+    body = dict(body or {})
+    part_push = _part_push(body.pop("part_push", None))
     defaults = Defaults.model_validate({**app.settings.defaults.model_dump(), **body})
     return defaults, loop_settings(defaults, part_push)
+
+
+def _with_push(st, part_push: dict[str, float]):
+    """The same settings with one plate's own per-part push heights."""
+    return replace(st, sweep=replace(st.sweep, part_push_z=dict(part_push)))
 
 
 def create_app(app: App) -> FastAPI:
@@ -268,14 +278,16 @@ def create_app(app: App) -> FastAPI:
 
     # ---- batch: several plates in one file --------------------------------------------
     def batch_items(body: dict):
+        """(plate, count, that plate's own per-part push heights) in print order."""
         items = []
         for it in body.get("items", []):
             try:
-                items.append((app.uploads.get(str(it["token"])), int(it.get("count", 1))))
+                items.append((app.uploads.get(str(it["token"])), int(it.get("count", 1)), it))
             except (KeyError, TypeError, ValueError) as e:
                 raise HTTPException(
                     422, "each batch item needs a token from an uploaded plate and a count"
                 ) from e
+        items = [(sf, n, _part_push(it.get("part_push"))) for sf, n, it in items]
         if not items:
             raise HTTPException(422, "add plates to the batch first")
         return items
@@ -287,7 +299,7 @@ def create_app(app: App) -> FastAPI:
         prof = profile(defaults.profile_id)
         first = items[0][0]
         rows, problems = [], []
-        for sf, n in items:
+        for sf, n, pp in items:
             row = {
                 "file": sf.name,
                 "count": n,
@@ -297,8 +309,9 @@ def create_app(app: App) -> FastAPI:
             }
             row["problems"] += compatibility(first, sf) if sf is not first else []
             try:
-                a = analyze(sf, prof, st)
+                a = analyze(sf, prof, _with_push(st, pp))
                 row["parts"] = len(a.parts)
+                row["custom_heights"] = len(a.plan.part_custom)
                 row["problems"] += a.problems
                 row["sweep_s"] = round(a.sweep_s)
             except ProcessError as e:
@@ -307,15 +320,39 @@ def create_app(app: App) -> FastAPI:
             rows.append(row)
         return {
             "items": rows,
-            "loops": sum(n for _, n in items),
+            "notes": batch_notes(items),
+            "loops": sum(n for _, n, _ in items),
             "parts": sum(r["parts"] * r["count"] for r in rows),
             "print_seconds": sum(r["print_seconds"] * r["count"] for r in rows),
             "ok": not problems,
             "cost": batch_cost(items, prof, st, body) if not problems else None,
         }
 
+    def batch_notes(items) -> list[str]:
+        notes = []
+        plates = list({id(sf): sf for sf, _, _ in items}.values())
+        if len(plates) > 1:
+            notes.append(
+                "The printer's screen and Bambu Studio show the first plate's picture, print time and filament "
+                "for the whole file, as with the FarmLoop app's multi-loop files. ClearLoop's Monitor follows "
+                "each plate."
+            )
+            seen: dict[str, str] = {}
+            shared = set()
+            for sf in plates:
+                for label in sf.info.object_heights or {}:
+                    if label in seen and seen[label] != sf.name:
+                        shared.add(label)
+                    seen.setdefault(label, sf.name)
+            if shared:
+                notes.append(
+                    f"Some plates use the same object ids ({', '.join(sorted(shared)[:6])}). Don't use "
+                    "'skip object' on the printer for this file: it would skip parts on the other plates too."
+                )
+        return notes
+
     def batch_cost(items, prof, st, body: dict) -> dict:
-        costs = [plate_cost(sf, prof, st, n, body, setup=False) for sf, n in items]
+        costs = [plate_cost(sf, prof, st, n, body, setup=False) for sf, n, _ in items]
         c = app.settings.costs
         setup = (
             c.labor_min_per_run / 60 * c.labor_rate if None not in (c.labor_rate, c.labor_min_per_run) else 0
@@ -336,7 +373,10 @@ def create_app(app: App) -> FastAPI:
         prof = profile(defaults.profile_id)
         r = process_batch(items, prof, st)
         register_job(
-            app.store, r.filename, [(sf, n, len(analyze(sf, prof, st).parts)) for sf, n in items], prof.id
+            app.store,
+            r.filename,
+            [(sf, n, len(analyze(sf, prof, _with_push(st, pp)).parts)) for sf, n, pp in items],
+            prof.id,
         )
         return Response(
             r.data,

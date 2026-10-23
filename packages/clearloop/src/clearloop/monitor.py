@@ -108,6 +108,7 @@ class PrinterWatch:
         self._last_start = 0.0
         # Filament: an object with loop_done / loop_failed / blocker / on_ams, or None.
         self.filament = filament
+        self._has_sentinels = False  # this job drives a FarmBoard (Stage 2)
         self._printed = False  # the current loop's print has finished (and been charged)
         self._trays_loop: list[int] = []  # AMS trays the printer fed from during this loop
         self._max_layer = 0
@@ -149,6 +150,7 @@ class PrinterWatch:
         job = "|".join(job_names(s))
         if job and job != self._job:
             self._job, self.loop_no, self._marks, self._last_layer = job, 1, {}, 0
+            self._has_sentinels = False
             self._new_loop()
         loop_job = is_loop_job(s)
         if loop_job and s.gcode_state == "RUNNING":
@@ -160,6 +162,7 @@ class PrinterWatch:
             self._sentinel = t
             code = int(t) if t in PHASE else 0
             if code and loop_job:
+                self._has_sentinels = True
                 self.phase = PHASE[code]
                 self.event("info", "loop", SENTINEL_TEXT[code])
                 if code == 1:
@@ -181,22 +184,22 @@ class PrinterWatch:
                 if code == 5 and 2 in self._marks:
                     self.store.add_timing(self.name, "cycle", now - self._marks[2])
         # Stage 1 files have no FarmBoard signals: a new loop shows as the layer count starting over.
+        # Within one plate the layer number only goes up, so a drop back to the first layers is a new
+        # plate. This doesn't use the printer's layer total, which may not follow each plate of a batch.
         if (
             loop_job
-            and s.total_layers
-            and self._last_layer >= s.total_layers
-            and 0 < s.layer_num < self._last_layer
+            and not self._has_sentinels
+            and 0 < s.layer_num <= 3 < self._last_layer
+            and now - self._last_start > 60
         ):
-            if now - self._last_start > 600:
-                self._loop_printed(s)
-                self.loop_no += 1
-                self._last_start = now
-                self._new_loop()
+            self._loop_printed(s)
+            self.loop_no += 1
+            self._last_start = now
+            self._new_loop()
         if loop_job and s.layer_num and s.layer_num != self._last_layer and s.gcode_state == "RUNNING":
             if not self._marks or max(self._marks) == 1:
-                self.phase = (
-                    f"printing layer {s.layer_num}/{s.total_layers}" if s.total_layers else "printing"
-                )
+                total = self._call("loop_layers", s) or s.total_layers
+                self.phase = f"printing layer {s.layer_num}/{total}" if total else "printing"
         self._last_layer = s.layer_num
 
     def _on_gcode_state(self, prev: str, s: PrinterState) -> None:
@@ -255,7 +258,16 @@ class PrinterWatch:
         return list(self._trays_loop)
 
     def loop_end_pause(self, s: PrinterState) -> bool:
-        return is_loop_job(s) and s.total_layers > 0 and s.layer_num >= s.total_layers
+        """A pause the loop file itself put there, after the print and sweep, not a runout or a user."""
+        if not is_loop_job(s):
+            return False
+        if 5 in self._marks:  # FarmBoard closed the door this loop: print and sweep are done
+            return True
+        # Batches mix plates with different layer counts; ClearLoop knows each loop's plate.
+        layers = self._call("loop_layers", s)
+        if layers:
+            return s.layer_num >= layers
+        return s.total_layers > 0 and s.layer_num >= s.total_layers
 
     # ---- plate checks ---------------------------------------------------------------
     def _start_check(self, reason: str, settle: float | None = None) -> None:

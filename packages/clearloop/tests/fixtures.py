@@ -118,7 +118,7 @@ def plate_gcode(boxes, layer=0.2, model_id="N7", printer_model="Bambu Lab P2S", 
     return "\n".join(out)
 
 
-def make_3mf(gcode: str, boxes=None, model_id="N7", filament="PLA") -> bytes:
+def make_3mf(gcode: str, boxes=None, model_id="N7", filament="PLA", grams=12.5) -> bytes:
     objects = "".join(
         f'<object identify_id="{b[0]}" name="Part {b[0]}" skipped="false" />' for b in (boxes or [])
     )
@@ -127,7 +127,7 @@ def make_3mf(gcode: str, boxes=None, model_id="N7", filament="PLA") -> bytes:
         f'<metadata key="index" value="1"/><metadata key="printer_model_id" value="{model_id}"/>'
         '<metadata key="prediction" value="3723"/>'
         f"{objects}"
-        f'<filament id="1" type="{filament}" color="#FFFFFF" used_m="1" used_g="12.5"/>'
+        f'<filament id="1" type="{filament}" color="#FFFFFF" used_m="1" used_g="{grams}"/>'
         "</plate></config>"
     )
     data = gcode.encode()

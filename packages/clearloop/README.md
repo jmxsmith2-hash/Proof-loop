@@ -51,9 +51,16 @@ Your browser opens ClearLoop at `http://localhost:8484`. Or run it with Docker:
   Once the Monitor has timed your cooldowns, it also tells you when the run
   will finish.
 - **Batch files.** Put different plates in one file, for example 3× plate A
-  then 2× plate B. ClearLoop refuses plates that don't share the same filament
+  then 2× plate B. Each plate keeps its own sweep and its own per-part push
+  heights, the checker checks every plate against its own sweep, and the
+  Monitor knows which plate each loop prints, so the plate check, filament
+  counting and loop count stay right even when the plates have different
+  layer counts. ClearLoop refuses plates that don't share the same filament
   slots, build plate and nozzle, because the printer maps filament once per
-  file.
+  file. The printer's screen shows the first plate's picture and time for
+  the whole file (as with FarmLoop's multi-loop files), and ClearLoop tells
+  you when plates share object ids, so you know not to use the printer's
+  "skip object" on that file.
 - **See exactly what was added.** *What ClearLoop adds to your file* shows
   the inserted G-code blocks, with copy buttons. Your slicer's G-code is
   untouched.

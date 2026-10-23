@@ -364,33 +364,36 @@ def compatibility(first: SlicedFile, other: SlicedFile) -> list[str]:
     return out
 
 
-def process_batch(
-    items: list[tuple[SlicedFile, int]], profile: HardwareProfile, settings: LoopSettings
-) -> Result:
-    """Several plates in one file, e.g. plate A three times, then plate B twice."""
-    items = [(sf, n) for sf, n in items if n > 0]
+def process_batch(items: list[tuple], profile: HardwareProfile, settings: LoopSettings) -> Result:
+    """Several plates in one file, e.g. plate A three times, then plate B twice.
+
+    ``items``: (plate, count) or (plate, count, per-part push heights for that plate). Each plate is
+    analysed and swept on its own; the settings' own per-part heights belong to no plate and are ignored.
+    """
+    items = [(it[0], it[1], dict(it[2]) if len(it) > 2 and it[2] else {}) for it in items if it[1] > 0]
     if not items:
         raise ProcessError("add at least one plate with a count of 1 or more")
     first = items[0][0]
-    problems = [p for sf, _ in items[1:] for p in compatibility(first, sf)]
+    problems = [p for sf, _, _ in items[1:] for p in compatibility(first, sf)]
     if problems:
         raise ProcessError("; ".join(problems))
-    total = sum(n for _, n in items)
+    total = sum(n for _, n, _ in items)
     run = replace(settings, loops=total)
-    analyses = []
-    for sf, _ in items:
-        an = analyze(sf, profile, replace(run, sweep=replace(run.sweep, part_push_z={})))
+    plans = []
+    for sf, _, pp in items:
+        own = replace(run, sweep=replace(run.sweep, part_push_z=pp))
+        an = analyze(sf, profile, own)
         if an.problems:
             raise ProcessError(f"{sf.name}: " + "; ".join(an.problems))
-        analyses.append(an)
+        plans.append((own, an))
     is_p2s = first.info.printer_model_id == printers.P2S
     bodies, k = [], 0
-    for (sf, n), an in zip(items, analyses, strict=True):
+    for (sf, n, _), (own, an) in zip(items, plans, strict=True):
         gcode = clean_input(sf)
         for _ in range(n):
             k += 1
-            bodies.append(_loop_text(gcode, profile, run, an.plan, is_p2s, k, k == total))
+            bodies.append(_loop_text(gcode, profile, own, an.plan, is_p2s, k, k == total))
     text = _join_loops(bodies)
     base = (first.name or "plate.gcode.3mf").rsplit("/", 1)[-1]
     name = output_name(base if len(items) == 1 else f"batch-{total}x-{base}", profile)
-    return Result(first.to_bytes(text), text, name, analyses[0])
+    return Result(first.to_bytes(text), text, name, plans[0][1])

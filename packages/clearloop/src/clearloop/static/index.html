@@ -632,7 +632,11 @@ dropZone($('#makeDrop'), $('#makeFile'), async (file) => {
     const fd = new FormData(); fd.append('file', file);
     const res = await json('/api/plates', {method: 'POST', body: fd});
     if (res.no_profile) { showNoProfile(res); $('#makeResult').classList.add('hidden'); }
-    else { partPush = {}; PLATE = res; renderPlate(res); }
+    else {
+      const kept = PLATE && BATCH.find(x => x.token === PLATE.token);
+      if (kept) kept.part_push = {...partPush};  // the plate leaving the screen keeps its own heights
+      partPush = {}; PLATE = res; renderPlate(res);
+    }
   } catch (e) { $('#makeError').innerHTML = `<span class="ic danger">✖</span><div>${esc(e.message)}</div>`; $('#makeError').classList.remove('hidden'); $('#makeResult').classList.add('hidden'); }
   $('#makeDrop strong').textContent = 'Drop another plate, or click to choose';
 });
@@ -864,12 +868,12 @@ let BATCH = [];
 $('#addToBatch').onclick = () => {
   if (!PLATE) return;
   if (BATCH.some(b => b.token === PLATE.token)) { toast('This plate is already in the batch'); return; }
-  BATCH.push({token: PLATE.token, file: PLATE.file, parts: PLATE.parts.length, count: +$('#sLoops').value || 1});
+  BATCH.push({token: PLATE.token, file: PLATE.file, parts: PLATE.parts.length, count: +$('#sLoops').value || 1, part_push: {...partPush}});
   $('#addToBatch').textContent = '✓ In the batch';
   renderBatch(); toast('Added. Drop another plate to add it too.');
 };
 function renderBatch() {
-  $('#batchRows').innerHTML = BATCH.map((b, i) => `<div class="batch-row"><div><b>${esc(b.file)}</b><div class="hint">${b.parts} part${b.parts > 1 ? 's' : ''} per plate</div></div>
+  $('#batchRows').innerHTML = BATCH.map((b, i) => `<div class="batch-row"><div><b>${esc(b.file)}</b><div class="hint">${b.parts} part${b.parts > 1 ? 's' : ''} per plate${Object.keys(pushOf(b)).length ? ` · ${Object.keys(pushOf(b)).length} push height${Object.keys(pushOf(b)).length > 1 ? 's' : ''} set by you` : ''}</div></div>
     <div class="stepper"><button data-b="${i}" data-d="-1" aria-label="fewer">−</button><span>${b.count}×</span><button data-b="${i}" data-d="1" aria-label="more">+</button></div>
     <div class="row"><button class="linkbtn" data-up="${i}" ${i ? '' : 'disabled'}>↑</button><button class="linkbtn" data-rm="${i}">remove</button></div></div>`).join('');
   $('#batchDownload').classList.toggle('hidden', !BATCH.length);
@@ -883,13 +887,15 @@ $('#batchRows').addEventListener('click', (e) => {
   else return;
   renderBatch();
 });
-const batchBody = () => ({items: BATCH.map(b => ({token: b.token, count: b.count})), settings: {...currentSettings(), part_push: {}}});
+// Each plate keeps its own per-part push heights; the plate on screen uses its live sliders.
+const pushOf = (b) => (PLATE && b.token === PLATE.token ? partPush : b.part_push) || {};
+const batchBody = () => ({items: BATCH.map(b => ({token: b.token, count: b.count, part_push: pushOf(b)})), settings: {...currentSettings(), part_push: {}}});
 async function previewBatch() {
   try {
     const r = await send('/api/batch/preview', batchBody());
     const probs = r.items.flatMap(it => it.problems);
     $('#batchOut').innerHTML = `<p class="hint"><b>${r.loops} loops</b>, ${r.parts} parts, about ${fmtDur(r.print_seconds)} of printing plus cooldowns.</p>` +
-      (probs.length ? `<ul class="list">${probs.map(p => `<li><span class="ic danger">✖</span><div>${esc(p)}</div></li>`).join('')}</ul>` : '');
+      (probs.length || r.notes.length ? `<ul class="list">${probs.map(p => `<li><span class="ic danger">✖</span><div>${esc(p)}</div></li>`).join('')}${r.notes.map(n => `<li><span class="ic info">i</span><div class="hint">${esc(n)}</div></li>`).join('')}</ul>` : '');
     $('#batchDownload').disabled = !r.ok;
   } catch (e) { $('#batchOut').innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; $('#batchDownload').disabled = true; }
 }

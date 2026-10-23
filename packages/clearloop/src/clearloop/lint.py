@@ -153,53 +153,55 @@ def lint(sf: SlicedFile) -> list[Finding]:
                 )
                 break
 
-    # 5. Parts below every sweep pass.
+    # 5. Parts below every sweep pass. Each loop is checked against its own plate's parts, so a batch
+    # of different plates is checked plate by plate (identical plates are checked once).
     info = sf.info
-    first = "\n".join(lines[: loops[0][1] + 1])
-    parts = read_parts(first, info.object_names, info.object_heights)
-    end_start = next(
-        (i for i in range(loops[0][0], loops[0][1]) if lines[i].startswith("; MACHINE_END_GCODE_START")), None
-    )
-    pushes: list[tuple[float, float]] = []  # (x, z) of rear-to-front moves
-    if parts and end_start is not None:
-        x = y = z = None
-        for ln in lines[end_start : loops[0][1]]:
-            c = _code(ln)
-            if not MOVE.match(c):
-                continue
-            w = {k: float(v) for k, v in WORD.findall(c)}
-            x, z = w.get("X", x), w.get("Z", z)
-            if "Y" in w:
-                if y is not None and w["Y"] < y - 50 and x is not None and z is not None:
-                    pushes.append((x, z))
-                y = w["Y"]
-        if pushes:
-            missed = []
-            for p in parts:
-                # 15 mm = half the 30 mm lane spacing of FarmLoop's P2S sweep.
-                reach = [z for (px, z) in pushes if p.xmin - 15 <= px <= p.xmax + 15]
-                if reach and min(reach) >= p.height:
-                    missed.append(f"{p.name} ({p.height:.1f} mm, lowest push Z{min(reach):g})")
-            if missed:
-                f.append(
-                    Finding(
-                        "danger",
-                        "Parts the sweep passes over",
-                        "Every sweep pass near these parts is higher than the part, so they'll stay on the plate: "
-                        + "; ".join(missed)
-                        + ". This is the single-push-height problem; ClearLoop pushes each part at its own height.",
-                    )
-                )
-            else:
-                f.append(
-                    Finding(
-                        "ok",
-                        "Every part is reached by a sweep pass",
-                        f"{len(parts)} part(s) checked against {len(pushes)} pushes.",
-                    )
-                )
-
-    if parts and end_start is not None and not pushes:
+    checked: dict[str, tuple] = {}
+    missed: list[tuple[int, str]] = []
+    n_parts = n_pushes = 0
+    plain_slice = False
+    prev_end = -1
+    for n, (a, b) in enumerate(loops, 1):
+        head = "\n".join(lines[prev_end + 1 : a])
+        prev_end = b
+        key = _header_key(head)
+        if key in checked:
+            continue
+        parts, pushes = _loop_sweep(lines, a, b, head, info)
+        checked[key] = (parts, pushes)
+        if not parts:
+            continue
+        if not pushes:
+            plain_slice = True
+            continue
+        n_parts += len(parts)
+        n_pushes += len(pushes)
+        for p in parts:
+            # 15 mm = half the 30 mm lane spacing of FarmLoop's P2S sweep.
+            reach = [z for (px, z) in pushes if p.xmin - 15 <= px <= p.xmax + 15]
+            if reach and min(reach) >= p.height:
+                missed.append((n, f"{p.name} ({p.height:.1f} mm, lowest push Z{min(reach):g})"))
+    plates = len(checked)
+    if missed:
+        f.append(
+            Finding(
+                "danger",
+                "Parts the sweep passes over",
+                "Every sweep pass near these parts is higher than the part, so they'll stay on the plate: "
+                + "; ".join(f"loop {n}: {t}" if plates > 1 else t for n, t in missed)
+                + ". This is the single-push-height problem; ClearLoop pushes each part at its own height.",
+            )
+        )
+    elif n_parts:
+        f.append(
+            Finding(
+                "ok",
+                "Every part is reached by a sweep pass",
+                f"{n_parts} part(s) checked against {n_pushes} pushes"
+                + (f", across {plates} different plates." if plates > 1 else "."),
+            )
+        )
+    if plain_slice and not n_parts:
         f.append(
             Finding(
                 "info",
@@ -228,3 +230,37 @@ def lint(sf: SlicedFile) -> list[Finding]:
             )
         )
     return f
+
+
+def _header_key(head: str) -> str:
+    """Identifies a plate: its slicer header (part ids and heights, layer count, time)."""
+    a, b = head.find("; HEADER_BLOCK_START"), head.find("; HEADER_BLOCK_END")
+    return head[a:b] if a >= 0 and b > a else head[-2000:]
+
+
+def _loop_sweep(lines: list[str], a: int, b: int, head: str, info) -> tuple[list, list[tuple[float, float]]]:
+    """The parts one loop prints (from its own header and G-code) and its rear-to-front pushes."""
+    from .threemf import _header_block, _num
+
+    hdr = _header_block(head)
+    ids = [x.strip() for x in hdr.get("model label id", "").split(",") if x.strip()]
+    hs = [_num(x) for x in hdr.get("object max height", "").split(",") if x.strip()]
+    heights = dict(zip(ids, hs, strict=True)) if ids and len(ids) == len(hs) else info.object_heights
+    body = lines[a : b + 1]
+    parts = read_parts("\n".join(body), info.object_names, heights)
+    end_start = next((i for i in range(a, b) if lines[i].startswith("; MACHINE_END_GCODE_START")), None)
+    pushes: list[tuple[float, float]] = []
+    if end_start is None:
+        return parts, pushes
+    x = y = z = None
+    for ln in lines[end_start:b]:
+        c = _code(ln)
+        if not MOVE.match(c):
+            continue
+        w = {k: float(v) for k, v in WORD.findall(c)}
+        x, z = w.get("X", x), w.get("Z", z)
+        if "Y" in w:
+            if y is not None and w["Y"] < y - 50 and x is not None and z is not None:
+                pushes.append((x, z))
+            y = w["Y"]
+    return parts, pushes

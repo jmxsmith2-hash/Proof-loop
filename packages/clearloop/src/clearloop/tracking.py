@@ -86,6 +86,14 @@ class FilamentTracker:
         w.event(level, kind, msg)
 
     # ---- hooks --------------------------------------------------------------------
+    def loop_layers(self, w, s) -> int | None:
+        """Layers in the plate the current loop prints, for files ClearLoop made (batches mix plates)."""
+        _key, data = self.job_for(s)
+        if not data:
+            return None
+        usage = self.plate_for(data, w.loop_no).get("layers")
+        return usage["layers"] if usage else None
+
     def loop_done(self, w, s) -> None:
         key, data = self.job_for(s)
         if not data:
