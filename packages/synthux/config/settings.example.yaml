@@ -1,0 +1,68 @@
+# synthux global settings. Copy to config/settings.yaml and edit.
+# Values like ${NAME} or ${NAME:-default} are read from the environment (or .env).
+# Secrets must never be written here directly.
+
+data_dir: data                 # runs, screenshots, the SQLite database
+log_level: INFO
+
+engine:
+  # "heuristic" runs entirely on this machine and costs nothing (no API key).
+  # "ollama" uses a local model server. "anthropic" uses Claude (needs ANTHROPIC_API_KEY).
+  default: heuristic
+  roles: {}                    # per-role override, e.g. {judge: anthropic, reporter: anthropic}
+
+# Only these hosts may ever be opened. A study cannot widen this list.
+safety:
+  allowlist:
+    - host: 127.0.0.1
+      ports: [8765]
+      sandbox: true            # sandbox targets may submit payments/emails (they are fake)
+      note: bundled demo app
+    - host: localhost
+      ports: [8765]
+      sandbox: true
+  # Requests whose URL matches any of these are blocked unless the target is a sandbox.
+  blocked_request_patterns:
+    - "stripe\\.com"
+    - "paypal\\.com"
+    - "braintreegateway\\.com"
+    - "adyen\\.com"
+    - "api\\.sendgrid\\.com"
+    - "api\\.mailgun\\.net"
+    - "api\\.postmarkapp\\.com"
+    - "/pay(ment)?s?(/|$)"
+    - "/charge"
+  # Clicks on controls whose visible text or attributes match these are blocked on non-sandbox targets.
+  payment_patterns: ["\\bpay\\b", "pay now", "place order", "complete purchase", "buy now", "submit payment", "confirm payment"]
+  email_patterns: ["send email", "send message", "send invite", "invite", "\\bsend\\b"]
+  destructive_patterns: ["delete", "remove account", "close account", "erase", "deactivate", "cancel subscription", "unsubscribe"]
+
+run:
+  repeats: 3                   # runs per persona x task
+  promote_min: 2               # an issue must appear in at least this many runs to be promoted
+  concurrency: 2               # parallel browser sessions
+  max_cost_usd: 5.00           # refuse to start a paid run estimated above this (0 = no limit)
+  seconds_per_step: 6          # simulated human time per action (think + act)
+
+noise:
+  enabled: true
+  misclick_rate_by_skill: {1: 0.15, 2: 0.10, 3: 0.06, 4: 0.03, 5: 0.015}
+  typo_rate_by_skill:     {1: 0.06, 2: 0.04, 3: 0.025, 4: 0.012, 5: 0.006}
+  misclick_sigma_px: 18        # extra scatter, multiplied for motor considerations
+
+browser:
+  headless: true
+  executable_path: null        # auto-detected; set if Chromium is somewhere unusual
+  slow_load_seconds: 3.0       # a page taking longer than this counts as slow
+
+devices:
+  desktop: {width: 1280, height: 800, mobile: false, scale: 1}
+  tablet:  {width: 820, height: 1180, mobile: true, scale: 1}
+  mobile:  {width: 390, height: 844, mobile: true, scale: 1}
+
+networks:
+  fast:   {latency_ms: 0, download_kbps: 0, upload_kbps: 0}
+  "4g":   {latency_ms: 150, download_kbps: 4000, upload_kbps: 1500}
+  "3g":   {latency_ms: 400, download_kbps: 750, upload_kbps: 250}
+
+calibration_profile: default   # file under config/calibration/ (or a stored version id)
