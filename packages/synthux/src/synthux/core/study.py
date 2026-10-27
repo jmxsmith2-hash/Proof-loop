@@ -37,6 +37,8 @@ class PersonaSpec(StrictModel):
     sources: list[str] = Field(default_factory=list)
     manual: list[dict] = Field(default_factory=list)
     ids: list[str] = Field(default_factory=list)             # reuse stored personas
+    engines: list[str] = Field(default_factory=list)         # spread across engines, e.g. "anthropic:claude-haiku-5-5"
+    include_accessibility: bool = True
 
 
 class Conditions(StrictModel):

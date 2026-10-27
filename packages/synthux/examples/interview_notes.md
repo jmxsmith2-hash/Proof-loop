@@ -1,0 +1,3 @@
+- P1: Uses a tablet in the evening while cooking, gets interrupted by kids. Wanted to sign up for the newsletter and gave up when the form lost her details.
+- P2: Has arthritis; small buttons on the phone are hard to tap. Looking for a simple way to reorder.
+- P3: Works in IT, uses lots of apps, found the date field format confusing because it didn't say which format.
