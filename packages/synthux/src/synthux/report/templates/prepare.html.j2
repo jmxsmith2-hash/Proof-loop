@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ r.model }}: ready to print?</title>
+{% include "_physical_style.html.j2" %}
+<style>
+.verdict { border-radius: 14px; padding: 18px 20px; margin: 14px 0; border: 2px solid var(--border); background: var(--card); }
+.verdict.ready { border-color: var(--good); } .verdict.fix { border-color: var(--s3); }
+.verdict h2 { margin: 0 0 4px; font-size: 22px; }
+.links a { margin-right: 14px; font-weight: 600; }
+</style>
+</head>
+<body><main>
+<h1>{{ r.model }}</h1>
+<p class="secondary small">{{ (r.printer.names or [r.printer.name])[0] }} · {{ r.material.name }} · sliced by {{ r.slicer.name }} with
+  "{{ r.presets.process }}" and "{{ r.presets.filament }}"{% if r.presets.overrides %} (support {{ 'on' if r.presets.overrides.process.enable_support else 'off' }}){% endif %} · {{ r.generated[:16] }}</p>
+
+<div class="verdict {{ 'ready' if r.ready else 'fix' }}">
+  <h2 class="{{ 'ok' if r.ready else 'bad' }}">{{ 'Ready to print' if r.ready else 'Fix ' ~ r.blocking ~ ' thing' ~ ('s' if r.blocking != 1 else '') ~ ' first' }}</h2>
+  <p>{{ r.grams }} g of filament, {{ r.time }}, {{ r.layers }} layers (the slicer's numbers).</p>
+  <p class="links small"><a href="{{ r.links.design }}">Design check</a><a href="{{ r.links.gcode }}">G-code check</a>{% if r.links.loop %}<a href="{{ r.links.loop }}">Loop file check</a>{% endif %}<a href="{{ r.links.sliced }}">Sliced file</a></p>
+</div>
+
+{% if r.slicer_findings %}<h2>What the slicer did with the design</h2>
+{% if r.alignment_note %}<p class="small muted">Note: {{ r.alignment_note }}.</p>{% endif %}
+{% for f in r.slicer_findings %}<div class="card"><h3><span class="num sev{{ f.severity }}">!</span>{{ f.title }}</h3>
+  <p>{{ f.detail }}</p><div class="fix"><b>Fix:</b> {{ f.fix }}</div></div>{% endfor %}{% endif %}
+
+{% set top = (r.design.findings + r.gcode.findings)|selectattr('severity', 'ge', 3)|list %}
+{% if top %}<h2>Major problems</h2>
+{% for f in top %}<div class="card"><h3><span class="num sev{{ f.severity }}">{{ f.n }}</span>{{ f.title }}</h3>
+  <span class="chip">{{ 'design' if f in r.design.findings else 'G-code' }}</span><span class="chip">{{ f.severity_name }}</span>
+  <p>{{ f.detail }}</p>{% if f.fix %}<div class="fix"><b>Fix:</b> {{ f.fix }}</div>{% endif %}</div>{% endfor %}{% endif %}
+
+{% if r.loop %}<h2>Loop file</h2><div class="card small"><p>{{ r.loop.file }}: {{ r.loop.metrics.loop_file.loops }} loops,
+  {{ r.loop.findings|selectattr('severity', 'ge', 3)|list|length }} major problem(s). <a href="{{ r.links.loop }}">Open its check</a>.</p></div>{% endif %}
+
+<h2>Limitations</h2>
+<ul class="card small">
+  <li>The slicer ran with its own presets for this printer and filament; your usual presets in the slicer app may differ.</li>
+  <li>The comparison matches places by position on the plate; if the slicer turned the part, they are approximate.</li>
+</ul>
+</main></body></html>

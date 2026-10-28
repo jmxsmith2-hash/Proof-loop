@@ -60,6 +60,9 @@ button { margin-top: 12px; padding: 8px 16px; border-radius: 9px; border: 0; bac
     <label for="cad-design">Design name <span class="muted">(same name = next version; shows what changed)</span></label>
     <input type="text" id="cad-design" placeholder="from the file name">
     <label class="check"><input type="checkbox" id="cad-handheld"> It is held in the hand (grip and weight checks)</label>
+    {% if slicer %}<label class="check" id="cad-slice-box"><input type="checkbox" id="cad-slice" checked> Slice it with {{ slicer }} too and check the G-code (ready-to-print verdict)</label>
+    <div class="row" id="cad-slice-opts"><div><label for="cad-support">Support</label><select id="cad-support"><option value="">As the preset has it</option><option value="on">On (tree)</option><option value="off">Off</option></select></div>
+      <div><label for="cad-loops">ClearLoop loops</label><input type="number" id="cad-loops" min="0" max="50" value="0"></div></div>{% endif %}
     <div class="err" id="cad-err" role="alert"></div>
   </section>
 
@@ -110,7 +113,10 @@ function uploader(kind) {
     const pick = (id, key) => { const el = document.getElementById(id); if (el && el.value) q.set(key, el.value); };
     if (kind === "cad") { pick("cad-material", "material"); pick("cad-design", "design");
       const proc = document.getElementById("cad-process").value;
-      if (proc === "print") pick("cad-printer", "printer"); else { q.set("process", proc); if (proc === "injection") pick("cad-pull", "pull"); }
+      if (proc === "print") { pick("cad-printer", "printer");
+        const sl = document.getElementById("cad-slice");
+        if (sl && sl.checked) { q.set("slice", "1"); pick("cad-support", "support"); const l = document.getElementById("cad-loops"); if (l && +l.value) q.set("loops", l.value); } }
+      else { q.set("process", proc); if (proc === "injection") pick("cad-pull", "pull"); }
       if (document.getElementById("cad-handheld").checked) q.set("handheld", "1"); }
     else { pick("g-printer", "printer"); pick("g-material", "material"); }
     const xhr = new XMLHttpRequest();
@@ -140,6 +146,7 @@ document.getElementById("cad-process").addEventListener("change", (e) => {
   sel.innerHTML = (MATERIALS[proc] || []).map(m => `<option${proc === "print" && m === DEFAULT_MATERIAL ? " selected" : ""}>${m}</option>`).join("");
   document.getElementById("cad-printer-box").hidden = proc !== "print";
   document.getElementById("cad-pull-box").hidden = proc !== "injection";
+  for (const id of ["cad-slice-box", "cad-slice-opts"]) { const el = document.getElementById(id); if (el) el.hidden = proc !== "print"; }
 });
 // a file dropped anywhere else goes to the right card by its type
 window.addEventListener("dragover", (e) => e.preventDefault());

@@ -78,6 +78,13 @@ def check_gcode(config_dir: Path | str | None, path: Path | str, *, printer: str
     path = Path(path)
     ctx, notes, chosen = analyse(config_dir, path, printer=printer, material=material, plate=plate,
                                  history=history)
+    return build_result(ctx, notes, chosen, path, out=out, write_report=write_report, started=started)
+
+
+def build_result(ctx: GcodeContext, notes: dict[str, Any], chosen: dict[str, Any], path: Path, *,
+                 out: Path | None = None, write_report: bool = True, started: float | None = None) -> dict[str, Any]:
+    """The result dict (and, with write_report, the pictures and HTML report) for an analysed file."""
+    started = started or time.perf_counter()
     trace, pr, mat, nozzle = ctx.trace, ctx.printer, ctx.material, ctx.nozzle
     images: dict[str, str] = {}
     if write_report:

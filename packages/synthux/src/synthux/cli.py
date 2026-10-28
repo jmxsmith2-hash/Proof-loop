@@ -486,6 +486,54 @@ def physical_check(
                    "[--defect warping ...]")
 
 
+@physical_app.command("prepare")
+def physical_prepare(
+    model: Path = typer.Argument(..., help="STL, 3MF, OBJ ... to check, slice and check again."),
+    printer: Optional[str] = typer.Option(None, help="Printer profile (default from config/printers.yaml)."),
+    material: Optional[str] = typer.Option(None, help="PLA, PETG, ABS ... (default from config/printers.yaml)."),
+    layer: float = typer.Option(0.2, help="Layer height in mm (picks the slicer's process preset)."),
+    support: Optional[bool] = typer.Option(None, "--support/--no-support", help="Turn support on or off (default: "
+                                                                               "as the slicer's preset has it)."),
+    slicer: Optional[Path] = typer.Option(None, help="Path to Bambu Studio or OrcaSlicer (found automatically)."),
+    process_preset: Optional[str] = typer.Option(None, "--process-preset", help="The slicer's process preset name."),
+    filament_preset: Optional[str] = typer.Option(None, "--filament-preset", help="The slicer's filament preset name."),
+    loops: int = typer.Option(0, help="Also make a ClearLoop loop file with this many loops, and check it."),
+    design: Optional[str] = typer.Option(None, "--design", "-d", help="Design name or design YAML."),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Report folder."),
+    open_report: bool = typer.Option(False, "--open", help="Open the report in the browser."),
+    config: Optional[Path] = ConfigOpt,
+) -> None:
+    """From CAD to a print-ready verdict: design check, slice with Bambu Studio or Orca, G-code check, compare."""
+    import webbrowser
+
+    from synthux.physical.prepare import prepare
+
+    s = _settings(config)
+    history = _print_history(config)
+    try:
+        r = prepare(s, _db(s), model, printer=printer, material=material, layer=layer, slicer=slicer,
+                    process_preset=process_preset, filament_preset=filament_preset, support=support, loops=loops,
+                    out=out, history=history, design=design)
+    except ConfigError as exc:
+        typer.secho(f"Cannot prepare {model}: {exc}", fg="red", err=True)
+        raise typer.Exit(2)
+    typer.secho("Ready to print" if r["ready"] else f"Fix {r['blocking']} thing(s) first",
+                fg="green" if r["ready"] else "red", bold=True)
+    typer.echo(f"  sliced by {r['slicer']['name']}: {r['presets']['process']}, {r['presets']['filament']}")
+    typer.echo(f"  {r['grams']} g, {r['time']}, {r['layers']} layers")
+    for f in r["slicer_findings"]:
+        typer.echo(f"  [{ {4: 'will fail', 3: 'major', 2: 'minor', 1: 'note'}[f['severity']]:9}] {f['title']}")
+    for kind in ("design", "gcode"):
+        for f in r[kind]["findings"]:
+            if f["severity"] >= 3:
+                typer.echo(f"  [{f['severity_name']:9}] {f['title']}  ({'design' if kind == 'design' else 'G-code'})")
+    if r["loop"]:
+        typer.echo(f"  loop file: {r['loop']['path']}")
+    typer.secho(f"report: {r['report']}", fg="green")
+    if open_report:
+        webbrowser.open(Path(r["report"]).resolve().as_uri())
+
+
 @physical_app.command("gcode")
 def physical_gcode(
     gcode_file: Path = typer.Argument(..., help="Sliced .gcode, or a Bambu Studio .gcode.3mf (Export plate sliced file)."),

@@ -102,9 +102,16 @@ class App:
         hosts = sorted({f"{a.host}" + (f":{','.join(map(str, a.ports))}" if a.ports else "")
                         for a in self.settings.safety.allowlist})
         smart = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+        try:
+            from synthux.physical.slicer import find_slicer
+
+            found = find_slicer()
+            slicer = found.label if found and found.profile_dirs else None
+        except Exception:  # noqa: BLE001 - a broken slicer install just hides the option
+            slicer = None
         return self.env.get_template("app.html.j2").render(
             printers=printers, materials=materials, default_printer=data.get("default_printer"),
-            process_materials=process_materials,
+            process_materials=process_materials, slicer=slicer,
             default_material=data.get("default_material"), hosts=hosts, smart=smart, header=HEADER,
             devices=sorted(self.settings.devices))
 
@@ -163,6 +170,8 @@ class App:
             spec.use["handheld"] = True
         people = asyncio.run(PersonaGenerator(seed=11).generate(5, include_accessibility=True))
         process = opt.get("process") if opt.get("process") in ("injection", "cnc") else None
+        if not process and opt.get("slice") in ("1", "true", "on"):
+            return self._prepare_work(job, path, opt)
         if process:
             job.stage = {"injection": "checking it for injection moulding", "cnc": "checking it for CNC machining"}[process]
         result = check_design(self.settings, self.db, path, spec, people, path.parent / "report",
@@ -178,6 +187,25 @@ class App:
         else:
             job.summary.append(f"{result['process']['label']} in {result['material']['name']}: " +
                                "; ".join(f"{label} {value}" for value, label in est.get("process_stats", [])[:3]))
+
+    def _prepare_work(self, job: Job, path: Path, opt: dict[str, str]) -> None:
+        from synthux.physical.learn import history_for
+        from synthux.physical.prepare import prepare
+
+        job.stage = "checking the design, slicing it, then checking the G-code"
+        support = {"on": True, "off": False}.get(opt.get("support") or "")
+        r = prepare(self.settings, self.db, path, printer=opt.get("printer") or None,
+                    material=opt.get("material") or None, support=support, out=path.parent / "report",
+                    loops=int(opt["loops"]) if (opt.get("loops") or "").isdigit() else 0, design=opt.get("design") or None,
+                    history=lambda p, m, j: history_for(self.db, p, m, j))
+        job.report = r["report"]
+        job.title = f"{r['model']}: {'ready to print' if r['ready'] else 'fix first'}"
+        everything = r["slicer_findings"] + r["design"]["findings"] + r["gcode"]["findings"]
+        job.counts = {"fail": sum(f["severity"] == 4 for f in everything),
+                      "major": sum(f["severity"] == 3 for f in everything), "total": len(everything)}
+        job.summary = ([f"Ready to print: {r['grams']} g, {r['time']}" if r["ready"] else
+                        f"Fix {r['blocking']} thing(s) first ({r['grams']} g, {r['time']})"]
+                       + [f["title"] for f in sorted(everything, key=lambda f: -f["severity"])[:4] if f["severity"] >= 3])
 
     def _gcode_work(self, job: Job, path: Path, opt: dict[str, str]) -> None:
         from synthux.physical.gcode.pipeline import check_gcode

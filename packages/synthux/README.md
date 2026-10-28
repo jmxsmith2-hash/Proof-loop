@@ -27,13 +27,14 @@ behaviour.
 6. [Reading the report](#reading-the-report)
 7. [Calibrating against real users](#calibrating-against-real-users)
 8. [CAD designs: check before you print](#cad-designs-check-before-you-print)
-9. [G-code: check the sliced file](#g-code-check-the-sliced-file)
-10. [Moulded and machined products](#moulded-and-machined-products)
-11. [Physical products (prediction, not a test)](#physical-products-prediction-not-a-test)
-12. [Safety sandbox](#safety-sandbox)
-13. [Tests](#tests)
-14. [Limitations](#limitations)
-15. [Project layout](#project-layout)
+9. [From CAD to a print-ready verdict](#from-cad-to-a-print-ready-verdict)
+10. [G-code: check the sliced file](#g-code-check-the-sliced-file)
+11. [Moulded and machined products](#moulded-and-machined-products)
+12. [Physical products (prediction, not a test)](#physical-products-prediction-not-a-test)
+13. [Safety sandbox](#safety-sandbox)
+14. [Tests](#tests)
+15. [Limitations](#limitations)
+16. [Project layout](#project-layout)
 
 ---
 
@@ -383,6 +384,32 @@ tool handle with a too-small USB-C opening, and a plain block as a control
 Bambu Lab P2S; H2D, H2S, X1, Prusa MK4, Ender 3 and generic FDM and resin profiles are included, and slicer material names
 ("PLA Basic", "PETG HF") are understood. Add your own printer to `config/printers.yaml`.
 From Blender, export STL or 3MF; from Fusion, *File > 3D Print* or *Export > 3MF*.
+
+## From CAD to a print-ready verdict
+
+With Bambu Studio or OrcaSlicer installed, one command checks the design, slices it with the
+printer's own presets, checks the G-code and compares the two:
+
+```bash
+synthux physical prepare part.stl                        # P2S + PLA by default
+synthux physical prepare part.stl --material PETG --support --open
+synthux physical prepare part.stl --loops 5              # also a ClearLoop loop file, checked too
+```
+
+* The slicer is found where it is normally installed (or `--slicer PATH`, or `SYNTHUX_SLICER`).
+  Its system presets are used: for a P2S with a 0.4 mm nozzle and PLA, "Bambu Lab P2S 0.4 nozzle",
+  "0.20mm Standard @BBL P2S" and "Bambu PLA Basic @BBL P2S". Presets inherit from one another, so
+  synthux flattens them (parents and the printer's start and end G-code templates) before slicing.
+  `--process-preset` and `--filament-preset` pick others, and `--support / --no-support` overrides support.
+* **What the slicer did with the design** is checked: an overhang the design check says needs
+  support but which got none, and a thin wall or detail the slicer left out because no line fits.
+* The verdict is **Ready to print** or **Fix N things first**, with the slicer's own grams and time,
+  and links to the full design check and G-code check.
+* In the app window, tick "Slice it with Bambu Studio too" on the CAD card.
+
+The command line follows Bambu Studio's own option definitions (`--slice`, `--export-3mf`,
+`--load-settings`, `--load-filaments`); the tests use a stand-in with the same command line, so the
+first run against your installed slicer is the real test.
 
 ## G-code: check the sliced file
 
