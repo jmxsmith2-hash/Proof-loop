@@ -178,11 +178,21 @@ def cmd_spools(a) -> int:
 
 
 def cmd_check(a) -> int:
+    from .print_checks import print_checks
+
     sf = threemf.load(a.input)
     findings = lint(sf)
     print(f"{sf.name}: {printers.model_name(sf.info.printer_model_id)}")
     for f in findings:
         print(f"  {ICON[f.level]} {f.title}\n      {f.detail}")
+    extra = print_checks(sf)
+    if extra is None:
+        print('\n  (Install synthux for print checks too: pip install "clearloop[print-checks]")')
+    else:
+        print("\n  Print checks (synthux):")
+        for f in extra:
+            print(f"  {ICON[f.level]} {f.title}\n      {f.detail}")
+        findings += extra
     return 1 if any(f.level == "danger" for f in findings) else 0
 
 

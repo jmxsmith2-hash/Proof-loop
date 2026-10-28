@@ -22,6 +22,7 @@
 | `profiles.py` | Hardware profile model and store. |
 | `importer.py` | Learns a profile by diffing a plain slice against FarmLoop's version of it. |
 | `lint.py` | Safety checks for any loop file. |
+| `print_checks.py` | Optional: synthux's checks of the print in each loop, when synthux is installed. |
 | `filament.py` | Spool inventory, usage log, weigh-ins, which spool feeds a slot, how many loops your spools cover. |
 | `tracking.py` | Remembers the files ClearLoop makes; charges finished and part-way loops to spools; holds a loop the spools can't cover; links RFID spools to AMS trays. |
 | `gcode/usage.py` | Filament used up to each layer, from the plate's own G-code. |

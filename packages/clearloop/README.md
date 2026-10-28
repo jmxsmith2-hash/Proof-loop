@@ -195,6 +195,15 @@ FarmLoop's or ClearLoop's, and reports known problems:
    8. Optional pause for the plate check.
 4. **Loops** repeat the whole plate, the same layout the FarmLoop app uses.
 
+### Print checks too (optional)
+
+Install [synthux](https://github.com/jmxsmith2-hash/Something-C) alongside ClearLoop
+(`pip install "clearloop[print-checks]"`) and *Check a file* / `clearloop check` also check
+**the print in each loop**: parts off the plate, first layer and layer heights, nozzle and bed
+temperatures for the filament, flow the hot end can't melt, stringing across open space,
+cooling and warping. These checks read only the print itself, never the cooldown, bend or sweep
+ClearLoop adds, and they are listed separately. Without synthux nothing changes.
+
 ## Command line
 
 ```bash

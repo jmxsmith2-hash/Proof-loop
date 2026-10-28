@@ -26,6 +26,7 @@ from .gcode.processor import (
 )
 from .importer import ImportError_, import_profile
 from .lint import lint
+from .print_checks import print_checks
 from .service import App, cooldown_for, loop_settings
 from .tracking import register_job
 
@@ -392,10 +393,13 @@ def create_app(app: App) -> FastAPI:
     async def check(file: UploadFile = File(...)):
         data = await read_upload(file)
         sf = threemf.loads(data, name=Path(file.filename or "file.gcode.3mf").name)
+        extra = print_checks(sf)
         return {
             "file": sf.name,
             "printer": printers.model_name(sf.info.printer_model_id),
             "findings": [f.as_dict() for f in lint(sf)],
+            # None: synthux isn't installed (the app says how to add print checks)
+            "print_findings": None if extra is None else [f.as_dict() for f in extra],
         }
 
     # ---- profiles -------------------------------------------------------------------
