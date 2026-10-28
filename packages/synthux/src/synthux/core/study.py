@@ -22,6 +22,7 @@ class TaskSpec(StrictModel):
     inputs: dict[str, str] = Field(default_factory=dict)     # field kind -> value ({{cred:x}} allowed)
     price_points: list[float] = Field(default_factory=list)  # for forced-choice price questions
     max_steps: int | None = None                             # hard cap regardless of patience
+    type: Literal["do", "find"] = "do"                       # "find": locating information (navigation depth matters)
 
 
 class TargetSpec(StrictModel):

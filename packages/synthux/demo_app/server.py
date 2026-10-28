@@ -252,8 +252,8 @@ class _QuietServer(ThreadingHTTPServer):
 class DemoServer:
     """Run the demo app in a background thread (used by tests)."""
 
-    def __init__(self, port: int = 8765, host: str = "127.0.0.1"):
-        self.httpd = _QuietServer((host, port), DemoHandler)
+    def __init__(self, port: int = 8765, host: str = "127.0.0.1", handler: type | None = None):
+        self.httpd = _QuietServer((host, port), handler or DemoHandler)
         self.httpd.daemon_threads = True
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 

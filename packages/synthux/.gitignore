@@ -4,7 +4,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 .env
-data/
-reports/
+/data/
+/reports/
 *.sqlite
 *.db

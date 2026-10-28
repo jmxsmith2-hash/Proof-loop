@@ -36,3 +36,23 @@ jobs:
         run: |
           synthux check
           synthux run studies/demo.yaml --dry-run
+
+  windows-setup-script:
+    name: windows / setup.bat path
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run the one-step setup script
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
+      - name: Use the installed tool
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\synthux.exe physical check examples\cad\phone_stand_v1.stl --design examples\cad\phone_stand.yaml
+          .\.venv\Scripts\synthux.exe physical printed "Phone stand" --measure examples\cad\v1_print_measurements.csv --defect poor_overhang
+          .\.venv\Scripts\synthux.exe physical check examples\cad\phone_stand_v2.stl --design examples\cad\phone_stand.yaml
+          .\.venv\Scripts\synthux.exe physical history

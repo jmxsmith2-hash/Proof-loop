@@ -26,17 +26,27 @@ behaviour.
 5. [Running a test](#running-a-test)
 6. [Reading the report](#reading-the-report)
 7. [Calibrating against real users](#calibrating-against-real-users)
-8. [Physical products (prediction, not a test)](#physical-products-prediction-not-a-test)
-9. [Safety sandbox](#safety-sandbox)
-10. [Tests](#tests)
-11. [Limitations](#limitations)
-12. [Project layout](#project-layout)
+8. [CAD designs: check before you print](#cad-designs-check-before-you-print)
+9. [Physical products (prediction, not a test)](#physical-products-prediction-not-a-test)
+10. [Safety sandbox](#safety-sandbox)
+11. [Tests](#tests)
+12. [Limitations](#limitations)
+13. [Project layout](#project-layout)
 
 ---
 
 ## Quick start
 
 Requirements: Python 3.11+, and Chromium for Playwright.
+
+**Windows:** double-click `setup.bat` (or run
+`powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1`). It finds
+Python 3.11+ (and tells you the `winget` command if it is missing), creates
+`.venv`, installs everything, downloads Chromium and runs `synthux check`.
+Then open a new terminal in the folder and run `.venv\Scripts\activate`.
+**macOS / Linux:** `sh scripts/setup_unix.sh` does the same.
+
+By hand:
 
 ```bash
 pip install -e ".[dev]"              # add ,anthropic for the optional Claude engine
@@ -226,6 +236,58 @@ Suggestions are specific and come with reasons. Examples:
 Nothing changes until you `apply`. Every run stores the profile version it
 used, so results stay comparable over time.
 
+## CAD designs: check before you print
+
+Point it at a CAD export and it checks the geometry before you spend filament,
+then learns from your real prints so the next check is about *your* printer.
+
+```bash
+synthux physical check part.stl                         # STL, 3MF, OBJ, PLY, GLB (STEP: pip install ".[step]")
+synthux physical check part.stl --printer bambu_x1 --material PETG --handheld
+synthux physical check part_v2.stl --design examples/cad/phone_stand.yaml   # same design name = next version
+synthux physical printed "Phone stand" --measure measured.csv --defect stringing --notes "clip too tight"
+synthux physical history "Phone stand"                  # versions and what changed
+```
+
+Each check writes `data/reports/designs/<name>_v<N>/index.html` (also listed on
+the dashboard) with renders from several angles, every finding marked on the
+model, and a "fixed / still there / new" comparison against the previous
+version.
+
+**Printability:** a broken or non-watertight mesh, wrong units (a 0.06 mm part
+exported in metres), fit in the build volume, overhangs and bridges (only on
+outside faces), the best print orientation, bed contact, thin walls and thin
+pins below what the nozzle can lay down, slender towers, sharp edges you will
+touch, clearances between parts that will fuse, parts joined only along an
+edge, and tipping over (centre of mass, plus a declared load such as a phone
+leaning on it). It also estimates mass, filament length, time and cost.
+
+**Human fit**, from `data/anthropometrics.yaml` and the design YAML:
+
+* grip size and weight in the hand (`--handheld`);
+* wearable inner sizes against wrist, finger, head or other population ranges;
+* connector openings too small for the plug's moulded body (USB-C, USB-A,
+  micro-USB, Lightning, 5.5 mm barrel, HDMI);
+* buttons smaller than a fingertip.
+
+Personas differ in hand size, grip strength, body size, motor control and
+eyesight, and react only to measured facts that apply to them (a persona with
+a weak grip, for example, reacts to the measured grip diameter and weight).
+A product-knowledge checklist adds category-specific questions for everyday
+goods, electronics, wearables and 3D-printed parts.
+
+**After printing**, record what happened. Use a CSV of
+`feature, designed_mm, measured_mm, kind (outer|hole|gap), axis` (see
+`examples/cad/v1_print_measurements.csv`), plus defects. The tool learns
+offsets per printer and material: holes printing 0.2 mm small, gaps closing up,
+the overhang angle your printer really manages. The next `physical check`
+applies them and tells you which ones it used.
+
+`examples/cad/` has a phone stand with planted flaws (v1) and its fixed v2, a
+tool handle with a too-small USB-C opening, and a plain block as a control
+(`python examples/cad/make_examples.py` regenerates them). Add your own printer to
+`config/printers.yaml`.
+
 ## Physical products (prediction, not a test)
 
 ```bash
@@ -270,9 +332,11 @@ Sensor data is analysed for spikes, stuck sensors and usage sessions.
 ## Tests
 
 ```bash
-pytest tests/unit                  # ~110 tests, a few seconds, no browser
+pytest tests/unit                  # ~130 tests, under a minute, no browser
 pytest tests/integration           # real Chromium against the demo app (~3 min)
 pytest tests/e2e/test_demo_app_offline.py   # full pipeline, 108 sessions (~6 min)
+pytest tests/e2e/test_pinecone_site.py      # second site: pop-ups, menus, buried pages (~5 min)
+pytest tests/e2e/test_cad_designs.py        # CAD checks + print-iteration loop on the examples
 SYNTHUX_LIVE=1 ANTHROPIC_API_KEY=... pytest tests/e2e/test_demo_app_live.py   # same bar on Claude (costs money)
 ```
 
@@ -287,6 +351,16 @@ flaws are listed in `demo_app/planted_flaws.yaml`:
 
 It requires every planted flaw to be found, and **no promoted finding that
 isn't planted**.
+
+A second site, **Pinecone Home** (`python demo_app/pinecone.py`,
+`studies/pinecone.yaml`, ground truth in `demo_app/pinecone_flaws.yaml`),
+tests ordinary real-world patterns. Its planted flaws are a newsletter pop-up
+that comes back on every page, a return policy buried three pages deep and a
+"Stores" menu link that does nothing. Its clean parts are a cookie banner that
+stays closed and a sign-up form with a dropdown and a terms checkbox. Personas
+dismiss pop-ups and cookie banners, tick required boxes, pick from dropdowns,
+use the menu to find information and go back from dead ends. Tasks marked
+`type: find` also report information that takes too many pages to reach.
 
 ## Limitations
 
@@ -311,9 +385,10 @@ isn't planted**.
 
 ```
 config/            settings, models (ids + prices), anchored scales, calibration profiles
-studies/           study files (demo.yaml)
-demo_app/          demo shop with planted flaws + planted_flaws.yaml (ground truth)
-examples/          persona sources, real-user results, physical product example
+studies/           study files (demo.yaml, pinecone.yaml)
+demo_app/          two demo sites with planted flaws + their ground truth
+examples/          persona sources, real-user results, physical product example, CAD examples
+scripts/           one-step setup for Windows (setup.bat) and macOS/Linux
 src/synthux/
   core/            config, SQLite + migrations, model gateway (cache, cost), similarity, study
   safety/          allowlist, network policy, action guard, credential vault
@@ -327,6 +402,8 @@ src/synthux/
   report/          HTML report + inline SVG charts
   calibration/     profiles, import, matching, metrics, tuning, compare/history
   physical/        inputs, review taxonomy, evaluation, sensors, guardrails
+    cad/           mesh loading, voxel/print checks, renders, ergonomics, personas, print iteration
+  data/            anthropometrics, product-knowledge checklists, name lists
   dashboard/       local read-only web dashboard
 tests/             unit, integration (browser), e2e (offline and live)
 ```

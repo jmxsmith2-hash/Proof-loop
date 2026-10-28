@@ -18,11 +18,12 @@ from PIL import Image
 from synthux.core.llm import LLMGateway, LLMRequest
 from synthux.core.logging import get_logger
 from synthux.elicitation.questions import PRAISE_WORDS, PROBLEM_SIGNALS
-from synthux.runner.perception import perceive
+from synthux.runner.observe import DEEP_NAV_PAGES
+from synthux.runner.perception import normalize, perceive
 
 log = get_logger(__name__)
 
-PAGE_LEVEL = {"slow_response", "no_loading_feedback"}  # these need no on-screen region
+PAGE_LEVEL = {"slow_response", "no_loading_feedback", "deep_navigation"}  # these need no on-screen region
 NEGATIVE_WORDS = ("not", "no ", "hard", "slow", "confus", "miss", "can't", "cannot", "unclear", "error", "lost",
                   "nothing", "didn't", "never", "without", "faint", "small")
 
@@ -55,12 +56,29 @@ def behavioural_support(issue: dict[str, Any], steps: list[dict[str, Any]], slow
     if cat == "hidden_control":
         searched = sum(1 for s in here if s.get("scroll_search") or s.get("cannot_find"))
         return f"searched {searched} step(s) before finding a way forward" if searched >= 2 else None
+    if cat == "deep_navigation":
+        # The runner's recorded path; every page but the last (where it ended up) must match a stored step.
+        path = (issue.get("evidence_json") or {}).get("path") or []
+        visited = {s["screen_id"] for s in steps}
+        if not path or not set(path[:-1]) <= visited:
+            return None
+        pages = len(set(path))
+        return f"visited {pages} different pages for one piece of information" if pages >= DEEP_NAV_PAGES else None
+    if cat == "popup_interruption":
+        quoted = re.findall(r"'([^']{2,})'", issue["description"])
+        closes = [s for s in steps if quoted and normalize((s.get("intended_json") or {}).get("target") or "")
+                  == normalize(quoted[-1])]
+        pages = {s["screen_id"] for s in closes}
+        return (f"closed the same pop-up {len(closes)} times on {len(pages)} page(s)"
+                if len(closes) >= 2 and len(pages) >= 2 else None)
     if cat in PAGE_LEVEL:
         seconds = float(sig.get("load_seconds", 0))
         if cat == "no_loading_feedback":
             return f"waited {seconds:.1f}s with a frozen screen" if sig.get("no_loading_feedback") else None
         return f"waited {seconds:.1f}s" if seconds > slow_threshold else None
     if cat == "dead_click":
+        if sig.get("noise_applied"):
+            return None  # the persona's own simulated misclick, not the product
         return "a click produced no visible change" if sig.get("no_change") else None
     # Elicited (stated) complaints: a measured problem must involve the same element - the persona
     # clicked on or next to it when the problem happened - and must not be its own simulated slip.

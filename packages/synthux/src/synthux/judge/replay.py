@@ -21,7 +21,7 @@ from synthux.core.study import Study
 from synthux.personas.models import Persona
 from synthux.runner.behavior import PatienceBudget
 from synthux.runner.browser import BrowserPool
-from synthux.runner.observe import compute_signals, visible_errors
+from synthux.runner.observe import DEEP_NAV_PAGES, compute_signals, screen_id, visible_errors
 from synthux.runner.perception import Screen, fuzzy_ratio, hash_distance, perceive
 from synthux.runner.types import Action, Decision, Signals, ThinkAloud
 
@@ -129,9 +129,10 @@ class Replayer:
                                      network=self.settings.network(cond.get("network", "fast")),
                                      safety=self.settings.safety, sandbox=self.sandbox,
                                      brand_mask=self.study.target.brand_mask)
-        trace: dict[str, Any] = {"screens": {}, "signals": {}, "failed": None}
+        trace: dict[str, Any] = {"screens": {}, "signals": {}, "failed": None, "path": []}
         try:
             await browser.goto(self.study.task_url(task))
+            trace["path"].append(screen_id(browser.url))
             png = await browser.screenshot()
             png, _ = await browser.wait_for_settle(png, max_wait=1.0)
             screen = perceive(png)
@@ -160,6 +161,8 @@ class Replayer:
                 pending = pending + timing.settled_s if (not timing.responded and browser.nav_pending) else 0.0
                 trace["signals"][step["idx"]] = signals
                 trace["screens"][f"after_{step['idx']}"] = new_screen
+                if trace["path"][-1] != screen_id(browser.url):
+                    trace["path"].append(screen_id(browser.url))
                 history.append(signals)
                 screen = new_screen
         except Exception as exc:  # replay itself broke (browser error, safety refusal)
@@ -187,6 +190,11 @@ class Replayer:
             return {"status": status, "hash_distance": distance,
                     "detail": "replay reached a different screen" + (" (original path had a misclick/typo)" if noisy_before else "")}
         category = issue["category"]
+        if category == "deep_navigation":
+            pages = list(dict.fromkeys(trace["path"]))
+            ok = len(pages) >= DEEP_NAV_PAGES
+            return {"status": "CONFIRMED" if ok else "NOT_REPRODUCED", "hash_distance": distance,
+                    "detail": f"replay went through {len(pages)} pages: {' -> '.join(trace['path'])}"}
         if category in SIGNAL_CHECKS:
             signals: Signals | None = trace["signals"].get(idx)
             ok = signals is not None and SIGNAL_CHECKS[category](signals)

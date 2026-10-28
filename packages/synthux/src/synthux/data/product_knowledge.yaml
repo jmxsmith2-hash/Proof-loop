@@ -1,0 +1,29 @@
+# General complaint patterns by product type. These are common knowledge, NOT your data:
+# the report lists them as a checklist, and personas only raise one when a measured fact backs it.
+# `affects` limits who raises a shared problem; personal facts (grip, weight, fit) are checked for everyone
+# against that persona's own body-size data.
+everyday:
+  - {id: tips_over, title: "Tips over or wobbles in use", facts: [stability], affects: [all]}
+  - {id: too_heavy, title: "Heavier than expected to carry or hold", facts: [mass_vs_hand], affects: [all]}
+  - {id: sharp_feel, title: "Edges dig into fingers when handled", facts: [sharp_edge], affects: [all]}
+  - {id: breaks_thin, title: "A thin part snaps in the first weeks", facts: [thin_wall, weak_layers], affects: [all]}
+  - {id: hard_to_clean, title: "Crevices collect dirt", facts: [], affects: [all]}
+3d_printed:
+  - {id: layer_snap, title: "Snaps along a layer line under load", facts: [weak_layers], affects: [all]}
+  - {id: rough_overhang, title: "Rough or drooping surface under overhangs", facts: [overhang], affects: [all]}
+  - {id: fit_too_tight, title: "Parts do not fit together after printing", facts: [clearance], affects: [all]}
+  - {id: support_scars, title: "Support marks on visible faces", facts: [overhang], affects: [all]}
+  - {id: warped_base, title: "Base rocks because a corner lifted while printing", facts: [warping], affects: [all]}
+electronics:
+  - {id: cable_wont_seat, title: "Charging cable will not plug in fully", facts: [connector_opening], affects: [all]}
+  - {id: tiny_buttons, title: "Buttons too small to press reliably", facts: [button_size], affects: [motor, low_vision, large_hands]}
+  - {id: gets_warm, title: "Gets warm with no vents", facts: [], affects: [all]}
+  - {id: hard_to_open, title: "Battery/case hard to open without tools", facts: [], affects: [motor, low_grip]}
+wearable:
+  - {id: doesnt_fit, title: "Does not fit some body sizes", facts: [fit_size], affects: [all]}
+  - {id: rubs_skin, title: "Edges rub or pinch skin", facts: [sharp_edge], affects: [all]}
+  - {id: too_heavy_worn, title: "Too heavy to wear for long", facts: [mass_worn], affects: [all]}
+handheld:
+  - {id: grip_too_big, title: "Too thick to hold comfortably", facts: [grip_size], affects: [all]}
+  - {id: grip_too_small, title: "Too thin to grip firmly", facts: [grip_size], affects: [all]}
+  - {id: slips, title: "Slips out of the hand", facts: [], affects: [motor, low_grip]}

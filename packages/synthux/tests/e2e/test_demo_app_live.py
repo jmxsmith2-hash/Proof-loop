@@ -6,7 +6,6 @@ run `synthux run studies/demo.yaml --dry-run` with the same engines to see the e
 
 import asyncio
 import os
-from pathlib import Path
 
 import pytest
 import yaml

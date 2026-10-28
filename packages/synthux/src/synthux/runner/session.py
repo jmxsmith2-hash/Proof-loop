@@ -23,7 +23,7 @@ from synthux.personas.models import Persona
 from synthux.runner.behavior import Frustration, Noise, PatienceBudget
 from synthux.runner.browser import BrowserPool, BrowserSession
 from synthux.runner.memory import SessionMemory
-from synthux.runner.observe import (compute_signals, issues_from_step, limitation_on_screen, screen_id,
+from synthux.runner.observe import (DEEP_NAV_PAGES, compute_signals, issues_from_step, limitation_on_screen, screen_id,
                                     unsupported_interaction)
 from synthux.runner.perception import Screen, fuzzy_contains, normalize, perceive
 from synthux.runner.types import (Action, Decision, IssueCandidate, SessionResult, Signals, StepRecord,
@@ -103,6 +103,10 @@ class SessionRunner:
             await self._loop(browser, persona, task, actor, budget, frustration, noise, rng, memory, cond, seed, state)
         finally:
             await browser.close()
+        if state.outcome == "completed":
+            memory.commit_target()
+        if task.type == "find":
+            state.issues.extend(navigation_issues(state.steps, state.outcome))
         result = SessionResult(
             session_id=session_id, persona_id=persona.id, task_id=task.id, repeat_index=repeat_index,
             visit_index=visit_index, seed=seed, outcome=state.outcome, quit_reason=state.quit_reason,
@@ -298,6 +302,30 @@ class _LoopState:
             think=decision.think, intended=decision.action, executed=None, signals=Signals(confusion=decision.confusion,
             cannot_find=any(o.kind == "cannot_find" for o in decision.observations)),
             frustration=frustration.score, sim_seconds=round(sim, 1), observations=decision.observations))
+
+
+def navigation_issues(steps: list[StepRecord], outcome: str) -> list[IssueCandidate]:
+    """For 'find' tasks: flag information buried several pages deep, or a path full of backtracking."""
+    path: list[str] = []
+    for s in steps:
+        for sid in (s.screen_id, s.screen_id_after):
+            if sid and (not path or path[-1] != sid):
+                path.append(sid)
+    pages = list(dict.fromkeys(path))
+    backs = sum(1 for i in range(2, len(path)) if path[i] == path[i - 2])
+    if len(pages) < DEEP_NAV_PAGES and backs < 2:
+        return []
+    found = outcome == "completed"
+    route = " -> ".join(path[:8]) + (" ..." if len(path) > 8 else "")
+    desc = (f"It took {len(pages)} different pages to {'find this' if found else 'look for this (not found)'}"
+            + (f", going back {backs} time(s)" if backs else "") + f": {route}")
+    last = steps[-1] if steps else None
+    return [IssueCandidate(
+        category="deep_navigation", title="Hard to find: it took many pages to get there", description=desc,
+        severity=2 if found else 3, step_idx=last.idx if last else 0,
+        screen_id=(last.screen_id_after or last.screen_id) if last else "", region=None,
+        evidence={"screenshot": last.screenshot_path if last else "", "path": path,
+                  "steps": [s.intended.describe() for s in steps]})]
 
 
 def _dedupe(issues: list[IssueCandidate]) -> list[IssueCandidate]:

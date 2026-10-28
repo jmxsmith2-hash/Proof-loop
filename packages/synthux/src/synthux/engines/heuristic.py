@@ -10,10 +10,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from synthux.core.study import TaskSpec
 from synthux.engines.base import ActorContext
 from synthux.personas.models import Traits
 from synthux.runner.observe import explained, visible_errors
-from synthux.runner.perception import InputBox, Screen, TextBox, fuzzy_contains, normalize
+from synthux.runner.perception import InputBox, Screen, TextBox, checkbox_left_of, fuzzy_contains, normalize
 from synthux.runner.types import Action, Decision, Observation, ThinkAloud
 
 # --------------------------------------------------------------- lexicons
@@ -38,6 +39,34 @@ AMBIGUOUS_GUESSES = {"id": ["username", "email", "phone"], "dob": ["birthdate"],
 SUBMIT_WORDS = ["create account", "sign up", "register", "submit", "log in", "login", "sign in", "continue",
                 "next", "save", "confirm", "place order", "pay", "send", "search", "done", "finish"]
 PROGRESS_WORDS = ["continue", "next", "proceed", "confirm", "done"]
+CHECKBOX_KEYS = {"agree", "agree_terms", "accept_terms", "terms", "consent", "accept"}
+CHECKBOX_WORDS = ("i agree", "i accept", "terms", "conditions", "privacy policy", "consent")
+TRUTHY = {"yes", "true", "1", "y", "tick", "check"}
+COOKIE_WORDS = ("cookie", "cookies", "consent", "we value your privacy")
+COOKIE_ACCEPT = ["accept all", "accept", "allow all", "agree", "i agree", "got it", "ok", "okay", "i understand"]
+COOKIE_REJECT = ["reject all", "necessary only", "only necessary", "decline", "reject"]
+MODAL_WORDS = ("newsletter", "subscribe", "sign up for", "% off", "join our", "get 10", "get 15", "exclusive offer",
+               "don't miss", "special offer")
+MODAL_CLOSE = ["no thanks", "no, thanks", "not now", "maybe later", "close", "dismiss", "skip"]
+CLOSE_GLYPHS = {"x", "×", "✕", "✖"}
+NAV_SYNONYMS = {
+    "help": ["help", "support", "faq", "faqs", "customer service", "contact"],
+    "return": ["returns", "return policy", "refunds", "help", "faq", "orders", "orders delivery"],
+    "refund": ["refunds", "returns", "help"],
+    "contact": ["contact", "contact us", "support", "help"],
+    "support": ["support", "contact", "contact us", "help", "customer service"],
+    "customer": ["customer service", "contact", "help"],
+    "email": ["contact", "contact us"],
+    "phone": ["contact", "contact us"],
+    "hours": ["contact", "opening hours", "stores", "about", "visit"],
+    "account": ["account", "my account", "profile", "log in", "sign in"],
+    "order": ["orders", "my orders", "account", "track"],
+    "price": ["pricing", "plans", "shop"],
+    "shipping": ["shipping", "delivery", "help", "faq"],
+    "delivery": ["delivery", "shipping", "help", "faq"],
+}
+GOAL_STOPWORDS = frozenset("""find the a an your you to of for and in on at with from out what where when how is are
+    get go see check look page site which this that its it my me""".split())
 QUIT_LINES = {
     "cannot_find": "I give up: I looked over the whole page and couldn't find a way to continue.",
     "form": "I give up: I've filled this form in {n} times and it keeps rejecting it without saying why.",
@@ -55,6 +84,12 @@ class FieldView:
     kind: str | None          # None = the persona can't tell what this field wants
     ambiguous: bool
     jargon: bool
+    placeholder: bool = False  # the only label is grey text inside the box
+    select: bool = False       # a dropdown showing its default ("Select a country")
+
+    @property
+    def empty(self) -> bool:
+        return self.box.empty or self.placeholder or self.select
 
 
 # ----------------------------------------------------------- perception
@@ -106,13 +141,38 @@ def label_for(box: InputBox, texts: list[TextBox]) -> TextBox | None:
     return max(left, key=lambda t: t.x1) if left else None
 
 
-def form_fields(screen: Screen, traits: Traits) -> list[FieldView]:
+SELECT_PROMPTS = ("select", "choose", "please select", "please choose", "--", "pick")
+
+
+def _match_input_key(text: str, inputs: dict[str, str]) -> str | None:
+    """Task inputs can be named after the label itself (e.g. country: Germany)."""
+    norm = normalize(text).rstrip(" *:")
+    for key in inputs:
+        name = key.replace("_", " ").lower()
+        if norm == name or fuzzy_contains(norm, name, 0.88) or fuzzy_contains(name, norm, 0.88):
+            return key
+    return None
+
+
+def form_fields(screen: Screen, traits: Traits, inputs: dict[str, str] | None = None) -> list[FieldView]:
+    inputs = inputs or {}
     fields = []
     for box in sorted(screen.inputs, key=lambda b: (b.y0, b.x0)):
         label = label_for(box, screen.texts)
         text = label.text if label else ""
+        inner = box.text.strip()
+        placeholder = select = False
+        if inner and normalize(inner).startswith(SELECT_PROMPTS):
+            select = True
+            text = text or inner
+        elif not text and inner and all(t.contrast < 4.0 for t in box.contents):
+            placeholder, text, label = True, inner, box.contents[0]    # grey hint text used as the label
         kind, ambiguous, jargon = classify_label(text, traits) if text else (None, True, False)
-        fields.append(FieldView(box, label, text, kind, ambiguous, jargon))
+        if kind is None and text:
+            matched = _match_input_key(text, inputs)
+            if matched:
+                kind, ambiguous = matched, False
+        fields.append(FieldView(box, label, text, kind, ambiguous, jargon, placeholder, select))
     return fields
 
 
@@ -202,6 +262,11 @@ class HeuristicActor:
     def _learn_from_last_step(self, ctx: ActorContext) -> None:
         mem, screen, last = ctx.memory, ctx.screen, ctx.last_signals
         sig = screen.signature()
+        if mem.target_pending:
+            # Remember where the way forward was only once clicking it actually moved me on.
+            if mem.last_action_kind == "click" and last and not last.no_change:
+                mem.commit_target()
+            mem.target_pending = None
         if mem.last_action_kind not in ("scroll", "wait") and sig != mem.screen_sig:
             # A form that disappears without an error was accepted: remember what worked.
             if mem.typed and not screen.inputs and not visible_errors(screen):
@@ -217,7 +282,13 @@ class HeuristicActor:
                 mem.form_attempts = 0
             mem.new_screen(sig)
         if last and last.no_change and not ctx.browser_busy and mem.clicks and mem.last_action_kind == "click":
-            mem.dead_targets.add((mem.screen_sig, normalize(mem.clicks[-1]["text"] or "")))
+            key = (mem.screen_sig, normalize(mem.clicks[-1]["text"] or ""))
+            mem.followed.discard(key)  # it went nowhere, so it was not "followed"
+            # People click once more before deciding something is broken (maybe they missed it).
+            if key in mem.missed_once or ctx.persona.traits.patience <= 1:
+                mem.dead_targets.add(key)
+            else:
+                mem.missed_once.add(key)
 
     def _decide(self, ctx: ActorContext) -> Decision:
         screen, mem, t = ctx.screen, ctx.memory, ctx.persona.traits
@@ -230,12 +301,16 @@ class HeuristicActor:
         waiting = self._handle_waiting(ctx, items)
         if waiting:
             return waiting
+        # 1b. Cookie banners and pop-ups get dismissed the way most people do.
+        popup = self._handle_popups(ctx, items, observations)
+        if popup:
+            return popup
         # 2. Errors on screen.
         error_decision = self._handle_errors(ctx, items, observations)
         if error_decision:
             return error_decision
         # 3. Forms.
-        fields = form_fields(screen, t)
+        fields = form_fields(screen, t, ctx.task.inputs)
         if fields:
             form_decision = self._handle_form(ctx, items, fields, observations)
             if form_decision:
@@ -247,9 +322,13 @@ class HeuristicActor:
         # 5. A visible control that moves the task forward.
         target = self._best_target(ctx, items, fields)
         if target:
+            if not fields:
+                mem.followed.add((mem.screen_sig, target.norm))
             return self._click(ctx, items, target, observations)
         # 6. Something remembered from a previous visit.
         remembered = mem.known_targets.get(mem.screen_sig)
+        if remembered and (mem.screen_sig, normalize(remembered["text"] or "")) in mem.dead_targets:
+            remembered = None  # it doesn't work any more
         if remembered and mem.visits > 0:
             if mem.scrolls < remembered.get("scrolls", 0):
                 mem.scrolls += 1
@@ -266,7 +345,7 @@ class HeuristicActor:
 
     # ---------------------------------------------------------------- parts
     def _handle_waiting(self, ctx: ActorContext, items: list[TextBox]) -> Decision | None:
-        sig, timing, mem = ctx.last_signals, ctx.last_timing, ctx.memory
+        sig, mem = ctx.last_signals, ctx.memory
         if not (sig and sig.no_change and ctx.browser_busy):
             return None
         mem.waits += 1
@@ -281,9 +360,56 @@ class HeuristicActor:
         return _decision(ctx, items, Action("wait"), "The page should load any second.",
                          "I wait; the browser says it is still loading.", 0.2)
 
+    def _handle_popups(self, ctx: ActorContext, items: list[TextBox], observations: list[Observation]) -> Decision | None:
+        mem, text = ctx.memory, ctx.screen.norm_text
+        goal = normalize(ctx.task.goal + " " + " ".join(ctx.task.keywords))
+        present: dict[str, TextBox | None] = {}
+        # A centred pop-up sits on top of a cookie banner, so a person deals with it first.
+        if any(w in text for w in MODAL_WORDS) and not any(w in goal for w in ("subscribe", "newsletter")):
+            present["pop-up"] = self._short_button(items, MODAL_CLOSE) or self._close_glyph(ctx.screen, items)
+        if any(w in text for w in COOKIE_WORDS):
+            prefer = COOKIE_REJECT + COOKIE_ACCEPT if (ctx.persona.traits.tech_skill >= 4
+                                                       and ctx.persona.traits.style == "methodical") else COOKIE_ACCEPT
+            present["cookie banner"] = self._short_button(items, prefer)
+        # Settle last step's close: gone means dismissed; still there with nothing changed means stuck.
+        if mem.popup_pending:
+            kind = mem.popup_pending
+            mem.popup_pending = ""
+            if kind not in present or (ctx.last_signals and not ctx.last_signals.no_change):
+                mem.dismissed_popups.add(kind)
+            elif ctx.last_signals and ctx.last_signals.no_change:
+                mem.popup_stuck.add(kind)
+        for kind, button in present.items():
+            if button is None or kind in mem.popup_stuck:
+                continue
+            if kind in mem.dismissed_popups:
+                observations.append(Observation(
+                    "popup_interruption", f"the {kind} came back after I had already closed it with '{button.text}'",
+                    button.region(30), 2))
+                mem.dismissed_popups.discard(kind)
+            mem.popup_pending = kind
+            x, y = button.center
+            return _decision(ctx, items, Action("click", x=x, y=y, target=button.text),
+                             f"Closing the {kind} gets it out of my way.", f"I click '{button.text}' on the {kind}.",
+                             0.15, observations)
+        return None
+
+    @staticmethod
+    def _short_button(items: list[TextBox], words: list[str]) -> TextBox | None:
+        for word in words:
+            for t in items:
+                if len(t.norm) <= len(word) + 8 and (t.norm == word or fuzzy_contains(t.norm, word, 0.9)):
+                    return t
+        return None
+
+    @staticmethod
+    def _close_glyph(screen: Screen, items: list[TextBox]) -> TextBox | None:
+        glyphs = [t for t in screen.texts if t.text.strip().lower() in CLOSE_GLYPHS and t.height <= 40]
+        return min(glyphs, key=lambda t: (t.y0, -t.x0)) if glyphs else None
+
     def _handle_errors(self, ctx: ActorContext, items: list[TextBox], observations: list[Observation]) -> Decision | None:
         errors = [e for e in visible_errors(ctx.screen) if e in items or e.contrast >= 2.0]
-        mem, t = ctx.memory, ctx.persona.traits
+        mem = ctx.memory
         if not errors:
             mem.last_error = ""
             return None
@@ -322,13 +448,13 @@ class HeuristicActor:
                      observations: list[Observation]) -> Decision | None:
         mem, t, inputs = ctx.memory, ctx.persona.traits, ctx.task.inputs
         error_now = any(o.kind == "unexplained_error" for o in observations) or bool(
-            visible_errors(ctx.screen) and mem.typed and all(f.box.empty for f in fields))
+            visible_errors(ctx.screen) and mem.typed and all(f.empty for f in fields))
         # Data the persona typed is gone after a failed submit.
         labels = {_field_key(f) for f in fields}
         if mem.typed and not set(mem.typed) <= labels:
             mem.typed.clear()  # a different form
             mem.typed_kinds.clear()
-        if mem.typed and all(f.box.empty for f in fields):
+        if mem.typed and all(f.empty for f in fields):
             if error_now or mem.form_attempts > 0:
                 observations.append(Observation(
                     "data_lost_on_error", f"all {len(mem.typed)} fields I filled are empty again",
@@ -346,14 +472,14 @@ class HeuristicActor:
         for f in fields:
             key = _field_key(f)
             if key in mem.typed:
-                if f.box.empty and mem.typed_kinds.get(key) not in ("password", None) and len(fields) > 1:
+                if f.empty and mem.typed_kinds.get(key) not in ("password", None) and len(fields) > 1:
                     del mem.typed[key]  # what I typed isn't there (missed the field); type it again
                     mem.typed_kinds.pop(key, None)
                     confusion_note = Observation("missed_field", f"my text didn't appear in '{key}'")
                     observations.append(confusion_note)
                 else:
                     continue
-            if not f.box.empty and f.kind != "password":
+            if not f.empty and f.kind != "password":
                 if normalize(f.box.text) in typed_values:
                     pass  # I typed into the wrong field by mistake; retype the right value here
                 else:
@@ -386,9 +512,13 @@ class HeuristicActor:
             label = f.label_text or "the next field"
             return _decision(ctx, items, Action("fill", x=x, y=y, text=value, target=label, field_kind=kind),
                              f"Typing in '{label}' should fill it in.",
-                             f"I click '{label}' and type {'my password' if kind == 'password' else repr(value)}.",
+                             (f"I open '{label}' and pick {value!r}." if f.select else
+                              f"I click '{label}' and type {'my password' if kind == 'password' else repr(value)}."),
                              confusion, observations)
 
+        tick = self._checkbox(ctx, items)
+        if tick is not None:
+            return tick
         submit = self._submit_button(ctx, items, fields)
         if submit is None:
             return None
@@ -397,6 +527,24 @@ class HeuristicActor:
         return _decision(ctx, items, Action("click", x=x, y=y, target=submit.text),
                          f"'{submit.text}' should send the form.", f"I click '{submit.text}'.",
                          0.2 if mem.form_attempts else 0.0, observations)
+
+    def _checkbox(self, ctx: ActorContext, items: list[TextBox]) -> Decision | None:
+        """Tick 'I agree to the terms' (and similar) when the task says so."""
+        wants = [k for k, v in ctx.task.inputs.items() if k in CHECKBOX_KEYS and str(v).lower() in TRUTHY]
+        if not wants:
+            return None
+        mem = ctx.memory
+        for t in items:
+            if not any(w in t.norm for w in CHECKBOX_WORDS) or t.norm in mem.ticked:
+                continue
+            box = checkbox_left_of(ctx.screen, t)
+            mem.ticked.add(t.norm)
+            if box is not None and box[2]:
+                continue  # already ticked
+            x, y = (box[0], box[1]) if box else (t.x0 + 6, t.center[1])
+            return _decision(ctx, items, Action("click", x=x, y=y, target=t.text),
+                             "The box has to be ticked before I can continue.", f"I tick '{t.text}'.", 0.1)
+        return None
 
     @staticmethod
     def _guess(guesses: list[str], mem, key: str) -> str:
@@ -446,26 +594,38 @@ class HeuristicActor:
 
     def _best_target(self, ctx: ActorContext, items: list[TextBox], fields: list[FieldView]) -> TextBox | None:
         mem = ctx.memory
-        keywords = [normalize(k) for k in ctx.task.keywords]
+        direct, synonyms = target_keywords(ctx.task)
+        weighted = [(kw, 1.0 - i * 0.03) for i, kw in enumerate(direct)] + \
+                   [(kw, 0.7 - i * 0.01) for i, kw in enumerate(synonyms)]
+        heading = page_heading(items)
         scored: list[tuple[float, TextBox]] = []
         for t in items:
             if (mem.screen_sig, t.norm) in mem.dead_targets:
                 continue
-            if len(t.norm) > 40:
-                continue  # paragraphs are not controls
-            score = 0.0
-            for i, kw in enumerate(keywords):
+            if not fields and (mem.screen_sig, t.norm) in mem.followed:
+                continue  # followed it from here already (it led back here, or nowhere useful)
+            if len(t.norm) > 40 or t is heading:
+                continue  # paragraphs and the page's own title are not controls
+            header = t.y0 < 70 and t.height < 28
+            if header and heading is not None and fuzzy_contains(heading.norm, t.norm, 0.9):
+                continue  # the menu link to the page I am already on
+            matches = []
+            words = len(t.norm.split())
+            for kw, weight in weighted:
                 if t.norm == kw:
-                    score = max(score, 3.0 - i * 0.1)
+                    matches.append(3.0 * weight)
+                elif weight < 0.75 and words > len(kw.split()) + 2:
+                    continue  # a loose synonym inside a sentence ("made to order") is not a link to it
                 elif fuzzy_contains(t.norm, kw, 0.86):
-                    score = max(score, 2.2 - i * 0.1)
+                    matches.append(2.2 * weight)
+            score = max(matches, default=0.0) + 0.15 * (len(matches) - 1 if matches else 0)
             if score == 0.0 and any(t.norm == w or fuzzy_contains(t.norm, w, 0.9) for w in PROGRESS_WORDS):
                 score = 1.2
             if score == 0.0:
                 continue
-            if t.on_fill:
+            if t.on_fill and not header:
                 score += 0.6       # looks like a button
-            if t.y0 < 70 and t.height < 28:
+            if header:
                 score -= 0.8       # small header/navigation link
             scored.append((score, t))
         if not scored:
@@ -474,7 +634,7 @@ class HeuristicActor:
 
     def _click(self, ctx: ActorContext, items: list[TextBox], target: TextBox,
                observations: list[Observation]) -> Decision:
-        mem, t = ctx.memory, ctx.persona.traits
+        mem = ctx.memory
         x, y = target.center
         confusion = 0.0
         if target.contrast < 3.0 and mem.careful:
@@ -485,13 +645,34 @@ class HeuristicActor:
                 + f"); I only found it after {mem.scrolls} scroll(s) and a careful look",
                 target.region(8), 3))
             confusion = 0.5
-        mem.known_targets[mem.screen_sig] = {"text": target.text, "x": x, "y": y, "scrolls": mem.scrolls,
-                                             "dy": mem.last_scroll_dy}
+        mem.target_pending = (mem.screen_sig, {"text": target.text, "x": x, "y": y, "scrolls": mem.scrolls,
+                                               "dy": mem.last_scroll_dy})
         expects = f"'{target.text}' should take me to the next step."
         if ctx.framing == "competitor":
             expects = f"On {ctx.competitor_label}, '{target.text}' should take me to the next step."
         return _decision(ctx, items, Action("click", x=x, y=y, target=target.text), expects,
                          f"I click '{target.text}'.", confusion, observations)
+
+    def _explore(self, ctx: ActorContext, items: list[TextBox]) -> Decision | None:
+        """No direct way forward here: try a menu or footer link that relates to the goal."""
+        mem = ctx.memory
+        wanted = goal_keywords(ctx.task.goal) + [normalize(k) for k in ctx.task.keywords]
+        tried = mem.nav_tried.setdefault(mem.screen_sig, set())
+        best, best_score = None, 0.0
+        for t in items:
+            if len(t.norm.split()) > 4 or t.norm in tried or len(t.norm) < 3:
+                continue
+            score = max((1.0 if t.norm == w else 0.8 if fuzzy_contains(t.norm, w, 0.88) else 0.0) for w in wanted) \
+                if wanted else 0.0
+            if score > best_score:
+                best, best_score = t, score
+        if best is None or best_score < 0.8:
+            return None
+        tried.add(best.norm)
+        mem.nav_depth += 1
+        x, y = best.center
+        return _decision(ctx, items, Action("click", x=x, y=y, target=best.text),
+                         f"'{best.text}' sounds like where this would be.", f"I try '{best.text}'.", 0.4)
 
     def _search(self, ctx: ActorContext, items: list[TextBox], observations: list[Observation]) -> Decision:
         mem, t = ctx.memory, ctx.persona.traits
@@ -516,9 +697,49 @@ class HeuristicActor:
             mem.scrolls = 0
             return _decision(ctx, items, Action("scroll", dy=-ctx.screen.height * 6),
                              "Maybe I missed it at the top.", "I scroll back to the top.", 0.7, observations)
+        nav = self._explore(ctx, items)
+        if nav is not None:
+            return nav
+        if mem.nav_depth > 0 and mem.backs < 3:
+            mem.backs += 1
+            mem.nav_depth -= 1
+            observations.append(Observation("dead_end", "this page did not have what I was looking for", None, 2))
+            return _decision(ctx, items, Action("back"), "The previous page had other options.",
+                             "I go back.", 0.6, observations)
         observations.append(Observation("cannot_find", "searched the whole page and found no way forward", None, 4))
         return _decision(ctx, items, Action("quit"), "There is no way forward.", "I give up.", 0.9,
                          observations, QUIT_LINES["cannot_find"])
+
+
+def goal_keywords(goal: str) -> list[str]:
+    """Words a person would look for, from the task goal (plus common synonyms)."""
+    words = [w for w in normalize(goal).split() if len(w) >= 4 and w not in GOAL_STOPWORDS]
+    out = list(words)
+    for w in words:
+        for root, synonyms in NAV_SYNONYMS.items():
+            if w.startswith(root):
+                out += synonyms
+    return list(dict.fromkeys(out))
+
+
+def target_keywords(task: TaskSpec) -> tuple[list[str], list[str]]:
+    """Words straight from the task (strong) and their synonyms (weaker)."""
+    if task.keywords:  # the study author said what to look for; don't second-guess it
+        return [normalize(k) for k in task.keywords], []
+    goal = goal_keywords(task.goal)
+    direct = [w for w in normalize(task.goal).split() if w in goal]
+    return direct, [w for w in goal if w not in direct]
+
+
+def page_heading(items: list[TextBox]) -> TextBox | None:
+    """The page title: clearly the largest text that is not on a button or the header bar."""
+    body = [t for t in items if t.y0 >= 70]
+    if len(body) < 2:
+        return None
+    top = max(body, key=lambda t: t.height)
+    heights = sorted(t.height for t in body)
+    median = heights[len(heights) // 2]
+    return top if top.height >= 1.25 * median and not top.on_fill else None
 
 
 def _field_key(f: FieldView) -> str:

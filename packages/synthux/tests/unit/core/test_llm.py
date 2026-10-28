@@ -2,7 +2,6 @@ import asyncio
 
 import pytest
 
-from synthux.core.config import load_settings
 from synthux.core.cost import estimate_run, image_tokens
 from synthux.core.llm import FakeLLM, LLMError, LLMGateway, LLMRequest, validate_json
 

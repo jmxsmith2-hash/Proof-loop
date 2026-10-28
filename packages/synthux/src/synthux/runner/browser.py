@@ -24,6 +24,23 @@ from synthux.safety.network import RequestPolicy
 
 log = get_logger(__name__)
 
+# The person reads the open list and clicks the option they want; native lists can't be typed into reliably.
+PICK_OPTION_JS = """
+(text) => {
+  const sel = document.activeElement;
+  if (!sel || sel.tagName !== 'SELECT') return false;
+  const want = text.trim().toLowerCase();
+  const opts = Array.from(sel.options);
+  const hit = opts.find(o => o.text.trim().toLowerCase() === want) ||
+              opts.find(o => o.text.trim().toLowerCase().startsWith(want));
+  if (!hit) return true;  // it was a dropdown; nothing matched, so the shown value stays as it is
+  sel.value = hit.value;
+  sel.dispatchEvent(new Event('input', {bubbles: true}));
+  sel.dispatchEvent(new Event('change', {bubbles: true}));
+  return true;
+}
+"""
+
 MAJOR_CHANGE = 0.01  # share of pixels that must change for a "real" screen response
 
 
@@ -183,6 +200,18 @@ class BrowserSession:
             log.debug("element probe failed: %s", exc)
             return {}
 
+    async def _pick_option(self, text: str) -> bool:
+        """If the click opened a dropdown, choose the option whose label matches `text` (a native list can't be typed into reliably)."""
+        try:
+            is_select = await self.page.evaluate("() => document.activeElement && document.activeElement.tagName === 'SELECT'")
+            if not is_select:
+                return False
+            await self.page.keyboard.press("Escape")
+            return bool(await self.page.evaluate(PICK_OPTION_JS, text))
+        except Exception as exc:  # page navigating
+            log.debug("dropdown pick failed: %s", exc)
+            return False
+
     async def execute(self, action: Action, vault: CredentialVault) -> None:
         page = self.page
         if action.kind in ("click", "fill") and action.x is not None and action.y is not None:
@@ -191,9 +220,12 @@ class BrowserSession:
             else:
                 await page.mouse.click(action.x, action.y)
         if action.kind in ("fill", "type") and action.text is not None:
-            await page.keyboard.press("ControlOrMeta+A")
             text = vault.resolve(action.text)  # secrets are resolved only here, right before typing
-            await page.keyboard.type(text, delay=8)
+            if await self._pick_option(text):
+                pass  # a dropdown: the person picks the option they read in the list
+            else:
+                await page.keyboard.press("ControlOrMeta+A")
+                await page.keyboard.type(text, delay=8)
         elif action.kind == "press" and action.key:
             await page.keyboard.press(action.key)
         elif action.kind == "scroll":

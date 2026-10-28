@@ -69,3 +69,30 @@ def test_model_judge_runs_rules_first(settings, shot):
     assert unsupported.verdict == "reject" and not fake.calls          # rules rejected it; no model call
     supported = asyncio.run(judge.review(make_issue(shot), [make_step(1, error_seen=True)]))
     assert supported.verdict == "reject" and len(fake.calls) == 1 and fake.calls[0].images
+
+
+def test_dead_click_from_the_personas_own_misclick_is_rejected(shot):
+    issue = make_issue(shot, category="dead_click", step_idx=0,
+                       description="Clicking 'Continue' did nothing visible; the screen stayed exactly the same")
+    assert review(issue, [make_step(0, no_change=True)]).verdict == "accept"
+    assert review(issue, [make_step(0, no_change=True, noise_applied=True)]).verdict == "reject"
+
+
+def test_popup_interruption_needs_the_same_popup_closed_on_two_pages(shot):
+    issue = make_issue(shot, category="popup_interruption", screen_id="/help",
+                       description="the pop-up came back after I had already closed it with 'Continue'")
+    close = {"kind": "click", "x": 650, "y": 410, "target": "Continue"}
+    once = [make_step(0, "/", action=dict(close))]
+    twice = once + [make_step(1, "/help", action=dict(close))]
+    assert review(issue, once).verdict == "reject"
+    assert review(issue, twice).verdict == "accept"
+
+
+def test_deep_navigation_must_match_the_recorded_steps(shot):
+    path = ["/", "/help", "/help/orders", "/help/orders/returns"]
+    issue = make_issue(shot, category="deep_navigation", region_json=None, screen_id=path[-1], step_idx=2,
+                       description="It took 4 different pages to find this: " + " -> ".join(path),
+                       evidence_json={"screenshot": shot, "steps": ["click 'Help'"], "path": path})
+    steps = [make_step(i, p) for i, p in enumerate(path[:-1])]
+    assert review(issue, steps).verdict == "accept"
+    assert review(issue, steps[:1]).verdict == "reject"  # the path claims pages the session never visited

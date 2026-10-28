@@ -21,6 +21,10 @@ safety:
     - host: localhost
       ports: [8765]
       sandbox: true
+    - host: 127.0.0.1
+      ports: [8766]
+      sandbox: true
+      note: second demo site (Pinecone Home)
   # Requests whose URL matches any of these are blocked unless the target is a sandbox.
   blocked_request_patterns:
     - "stripe\\.com"

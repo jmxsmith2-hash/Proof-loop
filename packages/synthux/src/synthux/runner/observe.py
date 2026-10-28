@@ -116,6 +116,8 @@ def compute_signals(
 
 # ------------------------------------------------------------------ issues
 
+DEEP_NAV_PAGES = 4  # home + three more pages to reach one piece of information is "buried"
+
 TITLES = {
     "ambiguous_label": "Field label is ambiguous",
     "unclear_input_format": "Required input format is not explained",
@@ -125,6 +127,8 @@ TITLES = {
     "slow_response": "Slow response after an action",
     "no_loading_feedback": "No loading feedback during a long wait",
     "dead_click": "Click on a control had no visible effect",
+    "popup_interruption": "A pop-up keeps coming back after being closed",
+    "deep_navigation": "Hard to find: it took many pages to get there",
 }
 
 
@@ -149,7 +153,7 @@ def issues_from_step(step: StepRecord, decision: Decision, *, slow_threshold_s: 
                                      "noise_applied": step.signals.noise_applied, **(extra or {})})
 
     for obs in decision.observations:
-        if obs.kind in ("interruption", "remembered", "missed_field"):
+        if obs.kind in ("interruption", "remembered", "missed_field", "dead_end"):
             continue
         if obs.kind == "cannot_find":
             if obs.severity >= 4:
@@ -173,7 +177,7 @@ def issues_from_step(step: StepRecord, decision: Decision, *, slow_threshold_s: 
                 {"load_seconds": sig.load_seconds, "from_screen": step.screen_id}, screen=after, after=True)
     if (sig.no_change and step.intended.kind == "click" and step.intended.target
             and not sig.slow_load and not sig.loading):
-        add("dead_click", f"Clicking '{step.intended.target}' did nothing visible", 2,
+        add("dead_click", f"Clicking '{step.intended.target}' did nothing visible; the screen stayed exactly the same", 2,
             {"x": (step.executed.x or 0) - 20, "y": (step.executed.y or 0) - 15, "w": 40, "h": 30}
             if step.executed and step.executed.x is not None else None)
     return list(found.values())

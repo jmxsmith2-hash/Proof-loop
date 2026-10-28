@@ -89,6 +89,7 @@ class Screen:
     inputs: list[InputBox]
     dhash: int
     gray_mean: float
+    lum: np.ndarray | None = None   # per-pixel luminance (float32), for small-widget checks
 
     @property
     def all_text(self) -> str:
@@ -304,4 +305,35 @@ def perceive(png: bytes, ocr: OcrEngine | None = None) -> Screen:
         box.contents = [t for t in texts if t.x0 >= box.x0 - 2 and t.x1 <= box.x1 + 2
                         and t.y0 >= box.y0 - 2 and t.y1 <= box.y1 + 2]
     return Screen(png=png, width=image.width, height=image.height, texts=texts, inputs=inputs,
-                  dhash=dhash(image), gray_mean=float(lum.mean()))
+                  dhash=dhash(image), gray_mean=float(lum.mean()), lum=lum.astype(np.float32))
+
+
+def checkbox_left_of(screen: Screen, text: TextBox) -> tuple[int, int, bool] | None:
+    """A small square box just left of a label: (centre x, centre y, looks checked)."""
+    if screen.lum is None:
+        return None
+    lum = screen.lum
+    cy = text.center[1]
+    x1 = max(0, text.x0 - 2)
+    x0 = max(0, text.x0 - 44)
+    y0, y1 = max(0, cy - 18), min(lum.shape[0], cy + 18)
+    region = lum[y0:y1, x0:x1]
+    if region.size == 0:
+        return None
+    dark = region < 0.55
+    rows, cols = np.where(dark)
+    if rows.size < 12:
+        return None
+    # take the right-most dark blob (closest to the text)
+    right = cols.max()
+    blob = dark[:, max(0, right - 30): right + 1]
+    r2, c2 = np.where(blob)
+    h = r2.max() - r2.min() + 1
+    w = c2.max() - c2.min() + 1
+    if not (9 <= h <= 32 and 9 <= w <= 32 and 0.7 <= w / h <= 1.4):
+        return None
+    inner = blob[r2.min() + 3: r2.max() - 2, c2.min() + 3: c2.max() - 2]
+    checked = bool(inner.size and inner.mean() > 0.25)
+    bx = x0 + max(0, right - 30) + (c2.min() + c2.max()) // 2
+    by = y0 + (r2.min() + r2.max()) // 2
+    return int(bx), int(by), checked

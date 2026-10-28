@@ -1,0 +1,22 @@
+# Approximate adult body dimensions (mm) and handling limits, rounded from commonly cited
+# ergonomics tables (5th-percentile female ~ "small", 50th ~ "medium", 95th-percentile male ~ "large").
+# These are population approximations for design screening, not measurements of anyone.
+hand:
+  small:  {length: 165, breadth: 70, grip_diameter_comfort: [28, 38], one_hand_mass_g: 350, pinch_span: 75}
+  medium: {length: 185, breadth: 82, grip_diameter_comfort: [32, 45], one_hand_mass_g: 500, pinch_span: 90}
+  large:  {length: 205, breadth: 95, grip_diameter_comfort: [38, 52], one_hand_mass_g: 650, pinch_span: 105}
+grip_strength_factor: {low: 0.55, normal: 1.0, high: 1.25}   # multiplies comfortable one-hand mass
+body:   # circumferences
+  wrist:  {small: 140, medium: 165, large: 190}
+  finger: {small: 50, medium: 58, large: 66}
+  head:   {small: 530, medium: 565, large: 600}
+  ankle:  {small: 200, medium: 225, large: 250}
+fingertip_min_button_mm: 10      # smallest comfortable button for a fingertip
+# Plug overmould sizes (mm): an opening smaller than this stops the cable seating fully.
+connectors:
+  usb-c:     {width: 12.0, height: 6.5}
+  usb-a:     {width: 16.0, height: 8.0}
+  micro-usb: {width: 10.5, height: 6.0}
+  lightning: {width: 10.0, height: 5.5}
+  barrel-5.5: {width: 10.0, height: 10.0}
+  hdmi:      {width: 21.0, height: 11.0}

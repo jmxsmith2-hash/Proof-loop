@@ -23,6 +23,7 @@ class SessionMemory:
     variant_index: dict[str, int] = field(default_factory=dict)  # field label -> which alternative to try
     vary_cursor: int = 0
     dead_targets: set[tuple[str, str]] = field(default_factory=set)
+    missed_once: set[tuple[str, str]] = field(default_factory=set)   # clicked once with no effect
     clicks: list[dict[str, Any]] = field(default_factory=list)
     choices_done: set[str] = field(default_factory=set)
     scrolls: int = 0
@@ -34,10 +35,25 @@ class SessionMemory:
     last_error: str = ""
     last_action_kind: str = ""
     last_scroll_dy: int = 0
+    dismissed_popups: set[str] = field(default_factory=set)   # closed and confirmed gone
+    popup_pending: str = ""                                    # closed last step, not yet confirmed
+    popup_stuck: set[str] = field(default_factory=set)         # closing it did nothing (covered?)
+    ticked: set[str] = field(default_factory=set)
+    nav_tried: dict[str, set[str]] = field(default_factory=dict)
+    target_pending: tuple[str, dict[str, Any]] | None = None     # clicked; kept if it worked
+    followed: set[tuple[str, str]] = field(default_factory=set)   # (screen, link) already followed from there
+    nav_depth: int = 0
+    backs: int = 0
 
     def remember(self, fact: str) -> None:
         if fact not in self.facts:
             self.facts.append(fact)
+
+    def commit_target(self) -> None:
+        """The last click worked (the next screen moved on, or the task was done): remember it for next time."""
+        if self.target_pending:
+            self.known_targets[self.target_pending[0]] = self.target_pending[1]
+        self.target_pending = None
 
     def new_screen(self, sig: str) -> None:
         self.screen_sig = sig

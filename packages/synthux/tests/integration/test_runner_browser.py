@@ -1,11 +1,9 @@
 """Runner against the real demo app in Chromium. Marked `browser` (about 2-4 minutes)."""
 
 import asyncio
-import json
 
 import pytest
 
-from synthux.core.config import AllowedHost
 from synthux.core.db import Database
 from synthux.core.llm import FakeLLM, LLMGateway
 from synthux.core.study import Conditions
