@@ -46,8 +46,8 @@ run:
 
 noise:
   enabled: true
-  misclick_rate_by_skill: {1: 0.15, 2: 0.10, 3: 0.06, 4: 0.03, 5: 0.015}
-  typo_rate_by_skill:     {1: 0.06, 2: 0.04, 3: 0.025, 4: 0.012, 5: 0.006}
+  misclick_rate_by_skill: {1: 0.10, 2: 0.06, 3: 0.04, 4: 0.02, 5: 0.01}   # per click
+  typo_rate_by_skill:     {1: 0.03, 2: 0.02, 3: 0.012, 4: 0.006, 5: 0.003} # per character
   misclick_sigma_px: 18        # extra scatter, multiplied for motor considerations
 
 browser:

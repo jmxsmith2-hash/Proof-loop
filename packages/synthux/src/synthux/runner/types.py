@@ -96,6 +96,7 @@ class Signals:
     scroll_end: bool = False          # a scroll moved nothing (end of page)
     loading: bool = False             # the browser was still loading after the action
     load_trigger: str = ""            # the control whose click started the load being measured
+    error_region: dict | None = None  # where the error message is on screen
     noise_applied: bool = False       # the executed action differed from the intended one
 
     def active(self) -> list[str]:

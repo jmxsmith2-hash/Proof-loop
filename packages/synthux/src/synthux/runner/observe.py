@@ -97,6 +97,7 @@ def compute_signals(
     if new_error and action.kind not in ("scroll", "wait", "fill"):
         s.error_seen = True
         s.error_text = errors_now[0].text
+        s.error_region = errors_now[0].region(6)
         s.unexplained_error = not explained(errors_now[0], cur)
     if history and action.kind in ("click", "fill"):
         prev_step = history[-1]
@@ -155,7 +156,8 @@ def issues_from_step(step: StepRecord, decision: Decision, *, slow_threshold_s: 
         add(obs.kind, obs.detail, obs.severity, obs.region)
     sig = step.signals
     if sig.unexplained_error and "unexplained_error" not in found:
-        add("unexplained_error", f"Error '{sig.error_text}' appears without a cause or a next step", 3, None)
+        add("unexplained_error", f"Error '{sig.error_text}' appears without a cause or a next step", 3,
+            sig.error_region)
     if sig.slow_load:
         sev = 3 if sig.load_seconds > 2 * slow_threshold_s else 2
         trigger = sig.load_trigger or step.intended.target or step.intended.kind

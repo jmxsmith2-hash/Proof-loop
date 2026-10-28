@@ -240,11 +240,20 @@ class DemoHandler(BaseHTTPRequestHandler):
         self._send(page("Not found", "<h1>Page not found</h1>"), 404)
 
 
+class _QuietServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address) -> None:  # browsers abort slow requests; that's fine
+        import sys
+
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class DemoServer:
     """Run the demo app in a background thread (used by tests)."""
 
     def __init__(self, port: int = 8765, host: str = "127.0.0.1"):
-        self.httpd = ThreadingHTTPServer((host, port), DemoHandler)
+        self.httpd = _QuietServer((host, port), DemoHandler)
         self.httpd.daemon_threads = True
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
 
