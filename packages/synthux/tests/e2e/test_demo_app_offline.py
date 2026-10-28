@@ -57,7 +57,7 @@ def e2e_run(tmp_path_factory, demo_url):
 
 @pytest.fixture(scope="module")
 def truth():
-    return yaml.safe_load((REPO / "demo_app" / "planted_flaws.yaml").read_text())
+    return yaml.safe_load((REPO / "demo_app" / "planted_flaws.yaml").read_text(encoding="utf-8"))
 
 
 def test_every_planted_flaw_is_found(e2e_run, truth):
@@ -79,7 +79,7 @@ def test_no_flaws_that_are_not_there(e2e_run, truth):
 
 def test_report_is_honest(e2e_run):
     db, run_id, report = e2e_run
-    html = report.read_text()
+    html = report.read_text(encoding="utf-8")
     assert "SYNTHETIC DATA" in html and "confirm any major decision with real users" in html
     assert not contains_demand_prediction(html)
     assert "Top " in html and "assets/" in html

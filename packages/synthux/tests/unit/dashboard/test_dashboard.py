@@ -21,8 +21,8 @@ def test_dashboard_lists_runs_and_blocks_traversal(settings, db):
     db.insert("runs", {"id": "run_x", "created_at": utcnow(), "study": "demo", "target_url": "http://x",
                        "status": "done", "config_json": {}, "calibration_version": "default"})
     (settings.data_dir / "reports" / "run_x").mkdir(parents=True)
-    (settings.data_dir / "reports" / "run_x" / "index.html").write_text("<h1>report</h1>")
-    (settings.data_dir / "secret.txt").write_text("nope")
+    (settings.data_dir / "reports" / "run_x" / "index.html").write_text("<h1>report</h1>", encoding="utf-8")
+    (settings.data_dir / "secret.txt").write_text("nope", encoding="utf-8")
     server = serve(settings, db, 0)
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()

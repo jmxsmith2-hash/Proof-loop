@@ -10,6 +10,12 @@ engine:
   # "ollama" uses a local model server. "anthropic" uses Claude (needs ANTHROPIC_API_KEY).
   default: heuristic
   roles: {}                    # per-role override, e.g. {judge: anthropic, reporter: anthropic}
+  # actor: hybrid = the free rules act, and a model only sees the hard screens (searching, about to quit,
+  # unexplained errors, unclear labels, clicks that did nothing). Usually ~70% cheaper than a model every step.
+  hybrid:
+    engine: anthropic          # or ollama (free, local)
+    max_calls_per_session: 6
+  model_image_width: 1024      # screenshots wider than this are scaled down before a model sees them
 
 # Only these hosts may ever be opened. A study cannot widen this list.
 safety:
@@ -44,7 +50,7 @@ safety:
 run:
   repeats: 3                   # runs per persona x task
   promote_min: 2               # an issue must appear in at least this many runs to be promoted
-  concurrency: 2               # parallel browser sessions
+  concurrency: auto            # parallel browser sessions (auto = 2 per CPU core, up to 8)
   max_cost_usd: 5.00           # refuse to start a paid run estimated above this (0 = no limit)
   seconds_per_step: 6          # simulated human time per action (think + act)
 
@@ -58,6 +64,9 @@ browser:
   headless: true
   executable_path: null        # auto-detected; set if Chromium is somewhere unusual
   slow_load_seconds: 3.0       # a page taking longer than this counts as slow
+  quiet_exit_seconds: 1.5      # after an action with no visible effect, stop waiting once the network has
+                               # been idle this long (the persona's full wait still counts in simulated time);
+                               # raise it for sites that update the screen on timers, 0 = always wait in full
 
 devices:
   desktop: {width: 1280, height: 800, mobile: false, scale: 1}

@@ -26,7 +26,7 @@ def test_json_and_csv_imports_are_equivalent(db):
 
 def test_import_validation(tmp_path):
     bad = tmp_path / "t.csv"
-    bad.write_text("task_id,participants,completed\nsignup,3,5\n")
+    bad.write_text("task_id,participants,completed\nsignup,3,5\n", encoding="utf-8")
     with pytest.raises(ImportError_):
         load_real_results(tasks_csv=bad)
     with pytest.raises(ImportError_):
@@ -87,7 +87,7 @@ def test_apply_creates_new_version_with_history(db, settings, tmp_path):
     assert new.version == "default-cal1"
     row = db.one("SELECT * FROM calibration_profiles WHERE version = 'default-cal1'")
     assert row["parent"] == "default"
-    assert (tmp_path / "calibration" / "default-cal1.yaml").read_text().startswith("# Calibrated from default")
+    assert (tmp_path / "calibration" / "default-cal1.yaml").read_text(encoding="utf-8").startswith("# Calibrated from default")
     again = apply_suggestions(db, new, suggestions, None)
     assert again.version == "default-cal2"
     assert load_profile(settings, db, "default-cal2").version == "default-cal2"   # loads from the database

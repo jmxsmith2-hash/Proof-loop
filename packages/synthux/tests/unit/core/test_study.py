@@ -16,7 +16,7 @@ tasks:
     goal: do a thing
     start: /a
     inputs: {{password: "{{{{cred:password}}}}"}}
-""")
+""", encoding="utf-8")
     return p
 
 

@@ -41,11 +41,14 @@ class LLMRequest:
     cacheable: bool = True
     model: str | None = None  # per-persona override
     engine: str | None = None  # per-persona override (e.g. one persona on Claude, the rest heuristic)
+    cache_system: bool = False  # the system text repeats across calls (e.g. every step of a session): cache it
+    effort: str | None = None   # filled in from models.yaml (effort per role) when not set
 
     def cache_key(self, engine: str, model: str) -> str:
         h = hashlib.sha256()
         for part in (engine, model, self.role, self.system, self.prompt,
-                     json.dumps(self.schema, sort_keys=True), str(self.seed), str(self.max_tokens)):
+                     json.dumps(self.schema, sort_keys=True), str(self.seed), str(self.max_tokens),
+                     str(self.effort)):
             h.update(part.encode("utf-8"))
             h.update(b"\x00")
         for img in self.images:
@@ -62,6 +65,8 @@ class LLMResponse:
     output_tokens: int = 0
     cost_usd: float = 0.0
     cached: bool = False
+    cache_read_tokens: int = 0    # input served from the provider's prompt cache (billed at ~0.1x)
+    cache_write_tokens: int = 0   # input written to the prompt cache (billed at ~1.25x)
 
 
 class LLMClient(Protocol):
@@ -136,21 +141,31 @@ class AnthropicClient:
         self._anthropic = anthropic
         self._client = anthropic.AsyncAnthropic()
 
+    # Thinking is on for current models and counts towards max_tokens; output is billed as used, so a low cap
+    # only risks a truncated (invalid) answer.
+    MIN_MAX_TOKENS = 8000
+
     async def complete(self, request: LLMRequest, model: str) -> LLMResponse:
         content: list[dict[str, Any]] = [
-            {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+            {"type": "image", "source": {"type": "base64", "media_type": _media_type(img),
                                          "data": base64.standard_b64encode(img).decode("ascii")}}
             for img in request.images
         ]
         content.append({"type": "text", "text": request.prompt})
+        system: str | list[dict[str, Any]] = request.system
+        if request.cache_system:
+            system = [{"type": "text", "text": request.system, "cache_control": {"type": "ephemeral"}}]
+        output_config: dict[str, Any] = {"format": {"type": "json_schema", "schema": _strict_schema(request.schema)}}
+        if request.effort:
+            output_config["effort"] = request.effort
         a = self._anthropic
         try:
             response = await self._client.messages.create(
                 model=model,
-                max_tokens=request.max_tokens,
-                system=request.system,
+                max_tokens=max(request.max_tokens, self.MIN_MAX_TOKENS),
+                system=system,
                 messages=[{"role": "user", "content": content}],
-                output_config={"format": {"type": "json_schema", "schema": _strict_schema(request.schema)}},
+                output_config=output_config,
             )
         except a.RateLimitError as exc:
             raise LLMError(f"rate limited by Anthropic: {exc}") from exc
@@ -160,14 +175,26 @@ class AnthropicClient:
             raise LLMError(f"could not reach Anthropic: {exc}") from exc
         if response.stop_reason == "refusal":
             raise LLMError("the model declined this request")
+        if response.stop_reason == "max_tokens":
+            raise LLMError("the model ran out of output tokens before finishing its answer")
         text = next((b.text for b in response.content if b.type == "text"), "")
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
             raise LLMError(f"model returned invalid JSON: {text[:200]}") from exc
+        usage = response.usage
         return LLMResponse(data=data, engine=self.engine, model=model,
-                           input_tokens=response.usage.input_tokens,
-                           output_tokens=response.usage.output_tokens)
+                           input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
+                           cache_read_tokens=int(getattr(usage, "cache_read_input_tokens", 0) or 0),
+                           cache_write_tokens=int(getattr(usage, "cache_creation_input_tokens", 0) or 0))
+
+
+def _media_type(img: bytes) -> str:
+    if img[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if img[:4] == b"RIFF" and img[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
 
 
 class OllamaClient:
@@ -269,13 +296,16 @@ class LLMGateway:
         if engine == "heuristic":
             raise LLMError(f"role {request.role!r} uses the heuristic engine; no model call is made")
         model = request.model or model
+        if request.effort is None and (provider := self.settings.models.get(engine)) is not None:
+            request.effort = provider.effort.get(request.role)
         key = request.cache_key(engine, model)
         if request.cacheable and (hit := self._cache_get(key)) is not None:
             self._record(request.role, engine, model, 0, 0, 0.0, cached=True)
             return LLMResponse(data=hit, engine=engine, model=model, cached=True)
         client = self._client(engine)
         response = await self._call_validated(client, request, model)
-        response.cost_usd = call_cost(self.settings, engine, model, response.input_tokens, response.output_tokens)
+        response.cost_usd = call_cost(self.settings, engine, model, response.input_tokens, response.output_tokens,
+                                      cache_read=response.cache_read_tokens, cache_write=response.cache_write_tokens)
         self.spent_usd += response.cost_usd
         if request.cacheable:
             self._cache_put(key, model, response.data)

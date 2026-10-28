@@ -22,7 +22,7 @@ from synthux.personas.models import Persona
 from synthux.runner.behavior import PatienceBudget
 from synthux.runner.browser import BrowserPool
 from synthux.runner.observe import DEEP_NAV_PAGES, compute_signals, screen_id, visible_errors
-from synthux.runner.perception import Screen, fuzzy_ratio, hash_distance, perceive
+from synthux.runner.perception import Screen, fuzzy_ratio, hash_distance, perceive, perceive_async
 from synthux.runner.types import Action, Decision, Signals, ThinkAloud
 
 log = get_logger(__name__)
@@ -135,7 +135,7 @@ class Replayer:
             trace["path"].append(screen_id(browser.url))
             png = await browser.screenshot()
             png, _ = await browser.wait_for_settle(png, max_wait=1.0)
-            screen = perceive(png)
+            screen = await perceive_async(png)
             pending = 0.0
             history: list[Any] = []
             for step in steps:
@@ -152,7 +152,7 @@ class Replayer:
                 if step["idx"] == long_wait_at:
                     wait = 25.0
                 new_png, timing = await browser.wait_for_settle(screen.png, max_wait=wait)
-                new_screen = perceive(new_png)
+                new_screen = await perceive_async(new_png)
                 decision = Decision(action=action, think=ThinkAloud("", "", "", ""))
                 signals = compute_signals(prev=screen, cur=new_screen, decision=decision, executed=action,
                                           timing=timing, pending_wait_s=pending,

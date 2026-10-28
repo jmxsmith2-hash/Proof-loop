@@ -14,7 +14,8 @@ from synthux.core.study import TaskSpec
 from synthux.engines.base import ActorContext
 from synthux.personas.models import Traits
 from synthux.runner.observe import explained, visible_errors
-from synthux.runner.perception import InputBox, Screen, TextBox, checkbox_left_of, fuzzy_contains, normalize
+from synthux.runner.perception import (InputBox, Screen, TextBox, checkbox_left_of, fuzzy_contains, menu_icons,
+                                       normalize)
 from synthux.runner.types import Action, Decision, Observation, ThinkAloud
 
 # --------------------------------------------------------------- lexicons
@@ -141,6 +142,7 @@ def label_for(box: InputBox, texts: list[TextBox]) -> TextBox | None:
     return max(left, key=lambda t: t.x1) if left else None
 
 
+SEARCH_WORDS = ("search", "what are you looking for", "find products")
 SELECT_PROMPTS = ("select", "choose", "please select", "please choose", "--", "pick")
 
 
@@ -168,6 +170,8 @@ def form_fields(screen: Screen, traits: Traits, inputs: dict[str, str] | None = 
         elif not text and inner and all(t.contrast < 4.0 for t in box.contents):
             placeholder, text, label = True, inner, box.contents[0]    # grey hint text used as the label
         kind, ambiguous, jargon = classify_label(text, traits) if text else (None, True, False)
+        if any(w in normalize(t) for t in (text, inner) if t for w in SEARCH_WORDS):
+            kind, ambiguous, jargon = "search", False, False   # the site's search box, not part of a form
         if kind is None and text:
             matched = _match_input_key(text, inputs)
             if matched:
@@ -310,7 +314,13 @@ class HeuristicActor:
         if error_decision:
             return error_decision
         # 3. Forms.
-        fields = form_fields(screen, t, ctx.task.inputs)
+        if mem.pending_enter:
+            mem.pending_enter = False
+            return _decision(ctx, items, Action("press", key="Enter"), "Enter should run the search.",
+                             "I press Enter to search.", 0.1, observations)
+        all_fields = form_fields(screen, t, ctx.task.inputs)
+        self._search_boxes = [f for f in all_fields if f.kind == "search"]
+        fields = [f for f in all_fields if f.kind != "search"]
         if fields:
             form_decision = self._handle_form(ctx, items, fields, observations)
             if form_decision:
@@ -519,6 +529,8 @@ class HeuristicActor:
         tick = self._checkbox(ctx, items)
         if tick is not None:
             return tick
+        if not mem.typed:
+            return None  # nothing of mine is in this form, so it isn't mine to send
         submit = self._submit_button(ctx, items, fields)
         if submit is None:
             return None
@@ -666,13 +678,33 @@ class HeuristicActor:
                 if wanted else 0.0
             if score > best_score:
                 best, best_score = t, score
-        if best is None or best_score < 0.8:
-            return None
-        tried.add(best.norm)
-        mem.nav_depth += 1
-        x, y = best.center
-        return _decision(ctx, items, Action("click", x=x, y=y, target=best.text),
-                         f"'{best.text}' sounds like where this would be.", f"I try '{best.text}'.", 0.4)
+        if best is not None and best_score >= 0.8:
+            tried.add(best.norm)
+            mem.nav_depth += 1
+            x, y = best.center
+            return _decision(ctx, items, Action("click", x=x, y=y, target=best.text),
+                             f"'{best.text}' sounds like where this would be.", f"I try '{best.text}'.", 0.4)
+        # Phones hide the menu behind a three-line icon.
+        icons = menu_icons(ctx.screen)
+        if icons and mem.screen_sig not in mem.menus_opened:
+            mem.menus_opened.add(mem.screen_sig)
+            x, y = icons[0]
+            return _decision(ctx, items, Action("click", x=x, y=y, target="menu"),
+                             "The menu should list the sections of the site.", "I open the menu (the three lines).",
+                             0.3)
+        # The site's own search box.
+        boxes = getattr(self, "_search_boxes", [])
+        if boxes and mem.searches < 2:
+            direct, _ = target_keywords(ctx.task)
+            query = " ".join(w for w in direct if len(w) > 2 and w not in SUBMIT_WORDS)[:40] or normalize(ctx.task.goal)
+            mem.searches += 1
+            mem.pending_enter = True
+            mem.nav_depth += 1
+            x, y = boxes[0].box.center
+            return _decision(ctx, items, Action("fill", x=x, y=y, text=query, target=boxes[0].label_text or "Search",
+                                                field_kind="search"),
+                             "Searching the site should find it.", f"I type '{query}' into the search box.", 0.3)
+        return None
 
     def _search(self, ctx: ActorContext, items: list[TextBox], observations: list[Observation]) -> Decision:
         mem, t = ctx.memory, ctx.persona.traits
@@ -680,6 +712,12 @@ class HeuristicActor:
         if mem.scrolls and last and last.scroll_end and not mem.at_bottom:
             mem.at_bottom = True
         step_px = int(ctx.screen.height * (0.85 if t.style == "scanner" else 0.7))
+        # Looking for information: after a first look down the page, people turn to the menu or search.
+        if ctx.task.type == "find" and (mem.scrolls >= 1 or mem.at_bottom) and mem.screen_sig not in mem.explored:
+            mem.explored.add(mem.screen_sig)
+            nav = self._explore(ctx, items)
+            if nav is not None:
+                return nav
         if not mem.at_bottom:
             mem.scrolls += 1
             mem.last_scroll_dy = step_px

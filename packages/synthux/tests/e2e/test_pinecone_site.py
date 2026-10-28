@@ -64,7 +64,7 @@ def pinecone_run(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def truth():
-    return yaml.safe_load((REPO / "demo_app" / "pinecone_flaws.yaml").read_text())
+    return yaml.safe_load((REPO / "demo_app" / "pinecone_flaws.yaml").read_text(encoding="utf-8"))
 
 
 def promoted(db, run_id):

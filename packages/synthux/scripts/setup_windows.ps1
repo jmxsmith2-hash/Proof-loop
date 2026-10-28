@@ -4,40 +4,50 @@
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 
-function Split-Cmd($cmd) {
-    $parts = $cmd.Split(" ")
-    $rest = @()
-    if ($parts.Length -gt 1) { $rest = $parts[1..($parts.Length - 1)] }  # 1..0 would count backwards
-    return ,@($parts[0], $rest)
+# Python 3.11+: the "py" launcher first (installed with python.org Python), then python / python3 on PATH.
+$candidates = @(
+    @{ Exe = "py"; Args = @("-3.12") },
+    @{ Exe = "py"; Args = @("-3.13") },
+    @{ Exe = "py"; Args = @("-3.11") },
+    @{ Exe = "python"; Args = @() },
+    @{ Exe = "python3"; Args = @() }
+)
+$probe = "import sys; print('%d.%d' % sys.version_info[:2])"
+$found = $null
+foreach ($c in $candidates) {
+    if (-not (Get-Command $c.Exe -ErrorAction SilentlyContinue)) { continue }
+    $ErrorActionPreference = "Continue"          # a missing version prints to stderr; that is not fatal
+    $out = & $c.Exe @($c.Args) -c $probe 2>$null
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    $v = "$out".Trim()
+    Write-Host ("  checked {0} {1}: {2}" -f $c.Exe, ($c.Args -join " "), $(if ($code -eq 0) { $v } else { "not usable" }))
+    if ($code -eq 0 -and $v -match '^\d+\.\d+$' -and [version]$v -ge [version]"3.11") { $found = $c; break }
 }
-
-function Find-Python {
-    foreach ($cmd in @("py -3.12", "py -3.11", "py -3.13", "python")) {
-        try {
-            $exe, $rest = Split-Cmd $cmd
-            $v = & $exe @rest -c "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')" 2>$null
-            if ($LASTEXITCODE -eq 0 -and [version]$v -ge [version]"3.11") { return $cmd }
-        } catch { }
-    }
-    return $null
-}
-
-$py = Find-Python
-if (-not $py) {
+if (-not $found) {
     Write-Host "Python 3.11 or newer was not found." -ForegroundColor Red
     Write-Host "Install it with:  winget install Python.Python.3.12   (or from https://www.python.org/downloads/)"
     Write-Host "Tick 'Add python.exe to PATH' during install, then run this script again."
     exit 1
 }
+$exe = $found.Exe
+$rest = @($found.Args)
+$py = ("{0} {1}" -f $exe, ($rest -join " ")).Trim()
 Write-Host "Using $py"
-$exe, $rest = Split-Cmd $py
-if (-not (Test-Path ".venv")) { & $exe @rest -m venv .venv }
+
+function Step($what) {  # native commands don't stop the script on failure; check each one
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "$what failed (exit code $LASTEXITCODE). Scroll up for the reason, fix it and run this again." -ForegroundColor Red
+        exit 1
+    }
+}
+if (-not (Test-Path ".venv")) { & $exe @rest -m venv .venv; Step "Creating .venv" }
 $venvPy = ".\.venv\Scripts\python.exe"
-& $venvPy -m pip install --upgrade pip
-& $venvPy -m pip install -e ".[dev]"
-& $venvPy -m playwright install chromium
+& $venvPy -m pip install --upgrade pip; Step "Updating pip"
+& $venvPy -m pip install -e ".[dev]"; Step "Installing synthux"
+& $venvPy -m playwright install chromium; Step "Downloading Chromium"
 if (-not (Test-Path "config\settings.yaml")) { Copy-Item "config\settings.example.yaml" "config\settings.yaml" }
-& ".\.venv\Scripts\synthux.exe" check
+& ".\.venv\Scripts\synthux.exe" check; Step "synthux check"
 Write-Host ""
 Write-Host "Done. In a new PowerShell window, activate it with:" -ForegroundColor Green
 Write-Host "    .\.venv\Scripts\Activate.ps1"

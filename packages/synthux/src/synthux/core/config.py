@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
@@ -21,7 +21,8 @@ log = get_logger(__name__)
 
 ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 ROLES = ("actor", "persona", "judge", "grouper", "reporter")
-ENGINES = ("heuristic", "ollama", "anthropic", "fake")
+ENGINES = ("heuristic", "ollama", "anthropic", "fake", "hybrid")
+MODEL_ENGINES = ("ollama", "anthropic", "fake")
 
 
 class ConfigError(ValueError):
@@ -47,15 +48,31 @@ class SafetyConfig(StrictModel):
     destructive_patterns: list[str] = Field(default_factory=list)
 
 
+class HybridConfig(StrictModel):
+    """`actor: hybrid`: the free rule engine acts, and a model is asked only on hard screens."""
+    engine: str = "anthropic"                     # model engine for the hard screens (anthropic or ollama)
+    max_calls_per_session: int = Field(6, ge=0, le=100)
+
+    @field_validator("engine")
+    @classmethod
+    def _model_engine(cls, value: str) -> str:
+        if value not in MODEL_ENGINES:
+            raise ValueError(f"hybrid.engine must be one of {MODEL_ENGINES}")
+        return value
+
+
 class EngineConfig(StrictModel):
     default: str = "heuristic"
     roles: dict[str, str] = Field(default_factory=dict)
+    hybrid: HybridConfig = Field(default_factory=HybridConfig)
+    model_image_width: int = Field(1024, ge=320, le=2000)  # screenshots wider than this are scaled down for models
 
     @field_validator("default")
     @classmethod
     def _known_engine(cls, value: str) -> str:
-        if value not in ENGINES:
-            raise ValueError(f"unknown engine {value!r}; choose one of {ENGINES}")
+        if value not in ENGINES or value == "hybrid":
+            raise ValueError(f"unknown default engine {value!r}; choose one of "
+                             f"{[e for e in ENGINES if e != 'hybrid']} (hybrid is for the actor role only)")
         return value
 
     @field_validator("roles")
@@ -66,6 +83,8 @@ class EngineConfig(StrictModel):
                 raise ValueError(f"unknown role {role!r}; roles are {ROLES}")
             if engine not in ENGINES:
                 raise ValueError(f"unknown engine {engine!r} for role {role!r}")
+            if engine == "hybrid" and role != "actor":
+                raise ValueError("hybrid is only for the actor role (the per-step browser behaviour)")
         return value
 
     def engine_for(self, role: str) -> str:
@@ -75,7 +94,16 @@ class EngineConfig(StrictModel):
 class RunConfig(StrictModel):
     repeats: int = Field(3, ge=1, le=20)
     promote_min: int = Field(2, ge=1)
-    concurrency: int = Field(2, ge=1, le=32)
+    concurrency: int | Literal["auto"] = "auto"  # "auto" = 2 per CPU core, 2..8
+
+    @field_validator("concurrency")
+    @classmethod
+    def _workers(cls, v: int | str) -> int:
+        if v == "auto":
+            return max(2, min(8, 2 * (os.cpu_count() or 1)))
+        if not 1 <= int(v) <= 32:
+            raise ValueError("concurrency must be 1..32 or 'auto'")
+        return int(v)
     max_cost_usd: float = Field(5.0, ge=0)
     seconds_per_step: float = Field(6.0, gt=0)
 
@@ -91,6 +119,7 @@ class BrowserConfig(StrictModel):
     headless: bool = True
     executable_path: str | None = None
     slow_load_seconds: float = 3.0
+    quiet_exit_seconds: float = 1.5   # stop waiting this long after a no-effect action once nothing loads (0 = off)
 
 
 class DeviceConfig(StrictModel):
@@ -109,6 +138,7 @@ class NetworkConfig(StrictModel):
 class ModelProvider(StrictModel):
     roles: dict[str, str] = Field(default_factory=dict)
     prices: dict[str, dict[str, float]] = Field(default_factory=dict)
+    effort: dict[str, str] = Field(default_factory=dict)   # role -> low | medium | high | xhigh | max
     base_url: str | None = None
 
 
@@ -133,6 +163,8 @@ class Settings(StrictModel):
     def model_for(self, role: str) -> tuple[str, str]:
         """Return (engine, model id) for a role."""
         engine = self.engine.engine_for(role)
+        if engine == "hybrid":
+            engine = self.engine.hybrid.engine
         provider = self.models.get(engine)
         model = provider.roles.get(role, "") if provider else ""
         return engine, model or engine

@@ -92,3 +92,59 @@ def test_navigation_issue_for_buried_information_only():
     assert issue[0].evidence["path"] == ["/", "/help", "/help/orders", "/help/orders/returns"]
     assert navigation_issues(deep[:1], "completed") == []
     assert navigation_issues(deep, "quit")[0].severity == 3
+
+
+def _with_burger(scr):
+    import io
+
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    img = Image.new("RGB", (scr.width, scr.height), "white")
+    d = ImageDraw.Draw(img)
+    for k in range(3):
+        d.rectangle([1230, 20 + k * 8, 1254, 22 + k * 8], fill="black")
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    scr.png = buf.getvalue()
+    scr.lum = np.asarray(img.convert("L"), dtype=np.float32) / 255.0
+    return scr
+
+
+def test_find_task_opens_the_three_line_menu_when_nothing_on_the_page_matches():
+    from synthux.runner.perception import menu_icons
+
+    scr = _with_burger(screen([tb("Furniture that lasts", 40, 110, h=34), tb("Solid wood.", 40, 170)]))
+    assert menu_icons(scr) == [(1242, 29)]
+    mem = SessionMemory(screen_sig=scr.signature(), scrolls=1, last_action_kind="scroll")
+    d = decide(ctx(scr, task=FIND, mem=mem))
+    assert d.action.kind == "click" and d.action.target == "menu" and (d.action.x, d.action.y) == (1242, 29)
+
+
+def _search_box(placeholder="Search help"):
+    from synthux.runner.perception import InputBox
+
+    box = InputBox(x0=40, y0=170, x1=360, y1=214)
+    box.contents = [tb(placeholder, 50, 182, contrast=3.0)]
+    return box
+
+
+def test_search_box_is_not_a_form_and_is_used_for_find_tasks():
+    texts = [tb("Help centre", 40, 110, h=34), tb("Search", 380, 182, fill=True), tb("Payments", 40, 300)]
+    scr = screen(texts, inputs=[_search_box()])
+    mem = SessionMemory(screen_sig=scr.signature(), scrolls=1, last_action_kind="scroll")
+    task = TaskSpec(id="hours", type="find", goal="Find the warranty length")
+    d = decide(ctx(scr, task=task, mem=mem))
+    assert d.action.kind == "fill" and d.action.text == "warranty length" and mem.pending_enter
+    assert not [o for o in d.observations if o.kind == "ambiguous_label"]
+    nxt = decide(ctx(scr, task=task, mem=mem))
+    assert nxt.action.kind == "press" and nxt.action.key == "Enter"
+
+
+def test_a_form_i_typed_nothing_into_is_not_submitted():
+    from synthux.runner.perception import InputBox
+
+    box = InputBox(x0=40, y0=170, x1=360, y1=214)   # unlabelled field I have nothing for
+    scr = screen([tb("Newsletter", 40, 110, h=34), tb("Pay now", 40, 260, fill=True)], inputs=[box])
+    d = decide(ctx(scr, task=TaskSpec(id="t", goal="Read the article", keywords=["read more"])))
+    assert d.action.target != "Pay now"

@@ -37,7 +37,7 @@ def test_dotenv_does_not_override_real_env(tmp_path, monkeypatch):
     monkeypatch.setenv("SX_KEEP", "real")
     monkeypatch.delenv("SX_NEW", raising=False)
     env = tmp_path / ".env"
-    env.write_text("SX_KEEP=fake\nexport SX_NEW='new'\n# comment\n")
+    env.write_text("SX_KEEP=fake\nexport SX_NEW='new'\n# comment\n", encoding="utf-8")
     loaded = load_dotenv(env)
     import os
     assert os.environ["SX_KEEP"] == "real"
@@ -49,7 +49,7 @@ def test_dotenv_does_not_override_real_env(tmp_path, monkeypatch):
 def test_promote_min_cannot_exceed_repeats(tmp_path):
     cfg = tmp_path / "config"
     cfg.mkdir()
-    (cfg / "settings.yaml").write_text("run: {repeats: 2, promote_min: 3}\n")
+    (cfg / "settings.yaml").write_text("run: {repeats: 2, promote_min: 3}\n", encoding="utf-8")
     with pytest.raises(ConfigError):
         load_settings(cfg)
 
@@ -57,6 +57,6 @@ def test_promote_min_cannot_exceed_repeats(tmp_path):
 def test_unknown_keys_rejected(tmp_path):
     cfg = tmp_path / "config"
     cfg.mkdir()
-    (cfg / "settings.yaml").write_text("not_a_setting: 1\n")
+    (cfg / "settings.yaml").write_text("not_a_setting: 1\n", encoding="utf-8")
     with pytest.raises(ConfigError):
         load_settings(cfg)

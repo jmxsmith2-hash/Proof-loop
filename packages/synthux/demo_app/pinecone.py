@@ -5,7 +5,8 @@ Planted flaws (ground truth in pinecone_flaws.yaml):
   * the return policy is three levels deep (Help -> Orders & delivery -> Returns) with no direct link
   * the "Stores" menu link does nothing
 Clean on purpose: the cookie banner (closes and stays closed), the sign-up form
-(labels, a country dropdown, a terms checkbox) and the contact page.
+(labels, a country dropdown, a terms checkbox), the contact page, the help search
+and the phone menu (behind a three-line icon, as on most sites).
 """
 
 from __future__ import annotations
@@ -21,6 +22,16 @@ CSS = """
 body { margin: 0; font-family: "DejaVu Sans", Arial, sans-serif; font-size: 18px; color: #1c1c1c; background: #fff; }
 header { background: #23472b; color: #fff; padding: 14px 20px; display: flex; flex-wrap: wrap; gap: 12px 26px; align-items: center; }
 header .logo { font-weight: bold; font-size: 22px; } header a { color: #fff; text-decoration: none; }
+#burger { display: none; margin-left: auto; background: none; border: 0; padding: 8px; cursor: pointer; }
+#burger span { display: block; width: 24px; height: 3px; background: #fff; margin: 5px 0; }
+@media (max-width: 600px) {
+  #burger { display: block; }
+  header nav { display: none; width: 100%; flex-direction: column; gap: 14px; padding: 8px 0 4px; }
+  header.open nav { display: flex; }
+}
+@media (min-width: 601px) { header nav { display: contents; } }
+.search { display: flex; gap: 10px; margin: 18px 0; } .search input { max-width: 320px; }
+.search button { font-size: 17px; padding: 8px 16px; border: 0; border-radius: 6px; background: #2d6a39; color: #fff; }
 main { max-width: 760px; margin: 0 auto; padding: 28px; }
 h1 { font-size: 30px; } a.link { color: #1f5fbf; font-size: 19px; display: block; margin: 12px 0; }
 label { display: block; font-weight: bold; margin: 16px 0 6px; }
@@ -61,8 +72,10 @@ def page(title: str, body: str) -> bytes:
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>{html.escape(title)}</title>
 <style>{CSS}</style></head><body>
-<header><span class="logo">Pinecone Home</span><a href="/shop">Shop</a><a href="/help">Help</a>
-<a href="#" onclick="return false">Stores</a><a href="/contact">Contact</a></header>
+<header><span class="logo">Pinecone Home</span>
+<button id="burger" aria-label="Menu" onclick="this.parentNode.classList.toggle('open')"><span></span><span></span><span></span></button>
+<nav><a href="/shop">Shop</a><a href="/help">Help</a>
+<a href="#" onclick="return false">Stores</a><a href="/contact">Contact</a></nav></header>
 <main>{body}</main>{SCRIPT}</body></html>""".encode("utf-8")
 
 
@@ -70,7 +83,10 @@ ROUTES = {
     "/": lambda: page("Pinecone Home", "<h1>Furniture that lasts</h1><p>Solid wood, made to order.</p>"
                                        "<a class='link' href='/register'>Create an account</a>"),
     "/shop": lambda: page("Shop", "<h1>Shop</h1><p>Tables, chairs and shelves.</p>"),
-    "/help": lambda: page("Help", "<h1>Help centre</h1><a class='link' href='/help/orders'>Orders &amp; delivery</a>"
+    "/help": lambda: page("Help", "<h1>Help centre</h1><form class='search' action='/search'>"
+                                  "<input type='text' name='q' placeholder='Search help'>"
+                                  "<button type='submit'>Search</button></form>"
+                                  "<a class='link' href='/help/orders'>Orders &amp; delivery</a>"
                                   "<a class='link' href='/help/account'>Your account</a>"
                                   "<a class='link' href='/help/payments'>Payments</a>"),
     "/help/orders": lambda: page("Orders", "<h1>Orders &amp; delivery</h1>"
@@ -84,6 +100,24 @@ ROUTES = {
     "/contact": lambda: page("Contact", "<h1>Contact us</h1><p>Email support@pinecone.test</p>"
                                         "<p>Opening hours: Monday to Saturday, 9:00 to 18:00.</p>"),
 }
+
+
+SEARCH_INDEX = [  # (words, title, link) for the help search
+    ({"return", "returns", "refund", "refunds", "days"}, "Returns and refunds", "/help/orders/returns"),
+    ({"track", "tracking", "order", "delivery"}, "Tracking an order", "/help/orders/tracking"),
+    ({"password", "account", "login"}, "Your account", "/help/account"),
+    ({"pay", "payment", "payments", "card"}, "Payments", "/help/payments"),
+    ({"contact", "email", "support", "hours", "phone"}, "Contact us", "/contact"),
+]
+
+
+def search(query: str) -> bytes:
+    words = {w.strip(".,").lower() for w in query.split()}
+    words |= {w[:-1] for w in words if w.endswith("s")}
+    hits = [(title, link) for keys, title, link in SEARCH_INDEX if words & keys]
+    body = "".join(f"<a class='link' href='{link}'>{html.escape(title)}</a>" for title, link in hits)
+    return page("Search", f"<h1>Search results</h1><p>{len(hits)} result(s) for '{html.escape(query)}'</p>"
+                + (body or "<p>Nothing found. Try other words.</p>"))
 
 
 def register(error: str = "") -> bytes:
@@ -114,6 +148,8 @@ class PineconeHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == "/register":
             return self._send(register())
+        if path == "/search":
+            return self._send(search(parse_qs(urlsplit(self.path).query).get("q", [""])[0]))
         if path == "/welcome":
             return self._send(page("Welcome", "<h1>Welcome to Pinecone</h1><p class='ok'>Your account is ready.</p>"))
         route = ROUTES.get(path.rstrip("/") or "/")

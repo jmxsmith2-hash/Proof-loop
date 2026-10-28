@@ -174,18 +174,36 @@ def screen_diff(a: Screen, b: Screen) -> float:
 
 
 class OcrEngine:
-    """Local OCR (RapidOCR / ONNX). One shared instance with a small result cache."""
+    """Local OCR (RapidOCR / ONNX). One shared instance with two caches.
+
+    * whole screenshots (an unchanged screen costs nothing);
+    * single text lines: detection runs on every new screenshot, but a line whose
+      pixels were already read (after a scroll, or when one field changed) is
+      not recognised again. Recognition is most of the OCR time.
+
+    Lines are recognised one at a time, so a line reads the same whatever else is
+    on the screen (batching pads lines together and can change the spacing).
+    """
 
     _instance: "OcrEngine | None" = None
     _lock = threading.Lock()
 
-    def __init__(self, cache_size: int = 512):
+    def __init__(self, cache_size: int = 512, line_cache_size: int = 20_000):
         from rapidocr_onnxruntime import RapidOCR
 
         self._ocr = RapidOCR()
+        for flag in ("use_angle_cls", "use_cls"):  # screen text is never upside down
+            if hasattr(self._ocr, flag):
+                setattr(self._ocr, flag, False)
+        self._staged = all(hasattr(self._ocr, a) for a in
+                           ("load_img", "text_detector", "sorted_boxes", "get_crop_img_list", "text_recognizer",
+                            "filter_boxes_rec_by_score"))
         self._cache: OrderedDict[str, list[tuple[list, str, float]]] = OrderedDict()
+        self._lines: OrderedDict[str, tuple[str, float]] = OrderedDict()
         self._cache_size = cache_size
+        self._line_cache_size = line_cache_size
         self._run_lock = threading.Lock()
+        self.stats = {"screens": 0, "screen_hits": 0, "lines": 0, "line_hits": 0}
 
     @classmethod
     def shared(cls) -> "OcrEngine":
@@ -197,15 +215,49 @@ class OcrEngine:
     def read(self, png: bytes) -> list[tuple[list, str, float]]:
         key = hashlib.sha1(png).hexdigest()
         with self._run_lock:
+            self.stats["screens"] += 1
             if key in self._cache:
+                self.stats["screen_hits"] += 1
                 self._cache.move_to_end(key)
                 return self._cache[key]
-            result, _ = self._ocr(png)
-            out = [(box, text, float(conf)) for box, text, conf in (result or [])]
+            out = self._read_staged(png) if self._staged else self._read_plain(png)
             self._cache[key] = out
             if len(self._cache) > self._cache_size:
                 self._cache.popitem(last=False)
             return out
+
+    def _read_plain(self, png: bytes) -> list[tuple[list, str, float]]:
+        result, _ = self._ocr(png)
+        return [(box, text, float(conf)) for box, text, conf in (result or [])]
+
+    def _read_staged(self, png: bytes) -> list[tuple[list, str, float]]:
+        try:
+            ocr = self._ocr
+            img = ocr.load_img(png)
+            boxes, _ = ocr.text_detector(img)
+            if boxes is None or len(boxes) == 0:
+                return []
+            boxes = ocr.sorted_boxes(boxes)
+            crops = ocr.get_crop_img_list(img, boxes)
+            recs = []
+            for crop in crops:
+                k = hashlib.sha1(crop.tobytes() + str(crop.shape).encode()).hexdigest()
+                self.stats["lines"] += 1
+                if k in self._lines:
+                    self.stats["line_hits"] += 1
+                    self._lines.move_to_end(k)
+                else:
+                    res, _ = ocr.text_recognizer([crop])
+                    self._lines[k] = (res[0][0], float(res[0][1]))
+                    if len(self._lines) > self._line_cache_size:
+                        self._lines.popitem(last=False)
+                recs.append(self._lines[k])
+            kept_boxes, kept = ocr.filter_boxes_rec_by_score(boxes, recs)
+            return [(b.tolist(), text, float(conf)) for b, (text, conf) in zip(kept_boxes, kept)]
+        except Exception as exc:  # a RapidOCR version with different internals: use its own pipeline
+            log.debug("staged OCR unavailable (%s); using the plain pipeline", exc)
+            self._staged = False
+            return self._read_plain(png)
 
 
 def _text_box(raw_box: list, text: str, conf: float, lum: np.ndarray, page_lum: float = 1.0) -> TextBox:
@@ -292,6 +344,13 @@ def detect_input_boxes(lum: np.ndarray, min_w: int = 90, min_h: int = 26, max_h:
 # -------------------------------------------------------------------- screen
 
 
+async def perceive_async(png: bytes) -> Screen:
+    """perceive() off the event loop, so other sessions' timing keeps running during OCR."""
+    import asyncio
+
+    return await asyncio.to_thread(perceive, png)
+
+
 def perceive(png: bytes, ocr: OcrEngine | None = None) -> Screen:
     image = Image.open(io.BytesIO(png)).convert("RGB")
     rgb = np.asarray(image)
@@ -337,3 +396,47 @@ def checkbox_left_of(screen: Screen, text: TextBox) -> tuple[int, int, bool] | N
     bx = x0 + max(0, right - 30) + (c2.min() + c2.max()) // 2
     by = y0 + (r2.min() + r2.max()) // 2
     return int(bx), int(by), checked
+
+
+def menu_icons(screen: Screen, top_fraction: float = 0.22) -> list[tuple[int, int]]:
+    """Centres of "hamburger" menu icons (three short, equal, stacked bars) near the top of the screen.
+
+    Phones hide the site menu behind this icon, which has no text for OCR to read.
+    """
+    if screen.lum is None:
+        return []
+    from scipy import ndimage
+
+    band = screen.lum[: max(40, int(screen.lum.shape[0] * top_fraction))]
+    background = ndimage.median_filter(band, size=(19, 1))           # local colour above/below each pixel
+    ink = np.abs(band - background) > 0.3
+    labels, n = ndimage.label(ink)
+    bars = []
+    for i, sl in enumerate(ndimage.find_objects(labels), start=1):
+        if sl is None:
+            continue
+        h, w = sl[0].stop - sl[0].start, sl[1].stop - sl[1].start
+        if 2 <= h <= 6 and 14 <= w <= 44 and (labels[sl] == i).mean() >= 0.8:
+            bars.append((sl[0].start, sl[0].stop, sl[1].start, sl[1].stop))
+    texts = [(t.x0 - 2, t.y0 - 2, t.x1 + 2, t.y1 + 2) for t in screen.texts]
+    icons = []
+    bars.sort()
+    for a in range(len(bars)):
+        stack = [bars[a]]
+        for b in bars[a + 1:]:
+            last = stack[-1]
+            gap = b[0] - last[1]
+            if abs(b[2] - last[2]) <= 3 and abs(b[3] - last[3]) <= 3 and 2 <= gap <= 12:
+                if len(stack) == 1 or abs(gap - (last[0] - stack[-2][1])) <= 2:
+                    stack.append(b)
+            if len(stack) == 3:
+                break
+        if len(stack) != 3:
+            continue
+        cx = (stack[0][2] + stack[0][3]) // 2
+        cy = (stack[0][0] + stack[2][1]) // 2
+        if any(x0 <= cx <= x1 and y0 <= cy <= y1 for x0, y0, x1, y1 in texts):
+            continue  # part of text (e.g. "≡" in a word), not an icon
+        if not any(abs(cx - x) < 10 and abs(cy - y) < 10 for x, y in icons):
+            icons.append((int(cx), int(cy)))
+    return icons

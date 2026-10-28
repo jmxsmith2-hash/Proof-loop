@@ -135,6 +135,7 @@ class BrowserPool:
                 "document.head.appendChild(s); });")
         page = await context.new_page()
         session = BrowserSession(context, page, RequestPolicy(safety, sandbox=sandbox), safety, device)
+        session.quiet_exit_s = self.settings.browser.quiet_exit_seconds
         await session._install(network)
         return session
 
@@ -148,6 +149,9 @@ class BrowserSession:
         self.device = device
         self.nav_pending = False
         self.errors: list[str] = []
+        self.inflight = 0                      # network requests started and not yet finished
+        self.last_net = time.monotonic()       # when a request last started or finished
+        self.quiet_exit_s = 0.0
 
     @property
     def viewport(self) -> tuple[int, int]:
@@ -165,6 +169,8 @@ class BrowserSession:
 
         await self.page.route("**/*", route)
         self.page.on("request", self._on_request)
+        self.page.on("requestfinished", self._on_request_done)
+        self.page.on("requestfailed", self._on_request_done)
         self.page.on("load", lambda *_: setattr(self, "nav_pending", False))
         self.page.on("pageerror", lambda err: self.errors.append(str(err)))
         self.page.on("crash", lambda *_: self.errors.append("page crashed"))
@@ -178,8 +184,20 @@ class BrowserSession:
             })
 
     def _on_request(self, request: Any) -> None:
+        self.inflight += 1
+        self.last_net = time.monotonic()
         if request.is_navigation_request() and request.frame == self.page.main_frame:
             self.nav_pending = True
+
+    def _on_request_done(self, request: Any) -> None:
+        self.inflight = max(0, self.inflight - 1)
+        self.last_net = time.monotonic()
+
+    def _quiet(self, elapsed: float) -> bool:
+        """Nothing changed, nothing is loading and the network has been idle: waiting longer won't help."""
+        if not self.quiet_exit_s or self.nav_pending or self.inflight:
+            return False
+        return elapsed >= self.quiet_exit_s and time.monotonic() - self.last_net >= min(1.0, self.quiet_exit_s)
 
     @property
     def url(self) -> str:
@@ -245,7 +263,7 @@ class BrowserSession:
                 await page.goto("about:blank")
                 raise
 
-    async def wait_for_settle(self, before: bytes, *, max_wait: float, poll: float = 0.25) -> tuple[bytes, Timing]:
+    async def wait_for_settle(self, before: bytes, *, max_wait: float, poll: float = 0.15) -> tuple[bytes, Timing]:
         """Poll screenshots until the screen is stable; measure when it really responded.
 
         Tiny changes (a focus ring) do not count as a response while the browser is
@@ -260,6 +278,7 @@ class BrowserSession:
         frames: list[tuple[float, Any]] = []
         stable = 0
         responded = False
+        quiet = False
         while True:
             await asyncio.sleep(poll)
             # A screenshot blocks while a navigation is in flight; cap it at the persona's remaining patience.
@@ -288,9 +307,13 @@ class BrowserSession:
                 stable += 1
             last_hash = digest
             responded = major_change is not None or (first_change is not None and not self.nav_pending)
-            if responded and stable >= 2 and not self.nav_pending:
+            # Settled: unchanged for two polls with nothing loading (or for longer, if a connection stays open).
+            if responded and not self.nav_pending and (stable >= 2 and not self.inflight or stable >= 5):
                 break
             if not responded and elapsed >= max_wait:
+                break
+            if first_change is None and self._quiet(elapsed):
+                quiet = True
                 break
             if elapsed >= max(max_wait * 2.5, 15.0):  # keeps changing (animation); stop anyway
                 break
@@ -298,7 +321,10 @@ class BrowserSession:
         intermediate = sum(1 for _, f in frames[:-1]
                            if _diff(f, before_small) >= MAJOR_CHANGE and _diff(f, final_small) >= MAJOR_CHANGE)
         responded = major_change is not None or (first_change is not None and not self.nav_pending)
-        return png, Timing(first_change_s=first_change, settled_s=time.monotonic() - start,
+        settled = time.monotonic() - start
+        if quiet:
+            settled = max(settled, max_wait)  # the persona would have waited this long for nothing
+        return png, Timing(first_change_s=first_change, settled_s=settled,
                            intermediate_states=intermediate, major_change_s=major_change, responded=responded)
 
     async def close(self) -> None:

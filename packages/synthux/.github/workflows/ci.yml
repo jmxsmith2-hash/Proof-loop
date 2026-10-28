@@ -28,6 +28,9 @@ jobs:
           python -m playwright install chromium
       - name: Unit tests
         run: python -m pytest tests/unit -q
+      - name: Text files are read and written as UTF-8 (Windows defaults to another encoding)
+        if: runner.os == 'Linux'
+        run: python -X warn_default_encoding -m pytest tests/unit -q -W "error::EncodingWarning:synthux" -W "error::EncodingWarning:tests"
       - name: Browser integration tests
         run: python -m pytest tests/integration -q
       - name: End-to-end (demo shop + CAD example)

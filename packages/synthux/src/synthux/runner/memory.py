@@ -43,6 +43,10 @@ class SessionMemory:
     target_pending: tuple[str, dict[str, Any]] | None = None     # clicked; kept if it worked
     followed: set[tuple[str, str]] = field(default_factory=set)   # (screen, link) already followed from there
     nav_depth: int = 0
+    explored: set[str] = field(default_factory=set)       # screens where I already tried menu/search early
+    menus_opened: set[str] = field(default_factory=set)   # screens whose menu icon I already opened
+    searches: int = 0                                      # site searches tried
+    pending_enter: bool = False                            # typed a search; Enter comes next
     backs: int = 0
 
     def remember(self, fact: str) -> None:

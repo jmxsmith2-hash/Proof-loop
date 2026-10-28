@@ -30,7 +30,7 @@ def test_text_and_markdown_sources():
 
 def test_analytics_export_weights(tmp_path):
     f = tmp_path / "ga.csv"
-    f.write_text("deviceCategory,sessions\nmobile,700\ndesktop,250\ntablet,50\n")
+    f.write_text("deviceCategory,sessions\nmobile,700\ndesktop,250\ntablet,50\n", encoding="utf-8")
     records = load_source(f)
     assert [r.kind for r in records] == ["analytics"] * 3
     ev = derive_evidence(records)

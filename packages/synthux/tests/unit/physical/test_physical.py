@@ -70,6 +70,6 @@ def test_full_physical_review(db, tmp_path):
     assert result["return_reasons"]["per_b"]["category"] in ("ergonomics", "weight")  # motor + age traits weigh in
     for findings in result["per_persona"].values():
         assert all(f.detail.startswith(LABEL) for f in findings)
-    page = write_report(result, tmp_path, personas).read_text()
+    page = write_report(result, tmp_path, personas).read_text(encoding="utf-8")
     assert "PREDICTION, NOT A TEST" in page and "Kevin" not in page and "kb@example.com" not in page
     assert db.all("SELECT * FROM sensor_findings") and db.all("SELECT * FROM review_complaints")

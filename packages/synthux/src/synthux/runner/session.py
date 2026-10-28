@@ -25,7 +25,7 @@ from synthux.runner.browser import BrowserPool, BrowserSession
 from synthux.runner.memory import SessionMemory
 from synthux.runner.observe import (DEEP_NAV_PAGES, compute_signals, issues_from_step, limitation_on_screen, screen_id,
                                     unsupported_interaction)
-from synthux.runner.perception import Screen, fuzzy_contains, normalize, perceive
+from synthux.runner.perception import Screen, fuzzy_contains, normalize, perceive, perceive_async
 from synthux.runner.types import (Action, Decision, IssueCandidate, SessionResult, Signals, StepRecord,
                                   ThinkAloud, Timing)
 from synthux.safety.allowlist import SafetyError
@@ -131,7 +131,7 @@ class SessionRunner:
             return
         png = await browser.screenshot()
         png, _ = await browser.wait_for_settle(png, max_wait=1.0)
-        screen = perceive(png)
+        screen = await perceive_async(png)
         last_signals: Signals | None = None
         last_timing: Timing | None = None
         pending_wait = 0.0
@@ -164,7 +164,7 @@ class SessionRunner:
                     memory.typed_kinds.clear()
                     await browser.page.reload(wait_until="load")
                     png = await browser.screenshot()
-                    screen = perceive(png)
+                    screen = await perceive_async(png)
                     _save_jpeg(screen.png, shot_path)
                     url = browser.url
                 log.debug("interrupted at step %d; forgot %d facts", idx, len(forgotten))
@@ -213,7 +213,7 @@ class SessionRunner:
                 return
             max_wait = 1.0 if intended.kind == "scroll" else budget.wait_tolerance_s
             new_png, timing = await browser.wait_for_settle(screen.png, max_wait=max_wait)
-            new_screen = perceive(new_png)
+            new_screen = await perceive_async(new_png)
             signals = compute_signals(prev=screen, cur=new_screen, decision=decision, executed=executed,
                                       timing=timing, pending_wait_s=pending_wait,
                                       slow_threshold_s=self.settings.browser.slow_load_seconds,

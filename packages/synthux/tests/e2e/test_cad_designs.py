@@ -16,7 +16,7 @@ from synthux.physical.cad.pipeline import check_design, design_spec, record_prin
 
 REPO = Path(__file__).resolve().parents[2]
 CAD = REPO / "examples" / "cad"
-TRUTH = yaml.safe_load((CAD / "planted_flaws.yaml").read_text())
+TRUTH = yaml.safe_load((CAD / "planted_flaws.yaml").read_text(encoding="utf-8"))
 SPECS = {"phone_stand_v1.stl": "phone_stand.yaml", "phone_stand_v2.stl": "phone_stand.yaml",
          "tool_handle.stl": "tool_handle.yaml", "block_control.stl": None}
 PEOPLE = [Persona(id="p_small", label="Small hands", narrative="", traits=Traits(hand_size="small")),
@@ -48,7 +48,7 @@ def test_planted_flaws_found_and_nothing_else(env, name):
         pid = {"small_hands": "p_small", "low_grip": "p_weak"}[persona]
         assert pattern in [r["pattern"] for r in result["reactions"][pid]]
     assert Path(result["report"]).is_file()
-    html = Path(result["report"]).read_text()
+    html = Path(result["report"]).read_text(encoding="utf-8")
     assert "Prediction, not a test" in html or "prediction, not a test" in html
 
 
@@ -63,4 +63,4 @@ def test_iteration_loop_v1_print_v2(env):
     assert v2["version"] == 2 and v2["material"]["learned_from_prints"] == 1
     assert v2["material"]["max_overhang_deg"] == 40                       # learned from the drooping print
     assert len(v2["comparison"]["fixed"]) == len(v1["findings"]) and not v2["comparison"]["new"]
-    assert "What earlier prints taught us" in Path(v2["report"]).read_text()
+    assert "What earlier prints taught us" in Path(v2["report"]).read_text(encoding="utf-8")

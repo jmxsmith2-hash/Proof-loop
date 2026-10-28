@@ -111,7 +111,8 @@ def test_model_persona_sees_only_pixels(settings, profile, demo_study, tmp_path)
     result = run_one(settings, profile, demo_study, "login", persona(), actor=LLMActor(gateway), tmp_path=tmp_path)
     assert result.outcome == "quit" and len(fake.calls) == 2
     for call in fake.calls:
-        assert call.images and call.images[0][:8] == b"\x89PNG\r\n\x1a\n"
+        assert call.images and call.images[0][:8] == b"\x89PNG\r\n\x1a\n" or call.images[0][:3] == b"\xff\xd8\xff"
+        assert len(call.images) == 1  # one screenshot (scaled down for the model), nothing else
         blob = call.system + call.prompt
         for dom_marker in ("<input", "<form", "<div", "class=", "type=\"password\"", "autocomplete", "demo-pass"):
             assert dom_marker not in blob

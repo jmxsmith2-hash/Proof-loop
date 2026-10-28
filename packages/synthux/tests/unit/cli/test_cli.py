@@ -12,8 +12,9 @@ def _config(tmp_path):
     cfg = tmp_path / "config"
     (cfg / "calibration").mkdir(parents=True)
     for name in ("settings.example.yaml", "models.yaml", "scales.yaml"):
-        (cfg / name).write_text((REPO / "config" / name).read_text())
-    (cfg / "calibration" / "default.yaml").write_text((REPO / "config" / "calibration" / "default.yaml").read_text())
+        (cfg / name).write_text((REPO / "config" / name).read_text(encoding="utf-8"), encoding="utf-8")
+    (cfg / "calibration" / "default.yaml").write_text(
+        (REPO / "config" / "calibration" / "default.yaml").read_text(encoding="utf-8"), encoding="utf-8")
     return cfg
 
 
@@ -29,7 +30,7 @@ def test_check_and_personas(tmp_path):
 def test_run_refuses_urls_off_the_allowlist(tmp_path):
     cfg = _config(tmp_path)
     study = tmp_path / "s.yaml"
-    study.write_text("name: s\ntarget: {url: 'https://www.example.com'}\ntasks: [{id: a, goal: g}]\n")
+    study.write_text("name: s\ntarget: {url: 'https://www.example.com'}\ntasks: [{id: a, goal: g}]\n", encoding="utf-8")
     out = runner.invoke(app, ["run", str(study), "-c", str(cfg)])
     assert out.exit_code == 3 and "Refusing to run" in out.output
 

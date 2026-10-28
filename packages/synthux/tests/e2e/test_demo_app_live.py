@@ -34,7 +34,7 @@ def test_live_model_personas_find_planted_flaws(tmp_path, settings, profile, dem
     asyncio.run(verify_run(settings, db, demo_study, profile, run_id))
     from synthux.aggregate import aggregate_run
     asyncio.run(aggregate_run(db, run_id, settings.run.promote_min))
-    truth = yaml.safe_load((REPO / "demo_app" / "planted_flaws.yaml").read_text())
+    truth = yaml.safe_load((REPO / "demo_app" / "planted_flaws.yaml").read_text(encoding="utf-8"))
     promoted = db.all("SELECT * FROM issue_clusters WHERE run_id = ? AND promoted = 1", [run_id])
     found = [f["id"] for f in truth["flaws"] if any(matches(c, f) for c in promoted)]
     assert len(found) >= 3, f"found only {found}"

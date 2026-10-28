@@ -62,6 +62,11 @@ synthux report RUN_ID                # writes data/reports/RUN_ID/index.html
 synthux dashboard                    # http://127.0.0.1:8800
 ```
 
+Runs use about 2 parallel browser sessions per CPU core (`run.concurrency: auto`, up to 8). OCR reuses
+text lines it has already read, and the persona doesn't wait out its full patience when the page is
+plainly doing nothing. Its simulated time still counts the full wait. The 108-session demo run, with verification,
+takes about 3 minutes on a 4-core machine.
+
 If Chromium is installed somewhere unusual, set `browser.executable_path` in
 `config/settings.yaml`, or set the `SYNTHUX_CHROMIUM` environment variable.
 
@@ -101,13 +106,33 @@ engine:
 * **heuristic**: no model and no cost. OCR (RapidOCR, ONNX) gives the persona
   text, contrast and input boxes. Its traits shape what it notices (contrast
   thresholds by eyesight), how it fills forms (date habits, typos), how long it
-  searches and when it gives up.
+  searches and when it gives up. It also handles ordinary site furniture: it closes
+  cookie banners and pop-ups, ticks required boxes and picks from dropdowns. It uses
+  the menu, the three-line ☰ menu on phones and the site's search box to find
+  information, and goes back out of dead ends.
 * **ollama**: free local models (`config/models.yaml -> ollama`). Runs a local
   model server with a vision model.
 * **anthropic**: Claude via the official SDK. Needs `ANTHROPIC_API_KEY` in the
   environment or `.env`. Model names and prices live in `config/models.yaml`:
   cheap `claude-haiku-5-5` for `actor`/`persona`, strong `claude-opus-5-5` for
   `judge`/`grouper`/`reporter`. Swap them freely.
+
+**Hybrid persona: model quality where it matters, at a fraction of the cost.**
+Set `engine.roles: {actor: hybrid}`. The free rules handle routine steps: pop-ups, labelled form fields,
+obvious buttons. The model sees the screenshot only when a screen is hard, which means the rules are
+searching for a way forward, about to give up, facing an error they can't explain or an unclear label,
+or just made a click that did nothing. `engine.hybrid.max_calls_per_session` (default 6) caps the cost.
+`engine.hybrid.engine` picks Claude or a free local Ollama model.
+On the demo study the estimate drops from about 900 model calls to about 270.
+
+Other ways the model engines are kept cheap:
+
+* Screenshots are scaled down to `engine.model_image_width` (default 1024 px) before the model sees
+  them. The model's click coordinates are mapped back to the real screen.
+* The persona description and rules are identical on every step of a session, so they are sent as
+  a cached system prompt. Cached input is billed at about a tenth of the normal input price.
+* Each role has its own effort level in `config/models.yaml` (`effort:`). Per-step decisions run at
+  `low` and the judge at `medium`.
 
 You can spread personas over engines for extra variety (study file:
 `personas.engines: [heuristic, "anthropic:claude-haiku-5-5"]`). Model calls are
