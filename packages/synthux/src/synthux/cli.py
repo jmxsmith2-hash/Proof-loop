@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 import typer
 
 from synthux import SYNTHETIC_DISCLAIMER
-from synthux.core.config import ConfigError, Settings, load_settings
+from synthux.core.config import ConfigError, Settings, find_config_dir, load_settings
 from synthux.core.db import Database
 from synthux.core.logging import get_logger, setup_logging
 
@@ -194,7 +194,7 @@ def init(config: Optional[Path] = ConfigOpt) -> None:
 
     kind = typer.prompt("What do you want to test? (web = a website or web app, cad = a CAD design)",
                         default="web").strip().lower()
-    cfg_dir = Path(config) if config else Path("config")
+    cfg_dir = Path(config) if config else find_config_dir()
     if kind.startswith("c"):
         cad_file = Path(typer.prompt("Path to the CAD file (STL, 3MF, OBJ, STEP...)"))
         if not cad_file.is_file():
@@ -305,7 +305,7 @@ def quick_test(
                         f"If this is your own staging or test site, run again with --allow to add it "
                         f"(payments, emails and deletes stay blocked).", fg="red", err=True)
             raise typer.Exit(3)
-        cfg_dir = Path(config) if config else Path("config")
+        cfg_dir = Path(config) if config else find_config_dir()
         path, added = add_to_allowlist(cfg_dir, url, note="added by synthux test --allow")
         if added:
             typer.echo(f"Added {host} to the allowlist in {path}.")
@@ -567,7 +567,7 @@ def physical_gcode(
 
     from synthux.physical.gcode.pipeline import check_gcode
 
-    cfg = Path(config) if config else Path("config")
+    cfg = Path(config) if config else find_config_dir()
     history = _print_history(config)
     try:
         r = check_gcode(cfg, gcode_file, printer=printer, material=material, plate=plate, out=out, history=history)

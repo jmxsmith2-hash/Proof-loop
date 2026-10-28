@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  clearloop:
+    # ClearLoop on its own: it must keep working without synthux installed.
+    name: clearloop / py${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    defaults:
+      run:
+        working-directory: packages/clearloop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests tools
+      - run: pytest -q
+
+  clearloop-evidence:
+    # Re-check the built-in P2S profile against the public FarmLoop files it was learned from.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/clearloop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: |
+          git clone https://github.com/Liaminamerica2/p2s-autofarm-playbook /tmp/playbook
+          git -C /tmp/playbook checkout 7b9a988963bf152c3839344d441e82bdcd96b924
+      - run: CLEARLOOP_EVIDENCE=/tmp/playbook/evidence pytest -q tests/test_evidence.py
+
+  synthux-alone:
+    # synthux without ClearLoop: everything but loop files must still work.
+    name: synthux alone / py3.11
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/synthux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" ruff
+      - run: ruff check --select F,E9 src tests
+      - run: python -m pytest tests/unit -q
+
+  together:
+    # Both packages in one environment, as setup.bat installs them: the cross-package
+    # features (loop files in synthux, print checks and print history in ClearLoop) run for real.
+    name: together / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install both packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e "packages/synthux[dev,anthropic]" -e "packages/clearloop[dev]"
+          python -m playwright install chromium
+      - name: ClearLoop tests (with synthux's print checks)
+        working-directory: packages/clearloop
+        run: python -m pytest -q
+      - name: synthux unit tests (with ClearLoop's loop files)
+        working-directory: packages/synthux
+        run: python -m pytest tests/unit -q
+      - name: Text files are read and written as UTF-8 (Windows defaults to another encoding)
+        if: runner.os == 'Linux'
+        working-directory: packages/synthux
+        run: python -X warn_default_encoding -m pytest tests/unit -q -W "error::EncodingWarning:synthux" -W "error::EncodingWarning:tests"
+      - name: synthux browser integration tests
+        working-directory: packages/synthux
+        run: python -m pytest tests/integration -q
+      - name: synthux end-to-end (demo shop + CAD example)
+        working-directory: packages/synthux
+        run: python -m pytest tests/e2e -q
+      - name: CLI smoke test from the repository root
+        run: |
+          synthux check
+          synthux run packages/synthux/studies/demo.yaml --dry-run
+          synthux physical gcode packages/synthux/examples/gcode/bracket_good.gcode.3mf
+          clearloop --help
+
+  windows-setup-script:
+    name: windows / setup.bat
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run the one-step setup script
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
+      - name: Use the installed tools
+        shell: pwsh
+        run: |
+          $ex = "packages\synthux\examples"
+          .\.venv\Scripts\synthux.exe physical check $ex\cad\phone_stand_v1.stl --design $ex\cad\phone_stand.yaml
+          .\.venv\Scripts\synthux.exe physical printed "Phone stand" --measure $ex\cad\v1_print_measurements.csv --defect poor_overhang
+          .\.venv\Scripts\synthux.exe physical check $ex\cad\phone_stand_v2.stl --design $ex\cad\phone_stand.yaml
+          .\.venv\Scripts\synthux.exe physical history
+          .\.venv\Scripts\synthux.exe physical gcode $ex\gcode\bracket_flawed.gcode
+          .\.venv\Scripts\clearloop.exe --help
+          $desktop = [Environment]::GetFolderPath("Desktop")
+          foreach ($l in "Synthux.lnk", "ClearLoop.lnk") { if (-not (Test-Path (Join-Path $desktop $l))) { Write-Host "missing $l"; exit 1 } }
+
+  windows-no-python:
+    name: windows / setup.bat on a PC without Python (uv)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the setup script, made to fetch its own Python
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -ForceUv
+      - name: Use the installed tools
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\python.exe -c "import sys; print(sys.version); assert sys.version_info[:2] == (3, 12)"
+          .\.venv\Scripts\synthux.exe physical gcode packages\synthux\examples\gcode\bracket_flawed.gcode
+          .\.venv\Scripts\clearloop.exe --help
+          if (-not (Test-Path ([IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "Synthux.lnk")))) { exit 1 }

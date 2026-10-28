@@ -42,17 +42,19 @@ behaviour.
 
 Requirements: Python 3.11+ (Windows setup fetches it for you), and Chromium for Playwright.
 
-**Windows:** double-click `setup.bat` (or run
+synthux lives in the [synthux-clearloop](../../README.md) repository next to ClearLoop; the setup
+scripts at the repository root install both into one `.venv` there.
+
+**Windows:** double-click `setup.bat` in the repository root (or run
 `powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1`). It uses Python 3.11+ if
 you have it; if not, it fetches [uv](https://docs.astral.sh/uv/) (one program, installed for your
 user only, no admin rights) and uv downloads a Python 3.12 just for this folder. Then it creates
-`.venv`, installs everything, downloads Chromium, runs `synthux check` and puts a
-**Synthux** shortcut on the desktop. If the ClearLoop folder sits next to this one
-(`..\Something-B` or `..\clearloop`), or git can fetch it, ClearLoop is installed into the same
-`.venv` and gets its own **ClearLoop** shortcut (`ClearLoop.bat`); without it everything but loop
-files works. Switches: `-NoClearLoop`, `-NoShortcuts`, `-ForceUv`. For the command line, open a new
-terminal in the folder and run `.venv\Scripts\activate`.
-**macOS / Linux:** `sh scripts/setup_unix.sh` does the same.
+`.venv`, installs synthux and ClearLoop, downloads Chromium, runs `synthux check` and puts
+**Synthux** and **ClearLoop** shortcuts on the desktop. Switches: `-NoClearLoop` (synthux only;
+everything but loop files works), `-NoShortcuts`, `-ForceUv`. For the command line, open a new
+terminal in the repository folder and run `.venv\Scripts\activate`; `synthux` finds its
+settings in `packages\synthux\config` from anywhere in the repository.
+**macOS / Linux:** `sh scripts/setup_unix.sh` from the repository root does the same.
 
 **The app window:** double-click **Synthux** (or `Synthux.bat`, or run `synthux app`). Drop a
 CAD file or sliced G-code on it, or paste a website address and a task; each job runs in the
@@ -77,10 +79,10 @@ synthux test https://staging.example.com/ --task "Find the returns policy" --suc
 `--allow` adds the site to the allowlist as a real site, where payments, emails and deletes stay blocked.
 The test is saved under `data/studies/` so you can edit it and run it again.
 
-By hand:
+By hand, from this folder (`packages/synthux`):
 
 ```bash
-pip install -e ".[dev]"              # add ,anthropic for the optional Claude engine
+pip install -e ".[dev]"              # add ,anthropic for the optional Claude engine; -e ../clearloop for loop files
 python -m playwright install chromium  # skip if a Playwright Chromium is already installed
 
 synthux check                        # validates config, shows engines (all free by default)
@@ -478,7 +480,7 @@ on a `.gcode` file runs this check too.
 
 ### Loop files (FarmLoop and ClearLoop)
 
-Auto-eject loop files (`FL_S1_` / `FL_S2_`, from [ClearLoop](https://github.com/jmxsmith2-hash/Something-B)
+Auto-eject loop files (`FL_S1_` / `FL_S2_`, from [ClearLoop](../clearloop/README.md)
 or the FarmLoop app) repeat the plate once per loop, with a cooldown and sweep after each print.
 `synthux physical gcode` recognises them:
 
@@ -488,7 +490,7 @@ or the FarmLoop app) repeat the plate once per loop, with a cooldown and sweep a
 * filament and time are compared with each loop's own slicer header;
 * the report has a **Loop file** section: how many loops and plates, grams per loop, and how often
   the printer waits for ClearLoop Monitor's plate check;
-* with ClearLoop installed (`pip install "synthux[clearloop]"`) ClearLoop's own checks run too:
+* with ClearLoop installed (the setup scripts do it; by hand `pip install -e ../clearloop`) ClearLoop's own checks run too:
   a long heated wait before the print (the FarmLoop app 2.72 cooldown bug), `M190 R`, parts no sweep
   pass reaches, code the printer ignores, moves after the steppers are off, a bad checksum.
   Without ClearLoop, the heated wait before printing is still caught.
@@ -499,7 +501,7 @@ through `synthux.physical.gcode.check_file`.
 
 ### Learning from your printer
 
-[ClearLoop](https://github.com/jmxsmith2-hash/Something-B)'s Monitor records how every print on your
+[ClearLoop](../clearloop/README.md)'s Monitor records how every print on your
 printers ended. synthux reads that journal (read-only) each time it checks G-code, or with
 `synthux physical learn`, re-checks the G-code that ran (ClearLoop keeps the files it makes; add
 `--files` folders for your other sliced files) and gives each failure its likely cause from what was
@@ -649,12 +651,13 @@ use the menu to find information and go back from dead ends. Tasks marked
 
 ## Project layout
 
+In `packages/synthux` (the setup scripts and `setup.bat` are at the repository root):
+
 ```
 config/            settings, models (ids + prices), anchored scales, calibration profiles
 studies/           study files (demo.yaml, pinecone.yaml)
 demo_app/          two demo sites with planted flaws + their ground truth
 examples/          persona sources, real-user results, physical product example, CAD and G-code examples
-scripts/           one-step setup for Windows (setup.bat) and macOS/Linux
 src/synthux/
   core/            config, SQLite + migrations, model gateway (cache, cost), similarity, study
   safety/          allowlist, network policy, action guard, credential vault

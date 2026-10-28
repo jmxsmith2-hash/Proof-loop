@@ -20,9 +20,12 @@ measured on your machine with a guided test. Nothing is guessed. See
 ## Start in three minutes
 
 ```bash
-pip install git+https://github.com/jmxsmith2-hash/Something-B
+pip install "clearloop @ git+https://github.com/jmxsmith2-hash/synthux-clearloop#subdirectory=packages/clearloop"
 clearloop app
 ```
+
+On Windows, `setup.bat` at the root of the [synthux-clearloop](../../README.md) repository installs
+ClearLoop together with synthux and adds a **ClearLoop** desktop shortcut.
 
 Your browser opens ClearLoop at `http://localhost:8484`. Or run it with Docker:
 `docker compose up -d`.
@@ -204,13 +207,13 @@ When a print fails or parts are left, the camera picture is kept with it. Files 
 kept too (the last 100, in `files/`), so the exact G-code that ran can be checked afterwards.
 See it under *Monitor › Print history*, or run `clearloop history` (`--json` for everything).
 
-[synthux](https://github.com/jmxsmith2-hash/Something-C) reads this history (`synthux physical learn`)
+[synthux](../synthux/README.md) reads this history (`synthux physical learn`)
 and learns, per printer and filament, which flows, first layers and files fail on your machine.
 
 ### Print checks too (optional)
 
-Install [synthux](https://github.com/jmxsmith2-hash/Something-C) alongside ClearLoop
-(`pip install "clearloop[print-checks]"`) and *Check a file* / `clearloop check` also check
+Install [synthux](../synthux/README.md) alongside ClearLoop
+(the repository's setup scripts do; by hand `pip install -e ../synthux`) and *Check a file* / `clearloop check` also check
 **the print in each loop**: parts off the plate, first layer and layer heights, nozzle and bed
 temperatures for the filament, flow the hot end can't melt, stringing across open space,
 cooling and warping. These checks read only the print itself, never the cooldown, bend or sweep
@@ -240,6 +243,8 @@ event log live in `~/.clearloop`. Change the location with `--data`.
 - Pin your printer firmware. Re-run the tests after an update.
 
 ## Development
+
+From this folder (`packages/clearloop`):
 
 ```bash
 pip install -e ".[dev]"

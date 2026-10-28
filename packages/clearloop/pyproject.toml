@@ -28,7 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Print checks in "Check a file": synthux's G-code checker (plate, layers, temperatures, flow, cooling)
-print-checks = ["synthux @ git+https://github.com/jmxsmith2-hash/Something-C"]
+print-checks = ["synthux @ git+https://github.com/jmxsmith2-hash/synthux-clearloop#subdirectory=packages/synthux"]
 dev = [
     "pytest>=8",
     "ruff>=0.4",

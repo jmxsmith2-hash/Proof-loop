@@ -266,15 +266,19 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def find_config_dir(start: Path | None = None) -> Path:
-    """Locate the ``config`` directory: $SYNTHUX_CONFIG_DIR, then cwd upwards."""
+    """Locate the ``config`` directory: $SYNTHUX_CONFIG_DIR, then cwd upwards.
+
+    From the root of the combined synthux + ClearLoop repository (or a folder in it) the
+    config is found under ``packages/synthux``.
+    """
     env_dir = os.environ.get("SYNTHUX_CONFIG_DIR")
     if env_dir:
         return Path(env_dir)
     here = (start or Path.cwd()).resolve()
     for folder in (here, *here.parents):
-        candidate = folder / "config"
-        if (candidate / "settings.yaml").is_file() or (candidate / "settings.example.yaml").is_file():
-            return candidate
+        for candidate in (folder / "config", folder / "packages" / "synthux" / "config"):
+            if (candidate / "settings.yaml").is_file() or (candidate / "settings.example.yaml").is_file():
+                return candidate
     return here / "config"
 
 

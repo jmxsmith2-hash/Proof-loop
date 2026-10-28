@@ -1,12 +1,13 @@
-# One-time setup on Windows. From the project folder run:
+# One-time setup on Windows. From the repository folder run:
 #   powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
 # (or double-click setup.bat)
 #
+# Installs synthux and ClearLoop into one .venv here, so each can use the other:
+# synthux checks ClearLoop's loop files and learns from its print history; ClearLoop's
+# "Check a file" runs synthux's print checks.
 # Python isn't needed beforehand: when no Python 3.11+ is found, the setup fetches uv
 # (https://docs.astral.sh/uv/, a single program installed for your user only, no admin rights)
 # and uv downloads its own Python 3.12 for this folder.
-# ClearLoop (loop files, the printer monitor) is installed too when it is found next to this
-# folder (..\Something-B or ..\clearloop) or can be fetched with git; without it everything else works.
 param(
     [switch]$ForceUv,        # use uv even if Python is installed (CI uses this to test that path)
     [switch]$NoClearLoop,    # don't install ClearLoop
@@ -69,35 +70,16 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
         & $uv venv --python 3.12 --seed .venv; Step "Creating .venv with uv"
     }
 }
-$venvPy = ".\.venv\Scripts\python.exe"
+$venvPy = (Resolve-Path ".\.venv\Scripts\python.exe").Path
 & $venvPy -m pip install --upgrade pip; Step "Updating pip"
-& $venvPy -m pip install -e ".[dev]"; Step "Installing synthux"
+$packages = @("-e", "packages\synthux[dev]")
+if (-not $NoClearLoop) { $packages += @("-e", "packages\clearloop[dev]") }
+& $venvPy -m pip install @packages; Step "Installing synthux and ClearLoop"
 & $venvPy -m playwright install chromium; Step "Downloading Chromium"
-if (-not (Test-Path "config\settings.yaml")) { Copy-Item "config\settings.example.yaml" "config\settings.yaml" }
+$synthuxConfig = "packages\synthux\config"
+if (-not (Test-Path "$synthuxConfig\settings.yaml")) { Copy-Item "$synthuxConfig\settings.example.yaml" "$synthuxConfig\settings.yaml" }
 & ".\.venv\Scripts\synthux.exe" check; Step "synthux check"
-
-# ClearLoop: a copy next to this folder first, else fetched with git. Optional, so failures only warn.
-$clearloop = $false
-if (-not $NoClearLoop) {
-    $nearby = @("..\Something-B", "..\something-b", "..\clearloop", "..\ClearLoop") |
-        Where-Object { Test-Path (Join-Path $_ "src\clearloop\__init__.py") } | Select-Object -First 1
-    $ErrorActionPreference = "Continue"
-    if ($nearby) {
-        Write-Host "Installing ClearLoop from $nearby"
-        & $venvPy -m pip install -e $nearby
-    } elseif (Get-Command git -ErrorAction SilentlyContinue) {
-        Write-Host "Installing ClearLoop from GitHub"
-        if ($env:CI) { $env:GIT_TERMINAL_PROMPT = "0"; $env:GCM_INTERACTIVE = "never" }  # no login prompts in CI
-        & $venvPy -m pip install "clearloop @ git+https://github.com/jmxsmith2-hash/Something-B"
-    } else {
-        Write-Host "(ClearLoop wasn't found next to this folder and git isn't installed; skipping it.)"
-        $global:LASTEXITCODE = 1
-    }
-    $clearloop = ($LASTEXITCODE -eq 0) -and (Test-Path ".\.venv\Scripts\clearloop.exe")
-    $ErrorActionPreference = "Stop"
-    if ($clearloop) { Write-Host "ClearLoop installed: loop files and the printer monitor are on." -ForegroundColor Green }
-    else { Write-Host "ClearLoop isn't installed; synthux works without it (no loop files)." -ForegroundColor Yellow }
-}
+$clearloop = Test-Path ".\.venv\Scripts\clearloop.exe"
 
 function Shortcut($name, $target, $about) {
     try {
@@ -119,4 +101,5 @@ Write-Host ""
 Write-Host "Done. Double-click Synthux on the desktop (or Synthux.bat here) to open the app." -ForegroundColor Green
 Write-Host "For the command line, activate it in a new PowerShell window with:"
 Write-Host "    .\.venv\Scripts\Activate.ps1"
-Write-Host "Then try:  synthux physical check examples\cad\phone_stand_v1.stl --design examples\cad\phone_stand.yaml"
+Write-Host "Then try:  synthux physical check packages\synthux\examples\cad\phone_stand_v1.stl --design packages\synthux\examples\cad\phone_stand.yaml"
+Write-Host "      or:  clearloop app"

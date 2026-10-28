@@ -2,7 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from synthux.core.config import ConfigError, EngineConfig, interpolate_env, load_dotenv, load_settings
+from synthux.core.config import (
+    ConfigError,
+    EngineConfig,
+    find_config_dir,
+    interpolate_env,
+    load_dotenv,
+    load_settings,
+)
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -60,3 +67,14 @@ def test_unknown_keys_rejected(tmp_path):
     (cfg / "settings.yaml").write_text("not_a_setting: 1\n", encoding="utf-8")
     with pytest.raises(ConfigError):
         load_settings(cfg)
+
+
+def test_config_found_from_the_combined_repository(tmp_path, monkeypatch):
+    monkeypatch.delenv("SYNTHUX_CONFIG_DIR", raising=False)
+    cfg = tmp_path / "packages" / "synthux" / "config"
+    cfg.mkdir(parents=True)
+    (cfg / "settings.example.yaml").write_text("{}", encoding="utf-8")
+    (tmp_path / "scripts").mkdir()
+    assert find_config_dir(tmp_path) == cfg
+    assert find_config_dir(tmp_path / "scripts") == cfg
+    assert find_config_dir(cfg.parent / "examples") == cfg
