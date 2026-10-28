@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import itertools
 import random
 import time
 from dataclasses import asdict
@@ -31,6 +32,9 @@ from synthux.safety.allowlist import SafetyError
 from synthux.safety.guard import ActionGuard
 
 log = get_logger(__name__)
+
+# How much of the patience budget one action uses.
+STEP_COST = {"click": 1.0, "back": 1.0, "fill": 0.35, "type": 0.35, "press": 0.5, "scroll": 0.5, "wait": 0.5}
 
 CAUSE_WORDS = {
     "unexplained_error": "the errors don't explain anything", "data_lost": "it keeps deleting what I typed",
@@ -131,7 +135,10 @@ class SessionRunner:
         interrupted = False
         skill_pace = {1: 1.5, 2: 1.25, 3: 1.0, 4: 0.85, 5: 0.75}[persona.traits.tech_skill]
 
-        for idx in range(budget.max_steps):
+        for idx in itertools.count():
+            # Patience is spent on decisions, not keystrokes: typing into a field costs a fraction of a step.
+            if state.effort >= budget.max_steps or idx >= budget.max_steps * 3:
+                break
             url = browser.url
             shot_path = self.out_dir / state.session_id / f"{idx:03d}.jpg"
             _save_jpeg(screen.png, shot_path)
@@ -219,6 +226,7 @@ class SessionRunner:
             if signals.error_seen or signals.slow_load or signals.data_lost:
                 after_path = str(shot_path.with_name(f"{idx:03d}_after.jpg"))
                 _save_jpeg(new_screen.png, Path(after_path))
+            state.effort += STEP_COST.get(intended.kind, 1.0)
             typing = len(intended.text or "") * 0.18 * skill_pace if intended.kind == "fill" else 0.0
             state.sim_seconds += self.settings.run.seconds_per_step * skill_pace + timing.settled_s + typing
             step = StepRecord(idx=idx, screenshot_path=str(shot_path), screen_hash=screen.dhash,
@@ -244,7 +252,7 @@ class SessionRunner:
             state.outcome = "completed"
             return
         state.outcome = "budget_exhausted"
-        state.quit_reason = f"Ran out of patience after {budget.max_steps} steps without finishing."
+        state.quit_reason = f"Ran out of patience after {len(state.steps)} actions without finishing."
 
     async def _guard(self, browser: BrowserSession, action: Action) -> str | None:
         if action.kind in ("click", "fill") and action.x is not None:
@@ -270,6 +278,7 @@ class _LoopState:
         self.quit_step: int | None = None
         self.sim_seconds = 0.0
         self.sim_interrupt_s = 0.0
+        self.effort = 0.0
 
     def fail(self, outcome: str, reason: str, category: str, *, step_idx: int = 0, screen: str = "",
              shot: str = "") -> None:

@@ -1,0 +1,56 @@
+# Printer and material profiles used by `synthux physical check`.
+# Pick with --printer / --material, or set defaults here. All lengths in mm.
+default_printer: generic_fdm_0.4
+default_material: PLA
+
+printers:
+  generic_fdm_0.4:
+    type: fdm
+    build_volume: [220, 220, 250]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 10       # realistic average including travel
+  bambu_x1:
+    type: fdm
+    build_volume: [256, 256, 256]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 18
+  prusa_mk4:
+    type: fdm
+    build_volume: [250, 210, 220]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 14
+  ender3:
+    type: fdm
+    build_volume: [220, 220, 250]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 8
+  generic_resin:
+    type: resin
+    build_volume: [130, 80, 160]
+    nozzle: 0.05                     # XY resolution stand-in
+    layer_height: 0.05
+    volumetric_speed_mm3_s: 40
+
+materials:
+  PLA:   {density_g_cm3: 1.24, price_per_kg: 22, max_overhang_deg: 45, max_bridge_mm: 25, min_wall_mm: 0.8,
+          clearance_mm: 0.3, shrinkage_pct: 0.3, warp_risk: low}
+  PETG:  {density_g_cm3: 1.27, price_per_kg: 24, max_overhang_deg: 40, max_bridge_mm: 15, min_wall_mm: 0.8,
+          clearance_mm: 0.35, shrinkage_pct: 0.4, warp_risk: low}
+  ABS:   {density_g_cm3: 1.04, price_per_kg: 22, max_overhang_deg: 45, max_bridge_mm: 20, min_wall_mm: 1.0,
+          clearance_mm: 0.35, shrinkage_pct: 0.7, warp_risk: high}
+  ASA:   {density_g_cm3: 1.07, price_per_kg: 28, max_overhang_deg: 45, max_bridge_mm: 20, min_wall_mm: 1.0,
+          clearance_mm: 0.35, shrinkage_pct: 0.6, warp_risk: high}
+  TPU:   {density_g_cm3: 1.21, price_per_kg: 32, max_overhang_deg: 35, max_bridge_mm: 8, min_wall_mm: 1.2,
+          clearance_mm: 0.5, shrinkage_pct: 0.3, warp_risk: low}
+  resin: {density_g_cm3: 1.15, price_per_kg: 45, max_overhang_deg: 30, max_bridge_mm: 5, min_wall_mm: 0.4,
+          clearance_mm: 0.15, shrinkage_pct: 0.5, warp_risk: medium}
+
+slicer:                              # assumptions for weight/time estimates
+  perimeters: 2
+  top_bottom_layers: 4
+  infill_pct: 15
+  filament_diameter: 1.75

@@ -1,0 +1,12 @@
+# Ground truth for tests/e2e/test_cad_designs.py
+phone_stand_v1.stl:
+  must_find: [stability, thin_wall, overhang, clearance, weak_layers, sharp_edge, orientation]
+phone_stand_v2.stl:
+  must_find: []                 # every v1 problem fixed; nothing else should be reported
+block_control.stl:
+  must_find: []
+tool_handle.stl:
+  must_find: [connector_opening, button_size]
+  personas:                     # who should object, and why
+    small_hands: grip_too_big
+    low_grip: too_heavy

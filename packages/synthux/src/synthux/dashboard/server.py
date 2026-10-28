@@ -59,8 +59,22 @@ class Dashboard:
             chart = legend(series) + line_chart(series, width=900, height=220, y_max=100,
                                                 title="agreement with real users over time")
         physical = self.db.all("SELECT * FROM physical_products ORDER BY created_at DESC")
+        designs = []
+        for d in self.db.all("SELECT * FROM designs ORDER BY created_at DESC"):
+            versions = self.db.all("SELECT * FROM design_versions WHERE design_id = ? ORDER BY version", [d["id"]])
+            for v in versions:
+                sev = [f["severity"] for f in v["findings_json"]]
+                rel = Path(v["report_path"] or "")
+                try:
+                    v["link"] = "/reports/" + rel.resolve().relative_to(self.reports).as_posix()
+                except ValueError:
+                    v["link"] = None
+                v["counts"] = {"total": len(sev), "fail": sev.count(4), "major": sev.count(3)}
+                v["prints"] = self.db.one("SELECT COUNT(*) AS n FROM print_results WHERE version_id = ?", [v["id"]])["n"]
+            designs.append({**d, "versions": versions})
         return self.env.get_template("index.html.j2").render(
-            runs=self.runs(), calibration=cal, cal_chart=chart, physical=physical, disclaimer=SYNTHETIC_DISCLAIMER,
+            runs=self.runs(), calibration=cal, cal_chart=chart, physical=physical, designs=designs,
+            disclaimer=SYNTHETIC_DISCLAIMER,
             profiles=self.db.all("SELECT version, parent, created_at, note FROM calibration_profiles ORDER BY created_at"))
 
     # ------------------------------------------------------------ reports

@@ -1,7 +1,9 @@
 import asyncio
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+
+from tests.fonts import font
 
 from synthux.core.llm import FakeLLM, LLMGateway
 from synthux.elicitation.questions import (Complaint, HeuristicElicitor, ModelElicitor, load_scales,
@@ -14,8 +16,8 @@ REPO = Path(__file__).resolve().parents[3]
 def _shot(tmp_path, name, text):
     img = Image.new("RGB", (800, 400), "white")
     d = ImageDraw.Draw(img)
-    d.text((40, 100), text, fill="black", font=ImageFont.truetype("DejaVuSans.ttf", 30))
-    d.text((40, 250), "Free returns within 30 days", fill=(150, 150, 150), font=ImageFont.truetype("DejaVuSans.ttf", 16))
+    d.text((40, 100), text, fill="black", font=font(30))
+    d.text((40, 250), "Free returns within 30 days", fill=(150, 150, 150), font=font(16))
     p = tmp_path / name
     img.save(p, "JPEG")
     return str(p)

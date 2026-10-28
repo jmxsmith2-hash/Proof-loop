@@ -52,13 +52,19 @@ def find_chromium(settings: Settings) -> str | None:
 
 
 def _fallback_chromium() -> str | None:
-    roots = [os.environ.get("PLAYWRIGHT_BROWSERS_PATH", ""), "/opt/pw-browsers", str(Path.home() / ".cache/ms-playwright")]
+    roots = [os.environ.get("PLAYWRIGHT_BROWSERS_PATH", ""), "/opt/pw-browsers",
+             str(Path.home() / ".cache/ms-playwright"),                      # Linux
+             str(Path.home() / "Library/Caches/ms-playwright"),              # macOS
+             str(Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / "ms-playwright")]  # Windows
     for root in filter(None, roots):
         direct = Path(root) / "chromium"
         if direct.is_file() or (direct.is_symlink() and direct.exists()):
             return str(direct)
-        for pattern in ("chromium-*/chrome-linux*/chrome", "chromium_headless_shell-*/chrome-*/headless_shell",
-                        "chromium_headless_shell-*/chrome-*/chrome-headless-shell"):
+        for pattern in ("chromium-*/chrome-linux*/chrome", "chromium-*/chrome-win*/chrome.exe",
+                        "chromium-*/chrome-mac*/Chromium.app/Contents/MacOS/Chromium",
+                        "chromium_headless_shell-*/chrome-*/headless_shell",
+                        "chromium_headless_shell-*/chrome-*/chrome-headless-shell",
+                        "chromium_headless_shell-*/chrome-*/chrome-headless-shell.exe"):
             hits = sorted(glob.glob(str(Path(root) / pattern)))
             if hits:
                 return hits[-1]
@@ -185,7 +191,7 @@ class BrowserSession:
             else:
                 await page.mouse.click(action.x, action.y)
         if action.kind in ("fill", "type") and action.text is not None:
-            await page.keyboard.press("Control+A")
+            await page.keyboard.press("ControlOrMeta+A")
             text = vault.resolve(action.text)  # secrets are resolved only here, right before typing
             await page.keyboard.type(text, delay=8)
         elif action.kind == "press" and action.key:

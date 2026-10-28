@@ -77,6 +77,8 @@ def template_narrative(t: Traits, quotes: list[str], rng: random.Random) -> str:
             lines.append(f"They {ACCESS[key]}.")
     if t.language != "native":
         lines.append("English is their second language; idioms and jargon slow them down.")
+    if t.hand_size != "medium" or t.grip_strength != "normal":
+        lines.append(f"Hands: {t.hand_size}, grip strength {t.grip_strength}.")
     lines.append(f"Goal: {t.goal}.")
     if quotes:
         lines.append(f'Grounded in real feedback such as: "{quotes[0]}"')

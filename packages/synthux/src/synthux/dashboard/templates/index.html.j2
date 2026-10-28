@@ -35,6 +35,15 @@ th { color: var(--text-secondary); font-weight: 600; } .muted { color: var(--mut
 <p class="muted">Synthetic user testing · local, read-only view of this machine's results</p>
 <div class="banner">{{ disclaimer }}</div>
 
+<h2>CAD designs</h2>
+<div class="card">{% if designs %}<table>
+<tr><th>Design</th><th>Version</th><th>When</th><th class="num">Findings</th><th class="num">Will fail</th><th class="num">Major</th><th class="num">Prints</th><th>Report</th></tr>
+{% for d in designs %}{% for v in d.versions %}<tr><td>{% if loop.first %}<b>{{ d.name }}</b>{% endif %}</td><td>v{{ v.version }}</td>
+  <td>{{ v.created_at[:16].replace('T', ' ') }}</td><td class="num">{{ v.counts.total }}</td><td class="num">{{ v.counts.fail }}</td>
+  <td class="num">{{ v.counts.major }}</td><td class="num">{{ v.prints }}</td>
+  <td>{% if v.link %}<a href="{{ v.link }}">open</a>{% else %}<span class="muted">{{ v.report_path }}</span>{% endif %}</td></tr>{% endfor %}{% endfor %}
+</table>{% else %}<p class="muted">None yet: synthux physical check your_part.stl</p>{% endif %}</div>
+
 <h2>Runs</h2>
 <div class="card">{% if runs %}<table>
 <tr><th>Run</th><th>Study</th><th>When</th><th class="num">Sessions</th><th class="num">Completed</th><th class="num">Issues</th><th>Top issue</th><th>Profile</th><th>Status</th></tr>

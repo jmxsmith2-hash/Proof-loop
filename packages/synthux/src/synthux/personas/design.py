@@ -23,7 +23,7 @@ from synthux.personas.traits import record_traits
 # Weights for the trait-vector dimensions (see Traits.vector): key behaviour drivers count more.
 # Sensitive traits (eyesight, motor, language) are weighted low so that farthest-point sampling does not
 # over-select them; the coverage rules add one accessibility persona explicitly.
-DIM_WEIGHTS = np.array([2.0, 2.0, 1.5, 0.8, 1.2, 0.3, 0.3, 0.6, 0.8, 0.6, 0.25, 0.5])
+DIM_WEIGHTS = np.array([2.0, 2.0, 1.5, 0.8, 1.2, 0.3, 0.3, 0.6, 0.8, 0.6, 0.25, 0.5, 0.9, 0.6])
 
 
 def trait_distance(a: Traits, b: Traits) -> float:
@@ -55,6 +55,8 @@ def _candidate_pool(rng: random.Random, size: int = 2500) -> list[Traits]:
             language=rng.choices(["native", "second_language"], [0.85, 0.15])[0],
             date_habit=rng.choice(DATE_HABITS),
             style=rng.choice(STYLES),
+            hand_size=rng.choices(["small", "medium", "large"], [0.3, 0.4, 0.3])[0],
+            grip_strength="low" if motor != "none" else rng.choices(["low", "normal", "high"], [0.15, 0.65, 0.2])[0],
         ))
     return pool
 

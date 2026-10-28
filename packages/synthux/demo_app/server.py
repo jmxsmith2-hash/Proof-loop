@@ -278,7 +278,8 @@ def main() -> None:
     with DemoServer(args.port) as server:
         print(f"demo app running at {server.url} (Ctrl+C to stop)")
         try:
-            server.thread.join()
+            while server.thread.is_alive():  # join with a timeout so Ctrl+C works on Windows
+                server.thread.join(0.5)
         except KeyboardInterrupt:
             pass
 

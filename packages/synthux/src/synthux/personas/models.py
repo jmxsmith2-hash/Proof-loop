@@ -15,6 +15,8 @@ BUDGETS = ("tight", "moderate", "generous")
 LANGUAGE = ("native", "second_language")
 DATE_HABITS = ("MDY", "DMY", "YMD")
 STYLES = ("methodical", "scanner", "explorer")  # heuristic-engine analogue of "different models"
+HANDS = ("small", "medium", "large")
+GRIPS = ("low", "normal", "high")
 
 
 class Traits(BaseModel):
@@ -33,6 +35,8 @@ class Traits(BaseModel):
     language: Literal["native", "second_language"] = "native"
     date_habit: Literal["MDY", "DMY", "YMD"] = "MDY"
     style: Literal["methodical", "scanner", "explorer"] = "methodical"
+    hand_size: Literal["small", "medium", "large"] = "medium"          # physical products
+    grip_strength: Literal["low", "normal", "high"] = "normal"
 
     def sensitive_reasons(self) -> list[str]:
         """Traits whose simulation is unreliable: results must be flagged low confidence."""
@@ -62,6 +66,8 @@ class Traits(BaseModel):
             BUDGETS.index(self.budget) / 2,
             0.0 if self.language == "native" else 1.0,
             STYLES.index(self.style) / 2,
+            HANDS.index(self.hand_size) / 2,
+            GRIPS.index(self.grip_strength) / 2,
         ]
 
 

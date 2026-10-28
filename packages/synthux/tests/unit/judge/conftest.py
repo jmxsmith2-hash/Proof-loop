@@ -1,5 +1,7 @@
 import pytest
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
+
+from tests.fonts import font
 
 
 @pytest.fixture
@@ -7,10 +9,10 @@ def shot(tmp_path):
     """A screenshot with a heading, a faint button and an error message."""
     img = Image.new("RGB", (900, 500), "white")
     d = ImageDraw.Draw(img)
-    font = ImageFont.truetype("DejaVuSans.ttf", 26)
-    d.text((40, 40), "Review and pay", fill="black", font=font)
-    d.text((40, 140), "Error 0x3F", fill=(140, 16, 16), font=font)
-    d.text((600, 400), "Continue", fill=(200, 200, 200), font=font)
+    face = font(26)
+    d.text((40, 40), "Review and pay", fill="black", font=face)
+    d.text((40, 140), "Error 0x3F", fill=(140, 16, 16), font=face)
+    d.text((600, 400), "Continue", fill=(200, 200, 200), font=face)
     path = tmp_path / "shot.jpg"
     img.save(path, "JPEG", quality=92)
     return str(path)

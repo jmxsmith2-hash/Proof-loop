@@ -32,6 +32,12 @@ class TextBox:
     contrast: float = 21.0
     bg_lum: float = 1.0
     on_fill: bool = False          # sits on a coloured/filled background (looks like a button)
+    fill_contrast: float = 1.0     # contrast of that filled background against the page
+
+    @property
+    def salience(self) -> float:
+        """How visible the element is: its text, or the button shape it sits on, whichever stands out more."""
+        return max(self.contrast, self.fill_contrast if self.on_fill else 1.0)
 
     @property
     def center(self) -> tuple[int, int]:
@@ -201,7 +207,7 @@ class OcrEngine:
             return out
 
 
-def _text_box(raw_box: list, text: str, conf: float, lum: np.ndarray) -> TextBox:
+def _text_box(raw_box: list, text: str, conf: float, lum: np.ndarray, page_lum: float = 1.0) -> TextBox:
     xs = [p[0] for p in raw_box]
     ys = [p[1] for p in raw_box]
     x0, x1, y0, y1 = int(min(xs)), int(max(xs)), int(min(ys)), int(max(ys))
@@ -222,6 +228,7 @@ def _text_box(raw_box: list, text: str, conf: float, lum: np.ndarray) -> TextBox
     box.contrast = round(contrast_ratio(fg, bg), 2)
     box.bg_lum = round(bg, 3)
     box.on_fill = bg < 0.75
+    box.fill_contrast = round(contrast_ratio(bg, page_lum), 2)
     return box
 
 
@@ -289,7 +296,8 @@ def perceive(png: bytes, ocr: OcrEngine | None = None) -> Screen:
     rgb = np.asarray(image)
     lum = luminance(rgb)
     engine = ocr or OcrEngine.shared()
-    texts = [_text_box(b, t, c, lum) for b, t, c in engine.read(png) if t.strip()]
+    page_lum = float(np.median(lum))
+    texts = [_text_box(b, t, c, lum, page_lum) for b, t, c in engine.read(png) if t.strip()]
     texts.sort(key=lambda t: (t.y0 // 10, t.x0))
     inputs = detect_input_boxes(lum)
     for box in inputs:

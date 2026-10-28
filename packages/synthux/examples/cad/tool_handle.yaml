@@ -1,0 +1,9 @@
+name: Tool handle
+type: [everyday, electronics]
+description: Grip for a cordless hand tool; holds an 18650 battery.
+material: PETG
+use:
+  handheld: true
+  extra_mass_g: 420             # motor + battery inside the handle
+  buttons_mm: [7]               # trigger button width
+  ports: [{name: charging port, type: usb-c, width_mm: 9.5, height_mm: 3.6}]

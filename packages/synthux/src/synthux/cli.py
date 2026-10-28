@@ -146,7 +146,7 @@ def run(
                                                          st.personas.engines, st.personas.include_accessibility))
         save_personas(db, people, study=st.name)
     orch = Orchestrator(s, db, st, profile)
-    n_sessions = orch.session_count(people, repeats) // max(1, len(st.tasks)) * (len(task) or len(st.tasks))
+    n_sessions = len(people) * (len(task) or len(st.tasks)) * orch.repeats(repeats) * st.visits
     estimate = orch.estimate(people, repeats)
     typer.echo(f"{len(people)} personas x {len(task) or len(st.tasks)} tasks x {orch.repeats(repeats)} repeats"
                f" x {st.visits} visit(s) = {n_sessions} sessions")
@@ -214,7 +214,9 @@ def personas_regenerate(persona_id: str = typer.Argument(..., help="Persona to r
     target = load_personas(db, ids=[persona_id])[0]
     study = db.one("SELECT study FROM personas WHERE id = ?", [persona_id])["study"]
     others = [p.traits for p in load_personas(db, study=study) if p.id != persona_id]
-    traits = replacement_traits(others, seed=hash(persona_id) % 10_000)
+    import hashlib
+
+    traits = replacement_traits(others, seed=int(hashlib.sha1(persona_id.encode()).hexdigest()[:6], 16))
     traits.goal = target.traits.goal
     new = asyncio.run(PersonaGenerator()._build(traits, [], 0, generation=target.generation + 1))
     db.execute("UPDATE personas SET study = ? WHERE id = ?", [f"{study}:retired", persona_id])
@@ -250,6 +252,100 @@ def physical_review(
     for row in result["summary"]:
         typer.echo(f"  {row['risk_label']:6} {row['category']:12} {row['title']}")
     typer.secho(f"report: {path}", fg="green")
+
+
+@physical_app.command("check")
+def physical_check(
+    cad_file: Path = typer.Argument(..., help="STL, 3MF, OBJ, PLY, GLB (or STEP with synthux[step])."),
+    design: Optional[str] = typer.Option(None, "--design", "-d", help="Design name, or a design YAML (use, load, ports...)."),
+    printer: Optional[str] = typer.Option(None, help="Printer profile from config/printers.yaml."),
+    material: Optional[str] = typer.Option(None, help="PLA, PETG, ABS, ASA, TPU, resin ..."),
+    units: Optional[str] = typer.Option(None, help="mm (default), cm, m or in, if the file was exported differently."),
+    handheld: bool = typer.Option(False, "--handheld", help="It is held in the hand (grip and weight checks)."),
+    personas: int = typer.Option(5, "--personas", "-n", help="How many personas react to the design."),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Report folder."),
+    config: Optional[Path] = ConfigOpt,
+) -> None:
+    """Check a CAD design before printing; run it again on each new version to see what changed."""
+    from synthux.personas.generate import PersonaGenerator
+    from synthux.physical.cad.pipeline import check_design, design_spec
+
+    s = _settings(config)
+    db = _db(s)
+    spec = design_spec(design, cad_file)
+    if handheld:
+        spec.use["handheld"] = True
+    people = asyncio.run(PersonaGenerator(seed=11).generate(personas, include_accessibility=True))
+    try:
+        result = check_design(s, db, cad_file, spec, people, out, printer, material, units)
+    except ConfigError as exc:
+        typer.secho(f"Cannot check {cad_file}: {exc}", fg="red", err=True)
+        raise typer.Exit(2)
+    typer.echo(f"{result['design']} v{result['version']}  ({result['printer']['name']}, {result['material']['name']})")
+    for f in result["findings"]:
+        typer.echo(f"  {f['n']:2}. [{f['severity_name']:9}] {f['title']}")
+    if not result["findings"]:
+        typer.secho("  no problems found by the geometry checks", fg="green")
+    est = result["metrics"]["estimates"]
+    typer.echo(f"  about {est['printed_grams']} g, {est['print_hours']} h, material {est['material_cost']}")
+    c = result["comparison"]
+    if c:
+        typer.echo(f"  since v{c['previous_version']}: {len(c['fixed'])} fixed, {len(c['persisting'])} still there, "
+                   f"{len(c['new'])} new")
+    typer.secho(f"report: {result['report']}", fg="green")
+    typer.echo(f"After printing: synthux physical printed \"{result['design']}\" --measure measurements.csv "
+               "[--defect warping ...]")
+
+
+@physical_app.command("printed")
+def physical_printed(
+    design: str = typer.Argument(..., help="Design name used with `physical check`."),
+    measure: Optional[Path] = typer.Option(None, "--measure", "-m",
+                                           help="CSV: feature, designed_mm, measured_mm, kind (outer|hole|gap), axis."),
+    defect: list[str] = typer.Option([], "--defect", help="warping, stringing, elephant_foot, poor_overhang, "
+                                     "bridge_sag, broke, too_tight, too_loose, layer_shift, poor_bed_adhesion, "
+                                     "supports_hard_to_remove"),
+    version: Optional[int] = typer.Option(None, help="Which version was printed (default: latest)."),
+    notes: str = typer.Option("", help="Anything else you noticed."),
+    config: Optional[Path] = ConfigOpt,
+) -> None:
+    """Record a real print. The next `physical check` uses what it taught us about your printer."""
+    from synthux.physical.cad.iterate import DEFECTS, read_measurements
+    from synthux.physical.cad.pipeline import record_print
+
+    db = _db(_settings(config))
+    unknown = [d for d in defect if d not in DEFECTS]
+    if unknown:
+        typer.secho(f"Unknown defect(s) {unknown}; choose from {sorted(DEFECTS)}", fg="red", err=True)
+        raise typer.Exit(2)
+    rows = read_measurements(measure) if measure else []
+    analysis = record_print(db, design, rows, list(defect), notes, version)
+    typer.echo(f"recorded print of {design} v{analysis['version']} ({analysis['printer']}, {analysis['material']})")
+    for d in analysis["deviations"]:
+        typer.echo(f"  {d['feature']:20} designed {d['designed_mm']:g}  measured {d['measured_mm']:g}  "
+                   f"({d['diff_mm']:+.2f} mm)")
+    for a in analysis["advice"]:
+        typer.echo(f"  - {a}")
+    typer.secho(f"learned for this printer + material from {analysis['learned']['prints']} print(s); "
+                "the next check applies it.", fg="green")
+
+
+@physical_app.command("history")
+def physical_history(design: Optional[str] = typer.Argument(None, help="Design name (default: list all)."),
+                     config: Optional[Path] = ConfigOpt) -> None:
+    """Versions of a design and how the findings changed."""
+    db = _db(_settings(config))
+    designs = db.all("SELECT * FROM designs" + (" WHERE name = ?" if design else "") + " ORDER BY created_at",
+                     [design] if design else [])
+    for d in designs:
+        typer.echo(d["name"])
+        for v in db.all("SELECT * FROM design_versions WHERE design_id = ? ORDER BY version", [d["id"]]):
+            sev = [f["severity"] for f in v["findings_json"]]
+            prints = db.one("SELECT COUNT(*) AS n FROM print_results WHERE version_id = ?", [v["id"]])["n"]
+            comp = v["comparison_json"] or {}
+            change = (f"  ({len(comp.get('fixed', []))} fixed, {len(comp.get('new', []))} new)" if comp else "")
+            typer.echo(f"  v{v['version']}  {v['created_at'][:16]}  {len(sev)} findings, {sev.count(4)} will fail, "
+                       f"{sev.count(3)} major{change}  prints recorded: {prints}  {v['report_path']}")
 
 
 # ------------------------------------------------------------- calibrate
@@ -360,7 +456,8 @@ def demo(port: int = typer.Option(8765, help="Port for the demo shop.")) -> None
     with DemoServer(port) as server:
         typer.echo(f"demo app running at {server.url} (Ctrl+C to stop)")
         try:
-            server.thread.join()
+            while server.thread.is_alive():  # join with a timeout so Ctrl+C works on Windows
+                server.thread.join(0.5)
         except KeyboardInterrupt:
             pass
 

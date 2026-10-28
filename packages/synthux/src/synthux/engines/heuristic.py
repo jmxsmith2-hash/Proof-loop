@@ -80,7 +80,7 @@ def noticed(screen: Screen, traits: Traits, careful: bool, perception: dict | No
     """Text a person with these traits would notice on this screen."""
     min_contrast = careful_threshold(traits, perception) if careful else glance_threshold(traits, perception)
     min_height = 12 if traits.eyesight == "low_vision" else 9
-    return [t for t in screen.texts if t.contrast >= min_contrast and t.height >= min_height and t.conf >= 0.5]
+    return [t for t in screen.texts if t.salience >= min_contrast and t.height >= min_height and t.conf >= 0.5]
 
 
 def classify_label(text: str, traits: Traits) -> tuple[str | None, bool, bool]:

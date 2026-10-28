@@ -1,0 +1,6 @@
+feature,designed_mm,measured_mm,kind,axis
+base width,60.0,59.7,outer,x
+base depth,25.0,24.85,outer,y
+height,90.0,89.6,outer,z
+clip gap,0.1,0.0,gap,
+pin hole,3.2,2.95,hole,
