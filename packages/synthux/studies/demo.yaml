@@ -1,0 +1,56 @@
+# Study against the bundled demo shop (python demo_app/server.py).
+name: demo-shop
+target:
+  url: http://127.0.0.1:8765
+  credentials:
+    password: ${DEMO_PASSWORD:-demo-pass}
+  brand_mask: [".brand-logo"]        # hide who made it
+  framing: neutral
+tasks:
+  - id: signup
+    goal: Create an account
+    start: /signup
+    success_text: ["Account created"]
+    keywords: ["create account", "sign up"]
+    inputs:
+      full_name: Sam Rivera
+      username: samr85
+      email: sam.rivera@example.test
+      birthdate: "1985-03-14"
+      password: "{{cred:password}}"
+  - id: choose_plan
+    goal: Choose the Plus membership plan
+    start: /plans
+    success_text: ["Plan selected"]
+    keywords: ["continue", "next", "confirm"]
+    inputs: {choose: Plus}
+  - id: shipping
+    goal: Go from the cart to the shipping options
+    start: /cart
+    success_text: ["Shipping options"]
+    keywords: ["go to shipping", "shipping", "checkout"]
+  - id: place_order
+    goal: Place the order in your cart
+    start: /checkout
+    success_text: ["Order placed"]
+    keywords: ["place order", "pay", "buy"]
+    price_points: [113]
+  - id: login
+    goal: Log in to your account
+    start: /login
+    success_text: ["Welcome back"]
+    keywords: ["log in", "sign in"]
+    inputs:
+      email: tester@example.test
+      password: "{{cred:password}}"
+  - id: contact
+    goal: Find the support email address
+    start: /
+    success_text: ["Email us at"]
+    keywords: ["contact us", "contact", "help", "support"]
+personas:
+  count: 6
+  sources: [examples/survey.csv, examples/reviews.txt, examples/interview_notes.md]
+conditions:
+  network: fast
+repeats: 3

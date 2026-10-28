@@ -46,6 +46,7 @@ class Conditions(StrictModel):
     network: str = "fast"
     interruption_step: int | None = None
     interruption_memory_keep: float = Field(0.4, ge=0, le=1)
+    interruption_reload: bool = True     # the page is reloaded on return (tab discarded / session timeout)
     time_pressure: bool | None = None    # None = the persona's own trait
 
 

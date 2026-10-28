@@ -93,6 +93,9 @@ def estimate_run(
     for role, n in calls.items():
         engine, model = settings.model_for(role)
         base_in, base_out, images = CALL_SHAPES[role]
+        if engine == "heuristic":  # rule engine: no model calls at all
+            est.add(role, engine, model, 0, 0, 0, 0.0)
+            continue
         tok_in = n * (base_in + images * img)
         tok_out = n * base_out
         est.add(role, engine, model, n, tok_in, tok_out, call_cost(settings, engine, model, tok_in, tok_out))

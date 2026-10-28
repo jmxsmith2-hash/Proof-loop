@@ -40,6 +40,7 @@ class LLMRequest:
     seed: int = 0          # part of the cache key, so repeated runs stay independent
     cacheable: bool = True
     model: str | None = None  # per-persona override
+    engine: str | None = None  # per-persona override (e.g. one persona on Claude, the rest heuristic)
 
     def cache_key(self, engine: str, model: str) -> str:
         h = hashlib.sha256()
@@ -261,6 +262,10 @@ class LLMGateway:
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         engine, model = self.settings.model_for(request.role)
+        if request.engine and request.engine != engine:
+            engine = request.engine
+            provider = self.settings.models.get(engine)
+            model = (provider.roles.get(request.role) if provider else None) or engine
         if engine == "heuristic":
             raise LLMError(f"role {request.role!r} uses the heuristic engine; no model call is made")
         model = request.model or model
