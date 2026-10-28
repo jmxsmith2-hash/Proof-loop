@@ -189,6 +189,8 @@ def apply_learned(material: dict[str, Any], data: dict[str, Any]) -> dict[str, A
             out[key] = round(float(out[key]) + float(value), 3)
         elif key == "warp_risk":
             out[key] = value
+    if data and data.get("hole_offset_mm") is not None:
+        out["hole_offset_mm"] = float(data["hole_offset_mm"])   # measured: negative = holes print small
     if data:
         out["learned_from_prints"] = data.get("prints", 0)
     return out

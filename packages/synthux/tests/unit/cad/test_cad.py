@@ -145,3 +145,52 @@ def test_support_is_measured_down_to_the_bed_or_the_part_below(tmp_path, profile
     low.apply_translation((0, 0, -30))                 # the same ledge only 6 mm up needs a much shorter column
     trimesh.util.concatenate([post, low]).export(tmp_path / "low.stl")
     assert run_checks(load_model(tmp_path / "low.stl"), printer, material, slicer).metrics["support_column_mm3"] < column / 4
+
+
+def _plate_with_holes(holes, size=(60, 20), thickness=5.0, res=0.1):
+    """A plate with round vertical holes [(x, y, diameter)], built from thin boxes (no triangulator needed)."""
+    xs = np.arange(-size[0] / 2, size[0] / 2, res) + res / 2
+    boxes = []
+    for y in np.arange(-size[1] / 2, size[1] / 2, res) + res / 2:
+        row = np.ones(len(xs), bool)
+        for hx, hy, d in holes:
+            row &= (xs - hx) ** 2 + (y - hy) ** 2 > (d / 2) ** 2
+        edges = np.flatnonzero(np.diff(np.concatenate([[0], row.astype(int), [0]])))
+        for a, b in zip(edges[::2], edges[1::2]):
+            x0, x1 = xs[a] - res / 2, xs[b - 1] + res / 2
+            box = trimesh.creation.box((x1 - x0, res, thickness))
+            box.apply_translation(((x0 + x1) / 2, y, thickness / 2))
+            boxes.append(box)
+    return trimesh.util.concatenate(boxes)
+
+
+def test_holes_that_close_up_and_holes_that_need_a_fit_allowance(tmp_path, profiles):
+    printer, material, slicer = profiles
+    _plate_with_holes([(-20, 0, 0.8), (-5, 0, 3.0), (15, 0, 12.0)]).export(tmp_path / "holes.stl")
+    ctx = run_checks(load_model(tmp_path / "holes.stl"), printer, material, slicer)
+    assert sorted(round(d) for d in ctx.metrics["holes"]) == [1, 3, 12]
+    assert not [f for f in ctx.findings if f.check == "check_error"]       # many bodies, no extra packages needed
+    closes = [f for f in ctx.findings if f.check == "small_hole"]
+    fit = [f for f in ctx.findings if f.check == "hole_fit"]
+    assert len(closes) == 1 and closes[0].severity == 3
+    assert len(fit) == 1 and "3.15 mm" in fit[0].fix                       # typical FDM allowance; 12 mm left alone
+    learned = {**material, "hole_offset_mm": -0.3}                         # what this printer really does
+    ctx = run_checks(load_model(tmp_path / "holes.stl"), printer, learned, slicer)
+    fit = next(f for f in ctx.findings if f.check == "hole_fit")
+    assert "3.30 mm" in fit.fix and "your prints" in fit.detail
+
+
+def test_sealed_cavity_is_a_resin_trap_only_on_resin_printers(tmp_path, profiles):
+    printer, material, slicer = profiles
+    outer = trimesh.creation.box((20, 20, 20))
+    inner = trimesh.creation.box((10, 10, 10))
+    inner.invert()                                                          # a hollow inside
+    hollow = trimesh.util.concatenate([outer, inner])
+    hollow.apply_translation((0, 0, 10))
+    hollow.export(tmp_path / "hollow.stl")
+    fdm = run_checks(load_model(tmp_path / "hollow.stl"), printer, material, slicer)
+    assert not [f for f in fdm.findings if f.check == "resin_trap"]
+    resin_printer, resin, _ = load_profiles(CFG, "generic_resin", "resin")
+    sla = run_checks(load_model(tmp_path / "hollow.stl"), resin_printer, resin, slicer)
+    trap = [f for f in sla.findings if f.check == "resin_trap"]
+    assert len(trap) == 1 and 800 <= trap[0].data["volume_mm3"] <= 1200

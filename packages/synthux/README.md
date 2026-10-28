@@ -325,6 +325,11 @@ leaning on it). It also estimates mass, filament length, time and cost. Support
 material is measured from each overhang down to the bed or the part below; it counts
 towards filament, time and cost but not towards the weight of the finished part.
 
+**Holes:** vertical holes small enough to close up for your nozzle are flagged. Small fit holes, under 8 mm
+(screws, pins, heat-set inserts), get the size to model them at. That uses the offset your own measured
+prints taught it, or a typical FDM allowance until you record a print. On resin printers, sealed hollow
+pockets that would trap liquid resin are flagged, with where to add drain holes.
+
 **Human fit**, from `data/anthropometrics.yaml` and the design YAML:
 
 * grip size and weight in the hand (`--handheld`);

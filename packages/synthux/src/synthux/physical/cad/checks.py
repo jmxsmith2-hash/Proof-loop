@@ -441,6 +441,105 @@ def check_slender(ctx: Context) -> None:
                                                               "height_mm": round(float(ez), 1)}))
 
 
+# ----------------------------------------------------------------------- holes
+
+TYPICAL_FDM_HOLE_OFFSET = -0.15   # FDM holes usually print about this much (mm) smaller than modelled
+FIT_HOLE_MAX_MM = 8.0             # holes up to this size are usually for screws, pins and inserts
+
+
+def find_vertical_holes(grid: VoxelGrid) -> list[dict[str, Any]]:
+    """Round-ish empty areas enclosed by material in the layers (holes printed layer by layer)."""
+    solid = grid.solid
+    enclosed = np.zeros_like(solid)
+    for k in range(1, solid.shape[2] - 1):
+        empty = ~solid[:, :, k]
+        if empty.all():
+            continue
+        labels, n = ndimage.label(empty)
+        if n < 2:
+            continue
+        edge = np.unique(np.concatenate([labels[0, :], labels[-1, :], labels[:, 0], labels[:, -1]]))
+        enclosed[:, :, k] = (labels > 0) & ~np.isin(labels, edge)
+    if not enclosed.any():
+        return []
+    labels3, n3 = ndimage.label(enclosed)          # the same hole through many layers
+    holes = []
+    for k, sl in enumerate(ndimage.find_objects(labels3), 1):
+        if sl is None:
+            continue
+        region = labels3[sl] == k
+        per_layer = region.sum(axis=(0, 1))
+        layers = per_layer[per_layer > 0]
+        if len(layers) < 2:
+            continue
+        w, d = (sl[0].stop - sl[0].start) * grid.pitch, (sl[1].stop - sl[1].start) * grid.pitch
+        area = float(np.median(layers)) * grid.pitch ** 2
+        round_enough = max(w, d) <= 1.6 * max(min(w, d), grid.pitch) and area >= 0.55 * (math.pi / 4) * w * d
+        if not round_enough:
+            continue                                # a slot or gap, not a hole
+        coords = np.argwhere(region) + np.array([s.start for s in sl])
+        holes.append({"diameter": 2 * math.sqrt(area / math.pi), "depth": len(layers) * grid.pitch,
+                      "centre": grid.centre(coords.mean(axis=0))})
+    return holes
+
+
+def check_holes(ctx: Context) -> None:
+    grid, printer, mat = ctx.grid, ctx.printer, ctx.material
+    if grid is None:
+        return
+    holes = find_vertical_holes(grid)
+    ctx.metrics["holes"] = [round(h["diameter"], 2) for h in holes]
+    if printer.get("type", "fdm") == "fdm":
+        learned_offset = mat.get("hole_offset_mm")
+        offset = float(learned_offset) if learned_offset is not None else TYPICAL_FDM_HOLE_OFFSET
+        source = (f"your prints showed holes coming out {abs(offset):.2f} mm "
+                  f"{'small' if offset < 0 else 'large'}" if learned_offset is not None
+                  else f"FDM holes usually print about {abs(TYPICAL_FDM_HOLE_OFFSET):.2f} mm small")
+        closes = max(1.0, 2.5 * printer["nozzle"])
+        reported = 0
+        for h in sorted(holes, key=lambda h: h["diameter"]):
+            dia = h["diameter"]
+            if dia >= FIT_HOLE_MAX_MM or reported >= 4 or grid.pitch > dia / 3:
+                continue                    # big holes don't need a fit; holes under 3 voxels can't be measured
+            reported += 1
+            if dia < closes:
+                ctx.add(CadFinding("small_hole", 3, f"{dia:.1f} mm hole may close up",
+                                   f"A vertical hole about {dia:.1f} mm across; with a {printer['nozzle']} mm nozzle, "
+                                   f"holes under about {closes:.1f} mm often close or come out much too small.",
+                                   f"Model it at least {closes + abs(offset):.1f} mm, or drill it out after printing.",
+                                   _loc(h["centre"], max(dia, 3.0)), {"diameter_mm": round(dia, 2)}))
+            elif offset < 0:
+                nominal = round(dia, 1)   # the size the designer meant (the voxel measurement is +-0.05 mm)
+                ctx.add(CadFinding("hole_fit", 1, f"{nominal:.1f} mm hole will print about {nominal + offset:.1f} mm",
+                                   f"A vertical hole about {nominal:.1f} mm across; {source}.",
+                                   f"For a {nominal:.1f} mm fit (screw, pin, insert), model it at "
+                                   f"{nominal - offset:.2f} mm.",
+                                   _loc(h["centre"], max(dia, 3.0)),
+                                   {"diameter_mm": round(dia, 2), "offset_mm": round(offset, 3)}))
+    else:
+        check_resin_traps(ctx)
+
+
+def check_resin_traps(ctx: Context) -> None:
+    """Resin printing: a hollow pocket sealed inside the part traps liquid resin and can crack the print."""
+    grid = ctx.grid
+    labels, n = ndimage.label(~grid.solid)
+    if n < 2:
+        return
+    outside = labels[0, 0, 0]
+    sizes = ndimage.sum_labels(np.ones_like(labels), labels, np.arange(1, n + 1))
+    for k in range(1, n + 1):
+        volume = float(sizes[k - 1]) * grid.pitch ** 3
+        if k == outside or volume < 5.0:
+            continue
+        centre = grid.centre(np.argwhere(labels == k).mean(axis=0))
+        ctx.add(CadFinding("resin_trap", 3, "Sealed hollow pocket traps resin",
+                           f"A closed cavity of about {volume:.0f} mm³ inside the part has no opening; uncured resin "
+                           "stays inside and the pressure difference can crack or cup the print.",
+                           "Add two drain/vent holes (2-3 mm) near the lowest and highest point of the cavity, "
+                           "or make that region solid.", _loc(centre, 4.0), {"volume_mm3": round(volume, 1)}))
+
+
 # ----------------------------------------------------------------- sharp edges
 
 
@@ -686,7 +785,7 @@ def run_checks(model: Model, printer: dict, material: dict, slicer: dict, use: d
         ctx.metrics["resolution_note"] = (f"large part: checked at {ctx.metrics['voxel_mm']} mm resolution, so walls "
                                           f"under about {2 * ctx.metrics['voxel_mm']:.1f} mm may be missed")
     for check in (check_mesh, check_build_volume, check_overhangs, check_orientation, check_bed, check_thin,
-                  check_slender, check_sharp_edges, check_clearances, check_stability):
+                  check_slender, check_holes, check_sharp_edges, check_clearances, check_stability):
         try:
             check(ctx)
         except Exception as exc:  # one failing check must not hide the others

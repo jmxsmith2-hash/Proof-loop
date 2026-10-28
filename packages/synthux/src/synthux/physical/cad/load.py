@@ -35,7 +35,10 @@ class Model:
     def shells(self) -> list[trimesh.Trimesh]:
         """Separate bodies (computed once; splitting a dense mesh is slow)."""
         if "_shells" not in self.mesh.metadata:
-            self.mesh.metadata["_shells"] = [s for s in self.mesh.split(only_watertight=False) if len(s.faces) >= 4]
+            # repair=False: trimesh would try to fill holes in each open body, which needs an extra package
+            # (networkx) and changes the geometry being checked
+            parts = self.mesh.split(only_watertight=False, repair=False)
+            self.mesh.metadata["_shells"] = [s for s in parts if len(s.faces) >= 4]
         return self.mesh.metadata["_shells"]
 
 
