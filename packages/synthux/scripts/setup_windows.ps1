@@ -48,7 +48,19 @@ $venvPy = ".\.venv\Scripts\python.exe"
 & $venvPy -m playwright install chromium; Step "Downloading Chromium"
 if (-not (Test-Path "config\settings.yaml")) { Copy-Item "config\settings.example.yaml" "config\settings.yaml" }
 & ".\.venv\Scripts\synthux.exe" check; Step "synthux check"
+try {
+    # Desktop shortcut that opens the app window
+    $shell = New-Object -ComObject WScript.Shell
+    $link = $shell.CreateShortcut([IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "Synthux.lnk"))
+    $link.TargetPath = (Resolve-Path "Synthux.bat").Path
+    $link.WorkingDirectory = (Get-Location).Path
+    $link.WindowStyle = 7
+    $link.Description = "Check CAD files and G-code, or test a website"
+    $link.Save()
+    Write-Host "Added a Synthux shortcut to the desktop." -ForegroundColor Green
+} catch { Write-Host "(Could not add a desktop shortcut; double-click Synthux.bat instead.)" }
 Write-Host ""
-Write-Host "Done. In a new PowerShell window, activate it with:" -ForegroundColor Green
+Write-Host "Done. Double-click Synthux on the desktop (or Synthux.bat here) to open the app." -ForegroundColor Green
+Write-Host "For the command line, activate it in a new PowerShell window with:"
 Write-Host "    .\.venv\Scripts\Activate.ps1"
 Write-Host "Then try:  synthux physical check examples\cad\phone_stand_v1.stl --design examples\cad\phone_stand.yaml"

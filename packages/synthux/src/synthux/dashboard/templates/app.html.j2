@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Synthux</title>
+{% include "style.html.j2" %}
+<style>
+main { max-width: 1040px; }
+.lead { color: var(--text-secondary); margin: 4px 0 18px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.tool { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+.tool h2 { margin: 0 0 4px; font-size: 17px; } .tool p { margin: 0 0 10px; color: var(--text-secondary); font-size: 14px; }
+.drop { border: 2px dashed var(--border); border-radius: 12px; padding: 22px 12px; text-align: center; cursor: pointer;
+  color: var(--text-secondary); transition: border-color .15s, background .15s; font-size: 14px; }
+.drop:hover, .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.drop b { color: var(--text); display: block; font-size: 15px; margin-bottom: 2px; }
+label { display: block; font-size: 13px; color: var(--text-secondary); margin: 8px 0 3px; }
+input[type=text], input[type=url], input[type=number], select { width: 100%; padding: 7px 9px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--text-secondary); margin-top: 8px; }
+.check input { margin-top: 3px; }
+button { margin-top: 12px; padding: 8px 16px; border-radius: 9px; border: 0; background: var(--accent); color: #fff;
+  font: inherit; font-weight: 600; cursor: pointer; } button:disabled { opacity: .5; cursor: default; }
+.err { color: #c81e1e; font-size: 13px; margin-top: 8px; min-height: 1em; }
+.job { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.job:last-child { border-bottom: 0; }
+.job h3 { margin: 0; font-size: 15px; } .job ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; color: var(--text-secondary); }
+.status { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--border); }
+.status.done { color: #0a7d0a; border-color: #0a7d0a; } .status.failed { color: #c81e1e; border-color: #c81e1e; }
+.status.running { color: var(--accent); border-color: var(--accent); }
+.bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+.open { display: inline-block; margin-top: 4px; font-weight: 600; }
+.hosts { font-size: 12px; color: var(--muted); margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) { .drop, .bar i { transition: none; } }
+</style>
+</head>
+<body><main>
+<h1>Synthux</h1>
+<p class="lead">Check a design before you print, check the sliced file before it goes to the printer, or let personas try a website.
+  Everything runs on this computer{% if not smart %} and is free{% endif %}.</p>
+
+<div class="cards">
+  <section class="tool" aria-labelledby="cad-h">
+    <h2 id="cad-h">CAD design</h2>
+    <p>STL, 3MF, OBJ, PLY, GLB from Fusion, Tinkercad or Blender. Checks walls, overhangs, holes, fit, strength and how people would hold it.</p>
+    <div class="drop" id="cad-drop" tabindex="0" role="button" aria-label="Choose a CAD file"><b>Drop a CAD file here</b>or click to choose</div>
+    <input type="file" id="cad-file" accept=".stl,.3mf,.obj,.ply,.glb,.gltf,.off,.step,.stp" hidden>
+    <div class="row">
+      <div><label for="cad-printer">Printer</label><select id="cad-printer">{% for p in printers %}<option value="{{ p.id }}" {{ 'selected' if p.id == default_printer }}>{{ p.label }}</option>{% endfor %}</select></div>
+      <div><label for="cad-material">Material</label><select id="cad-material">{% for m in materials %}<option {{ 'selected' if m == default_material }}>{{ m }}</option>{% endfor %}</select></div>
+    </div>
+    <label for="cad-design">Design name <span class="muted">(same name = next version; shows what changed)</span></label>
+    <input type="text" id="cad-design" placeholder="from the file name">
+    <label class="check"><input type="checkbox" id="cad-handheld"> It is held in the hand (grip and weight checks)</label>
+    <div class="err" id="cad-err" role="alert"></div>
+  </section>
+
+  <section class="tool" aria-labelledby="g-h">
+    <h2 id="g-h">Sliced G-code</h2>
+    <p>.gcode or a Bambu Studio .gcode.3mf. Checks the plate, layers, temperatures, flow, retraction and cooling.</p>
+    <div class="drop" id="g-drop" tabindex="0" role="button" aria-label="Choose a G-code file"><b>Drop a G-code file here</b>or click to choose</div>
+    <input type="file" id="g-file" accept=".gcode,.3mf,.gco" hidden>
+    <div class="row">
+      <div><label for="g-printer">Printer</label><select id="g-printer"><option value="">From the file</option>{% for p in printers if p.type != 'resin' %}<option value="{{ p.id }}">{{ p.label }}</option>{% endfor %}</select></div>
+      <div><label for="g-material">Material</label><select id="g-material"><option value="">From the file</option>{% for m in materials if m != 'resin' %}<option>{{ m }}</option>{% endfor %}</select></div>
+    </div>
+    <div class="err" id="g-err" role="alert"></div>
+  </section>
+
+  <section class="tool" aria-labelledby="w-h">
+    <h2 id="w-h">Website</h2>
+    <p>Personas see only the screen, like people. They try your task and you get a report with replays.</p>
+    <form id="w-form">
+      <label for="w-url">Page to start on</label><input type="url" id="w-url" required placeholder="https://staging.example.com/">
+      <label for="w-task">What should a person do there?</label><input type="text" id="w-task" required placeholder="Find the opening hours">
+      <label for="w-done">Text that shows it worked</label><input type="text" id="w-done" required placeholder="Open today">
+      <div class="row">
+        <div><label for="w-n">Personas</label><input type="number" id="w-n" value="5" min="1" max="20"></div>
+        <div><label for="w-device">Device</label><select id="w-device"><option value="">Each persona's own</option>{% for d in devices %}<option>{{ d }}</option>{% endfor %}</select></div>
+      </div>
+      <label class="check"><input type="checkbox" id="w-find"> It's about finding information (also checks how buried it is)</label>
+      <label class="check"><input type="checkbox" id="w-allow"> This is my own site: add it to the allowlist (payments, emails and deletes stay blocked)</label>
+      {% if smart %}<label class="check"><input type="checkbox" id="w-smart"> Smart mode: Claude on hard screens and for judging (costs a little; limited by run.max_cost_usd)</label>{% endif %}
+      <button type="submit" id="w-go">Start the test</button>
+      <div class="err" id="w-err" role="alert"></div>
+      <div class="hosts">Allowed now: {{ hosts|join(', ') }}</div>
+    </form>
+  </section>
+</div>
+
+<h2>Jobs</h2>
+<div class="card" id="jobs"><p class="muted" id="nojobs">Nothing yet. Results appear here and stay until you close the app.</p></div>
+</main>
+<script>
+const H = {"{{ header }}": "1"};
+function uploader(kind) {
+  const drop = document.getElementById(kind + "-drop"), input = document.getElementById(kind + "-file"),
+        err = document.getElementById(kind + "-err");
+  const send = (file) => {
+    err.textContent = "";
+    const q = new URLSearchParams({name: file.name, kind: kind === "g" ? "gcode" : "cad"});
+    const pick = (id, key) => { const el = document.getElementById(id); if (el && el.value) q.set(key, el.value); };
+    if (kind === "cad") { pick("cad-printer", "printer"); pick("cad-material", "material"); pick("cad-design", "design");
+      if (document.getElementById("cad-handheld").checked) q.set("handheld", "1"); }
+    else { pick("g-printer", "printer"); pick("g-material", "material"); }
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/check?" + q.toString());
+    xhr.setRequestHeader("{{ header }}", "1");
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    drop.querySelector("b").textContent = "Uploading " + file.name + "...";
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) drop.querySelector("b").textContent =
+      "Uploading " + file.name + " (" + Math.round(100 * e.loaded / e.total) + "%)"; };
+    xhr.onload = () => { drop.querySelector("b").textContent = kind === "g" ? "Drop a G-code file here" : "Drop a CAD file here";
+      if (xhr.status >= 300) { try { err.textContent = JSON.parse(xhr.responseText).error; } catch (e) { err.textContent = "Upload failed"; } }
+      refresh(); };
+    xhr.onerror = () => { err.textContent = "Upload failed"; };
+    xhr.send(file);
+  };
+  drop.addEventListener("click", () => input.click());
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+  input.addEventListener("change", () => { if (input.files[0]) send(input.files[0]); input.value = ""; });
+  ["dragenter", "dragover"].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) send(f); });
+}
+uploader("cad"); uploader("g");
+// a file dropped anywhere else goes to the right card by its type
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => { if (e.target.closest(".drop")) return; e.preventDefault();
+  const f = e.dataTransfer.files[0]; if (!f) return;
+  const g = /\.(gcode|gco)$|\.gcode\.3mf$/i.test(f.name);
+  document.getElementById(g ? "g-drop" : "cad-drop").dispatchEvent(new DragEvent("drop", {dataTransfer: e.dataTransfer, bubbles: false})); });
+
+document.getElementById("w-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = document.getElementById("w-err"), go = document.getElementById("w-go"); err.textContent = ""; go.disabled = true;
+  const body = {url: document.getElementById("w-url").value, tasks: [document.getElementById("w-task").value],
+    successes: [document.getElementById("w-done").value], personas: +document.getElementById("w-n").value,
+    device: document.getElementById("w-device").value, find: document.getElementById("w-find").checked,
+    allow: document.getElementById("w-allow").checked, smart: !!(document.getElementById("w-smart") || {}).checked};
+  try {
+    const r = await fetch("/api/test", {method: "POST", headers: {...H, "Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const data = await r.json();
+    if (!r.ok) { err.textContent = data.error; if (data.needs_allow) document.getElementById("w-allow").focus(); }
+  } catch (x) { err.textContent = "Could not start the test"; }
+  go.disabled = false; refresh();
+});
+
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const LABEL = {cad: "CAD", gcode: "G-code", web: "Website"};
+async function refresh() {
+  let jobs = [];
+  try { jobs = await (await fetch("/api/jobs")).json(); } catch (e) { return; }
+  const box = document.getElementById("jobs");
+  if (!jobs.length) return;
+  box.innerHTML = jobs.map(j => {
+    const counts = j.counts.total !== undefined && j.kind !== "web"
+      ? ` · ${j.counts.fail ? `<b style="color:#c81e1e">${j.counts.fail} will fail</b> · ` : ""}${j.counts.major || 0} major, ${j.counts.total} in total` : "";
+    return `<div class="job"><div><h3>${esc(LABEL[j.kind])}: ${esc(j.title)}</h3>
+      <div class="muted">${esc(j.status === "failed" ? (j.error || "failed") : j.stage)}${counts}</div>
+      ${j.status === "running" && j.progress !== null ? `<div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div>` : ""}
+      ${j.summary.length ? `<ul>${j.summary.map(s => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}
+      ${j.report_url ? `<a class="open" href="${j.report_url}" target="_blank" rel="noopener">Open the report</a>` : ""}</div>
+      <div><span class="status ${esc(j.status)}">${esc(j.status)}</span></div></div>`;
+  }).join("");
+  const busy = jobs.some(j => j.status === "running" || j.status === "queued");
+  clearTimeout(window._t); window._t = setTimeout(refresh, busy ? 1200 : 5000);
+}
+refresh();
+</script>
+</body></html>

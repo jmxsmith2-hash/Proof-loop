@@ -284,13 +284,7 @@ def quick_test(
     """Quick test: personas try one site and you get a report. No study file needed."""
     import webbrowser
 
-    import yaml
-
-    from synthux.calibration.profiles import load_profile
-    from synthux.core.study import Study
-    from synthux.personas.generate import PersonaGenerator, save_personas
-    from synthux.report.build import ReportBuilder
-    from synthux.runner.orchestrator import Orchestrator
+    from synthux.quick import build_study, run_quick_test, save_study
     from synthux.safety.allow_edit import add_to_allowlist, host_entry
     from synthux.safety.allowlist import SafetyError, check_url
 
@@ -317,46 +311,32 @@ def quick_test(
             typer.echo(f"Added {host} to the allowlist in {path}.")
         s = _settings(config)
     s = _smart(s, smart)
-    parts = urlsplit(url)
-    base = f"{parts.scheme}://{parts.netloc}"
-    start = parts.path or "/"
-    if parts.query:
-        start += "?" + parts.query
-    raw = {"name": f"quick-{host}", "target": {"url": base},
-           "tasks": [{"id": f"task{i + 1}", "goal": goal, "start": start, "success_text": [done],
-                      "type": "find" if find else "do"} for i, (goal, done) in enumerate(zip(task, success))],
-           "personas": {"count": personas}, "repeats": repeats,
-           "conditions": {"device": device} if device else {}}
     try:
-        st = Study.model_validate(raw)
-        for t in st.tasks:
-            check_url(st.task_url(t), s.safety.allowlist)
+        st, raw = build_study(s, url, task, success, find=find, personas=personas, repeats=repeats, device=device)
     except (SafetyError, ValueError) as exc:
         typer.secho(f"Refusing to run: {exc}", fg="red", err=True)
         raise typer.Exit(3)
-    studies = s.data_dir / "studies"
-    studies.mkdir(parents=True, exist_ok=True)
-    saved = studies / f"{st.name}.yaml"
-    saved.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    saved = save_study(s, st, raw)
     db = _db(s)
-    profile = load_profile(s, db)
-    people = asyncio.run(PersonaGenerator().generate(personas, []))
-    save_personas(db, people, study=st.name)
-    orch = Orchestrator(s, db, st, profile)
-    estimate = orch.estimate(people, repeats)
-    typer.echo(f"{len(people)} personas x {len(st.tasks)} task(s) x {repeats} repeats on {base}")
-    typer.echo(estimate.describe())
-    if estimate.total_usd > 0 and not yes and not typer.confirm(f"This costs about ${estimate.total_usd:.2f}. Continue?"):
-        raise typer.Exit(1)
+    typer.echo(f"{personas} personas x {len(st.tasks)} task(s) x {repeats} repeats on {st.target.url}")
+
+    def approve(estimate) -> bool:
+        typer.echo(estimate.describe())
+        return yes or typer.confirm(f"This costs about ${estimate.total_usd:.2f}. Continue?")
 
     def progress(result) -> None:
         typer.echo(f"  {result.task_id:8} {result.persona_id:16} rep{result.repeat_index}: {result.outcome}")
 
-    run_id = asyncio.run(orch.run(people, on_session=progress))
-    from synthux.judge.pipeline import verify_run
-
-    asyncio.run(verify_run(s, db, st, profile, run_id))
-    path = asyncio.run(ReportBuilder(s, db).build(run_id))
+    try:
+        run_id, path, estimate = asyncio.run(run_quick_test(s, db, st, personas=personas, repeats=repeats,
+                                                            approve=approve, on_session=progress))
+    except ValueError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(4)
+    if run_id is None:
+        raise typer.Exit(1)
+    if estimate.total_usd == 0:
+        typer.echo(estimate.describe())
     typer.secho(f"Report: {path}", fg="green")
     typer.echo(f"This test was saved as {saved}; edit it to add tasks, then `synthux run {saved}`.")
     if open_report:
@@ -732,6 +712,25 @@ def calibrate_history(config: Optional[Path] = ConfigOpt) -> None:
     for h in history(_db(_settings(config))):
         typer.echo(f"{h['created_at']}  {h['id']}  profile {h['profile']:16} agreement {h['agreement']:.2f}  "
                    f"F1 {h['f1']:.2f}  completion MAE {h['completion_mae']}  -> applied {h['applied'] or '-'}")
+
+
+@app.command("app")
+def app_window(port: int = typer.Option(8700, help="Port (binds to 127.0.0.1 only)."),
+               window: bool = typer.Option(True, "--window/--no-window", help="Open the app window."),
+               config: Optional[Path] = ConfigOpt) -> None:
+    """Simple app window: drop a CAD or G-code file, or paste a website and a task."""
+    from synthux.app.server import open_window, serve
+
+    s = _settings(config)
+    server, the_app = serve(s, _db(s), port)
+    url = f"http://127.0.0.1:{the_app.port}/"
+    typer.echo(f"synthux app at {url} (close this window or press Ctrl+C to stop)")
+    if window:
+        open_window(url, the_app.root / "window-profile")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.shutdown()
 
 
 @app.command()

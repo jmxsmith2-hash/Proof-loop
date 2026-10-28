@@ -39,6 +39,7 @@ jobs:
         run: |
           synthux check
           synthux run studies/demo.yaml --dry-run
+          synthux physical gcode examples/gcode/bracket_good.gcode.3mf
 
   windows-setup-script:
     name: windows / setup.bat path
@@ -59,3 +60,4 @@ jobs:
           .\.venv\Scripts\synthux.exe physical printed "Phone stand" --measure examples\cad\v1_print_measurements.csv --defect poor_overhang
           .\.venv\Scripts\synthux.exe physical check examples\cad\phone_stand_v2.stl --design examples\cad\phone_stand.yaml
           .\.venv\Scripts\synthux.exe physical history
+          .\.venv\Scripts\synthux.exe physical gcode examples\gcode\bracket_flawed.gcode

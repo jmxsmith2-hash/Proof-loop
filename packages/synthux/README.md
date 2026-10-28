@@ -43,9 +43,15 @@ Requirements: Python 3.11+, and Chromium for Playwright.
 **Windows:** double-click `setup.bat` (or run
 `powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1`). It finds
 Python 3.11+ (and tells you the `winget` command if it is missing), creates
-`.venv`, installs everything, downloads Chromium and runs `synthux check`.
-Then open a new terminal in the folder and run `.venv\Scripts\activate`.
+`.venv`, installs everything, downloads Chromium, runs `synthux check` and puts a
+**Synthux** shortcut on the desktop. For the command line, open a new terminal in the
+folder and run `.venv\Scripts\activate`.
 **macOS / Linux:** `sh scripts/setup_unix.sh` does the same.
+
+**The app window:** double-click **Synthux** (or `Synthux.bat`, or run `synthux app`). Drop a
+CAD file or sliced G-code on it, or paste a website address and a task; each job runs in the
+background and links to its report. It opens as its own window in Edge or Chrome, runs only
+on this computer, and adds a website to the allowlist only when you tick "This is my own site".
 
 **Fastest start:** `synthux init` asks a few questions, then writes a study for a website or a design
 file for a CAD part. Or test a site in one line, with no file at all:
@@ -515,5 +521,6 @@ src/synthux/
     gcode/         G-code parser (plain and Bambu .gcode.3mf), print checks, layer previews
   data/            anthropometrics, product-knowledge checklists, name lists
   dashboard/       local read-only web dashboard
+  app/             the app window (drop a file or paste a website; background jobs)
 tests/             unit, integration (browser), e2e (offline and live)
 ```

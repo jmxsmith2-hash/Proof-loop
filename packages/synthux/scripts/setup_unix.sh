@@ -10,4 +10,4 @@ PY=${PYTHON:-python3}
 .venv/bin/python -m playwright install chromium
 [ -f config/settings.yaml ] || cp config/settings.example.yaml config/settings.yaml
 .venv/bin/synthux check
-echo "Done. Activate with: . .venv/bin/activate"
+echo "Done. Open the app with: .venv/bin/synthux app   (or activate with: . .venv/bin/activate)"
