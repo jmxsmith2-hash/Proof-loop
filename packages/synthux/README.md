@@ -224,6 +224,9 @@ Useful options: `--task signup`, `--persona per_xxx`, `--repeats 5`,
 
 ## Reading the report
 
+* **Session viewer** (dashboard, `synthux dashboard` → a run → sessions): every session step by step,
+  showing the screenshot the persona saw, what it did, its think-aloud, the measured signals, its frustration,
+  and any simulated slip.
 * **Replays**: each top issue has a short animated replay of the persona's last steps. The clicks are marked,
   and the replay ends on the screen where the problem shows.
 * **Accessibility (measured)**: text contrast against WCAG 2.2 AA, very small text, and tap targets under
