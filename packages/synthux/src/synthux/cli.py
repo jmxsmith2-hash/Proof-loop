@@ -502,8 +502,9 @@ def physical_gcode(
     from synthux.physical.gcode.pipeline import check_gcode
 
     cfg = Path(config) if config else Path("config")
+    history = _print_history(config)
     try:
-        r = check_gcode(cfg, gcode_file, printer=printer, material=material, plate=plate, out=out)
+        r = check_gcode(cfg, gcode_file, printer=printer, material=material, plate=plate, out=out, history=history)
     except ConfigError as exc:
         typer.secho(f"Cannot check {gcode_file}: {exc}", fg="red", err=True)
         raise typer.Exit(2)
@@ -527,6 +528,59 @@ def physical_gcode(
     typer.secho(f"report: {r['report']}", fg="green")
     if open_report:
         webbrowser.open(Path(r["report"]).resolve().as_uri())
+
+
+def _print_history(config: Optional[Path], clearloop: Optional[Path] = None, files: list[Path] | None = None,
+                   quiet: bool = True):
+    """Import new prints from ClearLoop's journal, then return a history lookup for the G-code check."""
+    from synthux.physical.learn import CLEARLOOP_DIR, history_for, import_clearloop
+
+    try:
+        s = load_settings(config)
+    except ConfigError:
+        return None
+    db = _db(s)
+    try:
+        counts = import_clearloop(db, s.config_dir, clearloop or CLEARLOOP_DIR, files)
+    except Exception as exc:  # noqa: BLE001 - learning must never stop a check
+        if not quiet:
+            typer.secho(f"Could not read ClearLoop's print journal: {exc}", fg="yellow", err=True)
+        counts = {"new": 0}
+    if counts["new"] and quiet:
+        typer.echo(f"learned from {counts['new']} new print(s) recorded by ClearLoop")
+    return lambda printer, material, job: history_for(db, printer, material, job)
+
+
+@physical_app.command("learn")
+def physical_learn(
+    clearloop: Optional[Path] = typer.Option(None, "--clearloop", help="ClearLoop's data folder (default ~/.clearloop)."),
+    files: list[Path] = typer.Option([], "--files", help="Folders with the sliced files you print (searched by name)."),
+    config: Optional[Path] = ConfigOpt,
+) -> None:
+    """Learn from how your prints ended (ClearLoop Monitor records them) and show what was learned."""
+    from synthux.physical.learn import CAUSE_TEXT, CLEARLOOP_DIR, history_for, import_clearloop
+
+    s = _settings(config)
+    db = _db(s)
+    folder = clearloop or CLEARLOOP_DIR
+    counts = import_clearloop(db, s.config_dir, folder, files)
+    typer.echo(f"{counts['new']} new print(s) from {folder} ({counts['with_gcode']} with their G-code)")
+    groups = db.all("SELECT printer, material, COUNT(*) AS n FROM print_outcomes WHERE printer IS NOT NULL "
+                    "GROUP BY printer, material ORDER BY n DESC")
+    if not groups:
+        typer.echo("Nothing learned yet. Add your printer in ClearLoop's Monitor tab; every print it sees is recorded.")
+        return
+    for g in groups:
+        h = history_for(db, g["printer"], g["material"] or "?")
+        typer.secho(f"\n{g['printer']} + {g['material']}: {h['prints']} prints, {h['failed']} failed", bold=True)
+        for cause, n in sorted(h["by_cause"].items(), key=lambda kv: -kv[1]):
+            typer.echo(f"  {n} failed {CAUSE_TEXT.get(cause, cause)}")
+        if h["proven_flow"]:
+            typer.echo(f"  finishes prints at up to {h['proven_flow']:.0f} mm³/s ({h['proven_prints']} prints)")
+        if h["failed_flow"]:
+            typer.echo(f"  has failed at about {h['failed_flow']:.0f} mm³/s")
+        if h["eject_checked"]:
+            typer.echo(f"  plate checks: {h['eject_left']} of {h['eject_checked']} found parts left")
 
 
 @physical_app.command("printed")

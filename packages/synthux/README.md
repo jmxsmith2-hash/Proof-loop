@@ -392,6 +392,7 @@ After slicing, check the file itself before it goes to the printer:
 synthux physical gcode part.gcode                       # Bambu Studio, OrcaSlicer, PrusaSlicer, Cura
 synthux physical gcode part.gcode.3mf --plate 2         # Bambu Studio "Export plate sliced file"
 synthux physical gcode part.gcode --printer bambu_h2d --material "PETG HF" --open
+synthux physical learn                                  # what your prints taught (ClearLoop's journal)
 ```
 
 The printer and filament are read from the file when you don't give them. Every move,
@@ -437,6 +438,26 @@ or the FarmLoop app) repeat the plate once per loop, with a cooldown and sweep a
 `examples/gcode/` has a 3-loop ClearLoop file of a clean two-part plate and a FarmLoop-app-style
 file with both documented problems. ClearLoop's own *Check a file* can call these print checks
 through `synthux.physical.gcode.check_file`.
+
+### Learning from your printer
+
+[ClearLoop](https://github.com/jmxsmith2-hash/Something-B)'s Monitor records how every print on your
+printers ended. synthux reads that journal (read-only) each time it checks G-code, or with
+`synthux physical learn`, re-checks the G-code that ran (ClearLoop keeps the files it makes; add
+`--files` folders for your other sliced files) and gives each failure its likely cause from what was
+printing when it stopped: the first layers, an AMS alert, the camera's spaghetti detection, flow near
+the hot end's limit, or very quick layers.
+
+What it learns per printer and filament is used in every later G-code check:
+
+* flow that has failed on your printer is flagged, and flow it has finished at least twice is no
+  longer called a problem;
+* repeated first-layer failures are pointed out, with what to try;
+* a file that failed before says at which layer, with the printer's HMS codes;
+* a loop file whose plate check found parts left says so.
+
+The report's *What your printer taught* section shows the counts. Causes are likely ones from the
+file, not a diagnosis.
 
 ## Moulded and machined products
 

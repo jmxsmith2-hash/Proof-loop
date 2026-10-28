@@ -36,6 +36,16 @@
   {% if lf.clearloop_checks %}<table>{% for c in lf.clearloop_checks %}<tr><td class="{{ 'ok' if c.level == 'ok' else 'bad' if c.level == 'danger' else '' }}">{{ {'ok': 'OK', 'danger': 'danger', 'warning': 'warning', 'info': 'note'}[c.level] }}</td><td><b>{{ c.title }}</b><br>{{ c.detail }}</td></tr>{% endfor %}</table>{% endif %}
 </div>{% endif %}
 
+{% if r.metrics.history %}{% set h = r.metrics.history %}
+<h2>What your printer taught</h2>
+<div class="card small">
+  <p>{{ h.prints }} {{ r.material.name }} print(s) on your {{ r.printer.label }} recorded by ClearLoop Monitor:
+    {{ h.finished }} finished, {{ h.failed }} failed{% if h.eject_checked %}; {{ h.eject_left }} of {{ h.eject_checked }} plate checks found parts left{% endif %}.</p>
+  {% if h.by_cause %}<ul>{% for cause, n in h.by_cause.items() %}<li>{{ n }} failed: {{ {'first_layer': 'in the first layers', 'filament_feed': 'with an AMS alert', 'camera': 'stopped by the camera inspection', 'flow': 'at high flow', 'cooling': 'on very quick layers', 'unknown': 'cause not clear from the file'}.get(cause, cause) }}</li>{% endfor %}</ul>{% endif %}
+  {% if h.proven_flow %}<p>It has finished prints at up to {{ h.proven_flow }} mm³/s{% if h.failed_flow %}, and failed at about {{ h.failed_flow }} mm³/s{% endif %}.</p>{% endif %}
+  <p class="muted">Causes are the likely ones from what was printing when a print stopped, not a diagnosis.</p>
+</div>{% endif %}
+
 <h2>Preview</h2>
 <div class="views">{% for name, src in r.images.items() if name not in ('flow', 'travel') %}<figure><img src="{{ src }}" alt="{{ name }}"><figcaption>{{ {'plate': 'first layer on the plate', 'side': 'side view (red: layers too thick)'}.get(name, name|replace('layer', 'layer ')) }}</figcaption></figure>{% endfor %}</div>
 

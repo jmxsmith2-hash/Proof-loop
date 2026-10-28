@@ -39,11 +39,10 @@ def profiles_dir(config_dir: Path | str | None) -> Path:
     return Path(__file__).resolve().parents[2] / "data"
 
 
-def check_gcode(config_dir: Path | str | None, path: Path | str, *, printer: str | None = None,
-                material: str | None = None, plate: int | None = None, out: Path | None = None,
-                write_report: bool = True) -> dict[str, Any]:
-    """Check one sliced file. With write_report=False nothing is written (for tools that show results)."""
-    started = time.perf_counter()
+def analyse(config_dir: Path | str | None, path: Path | str, *, printer: str | None = None,
+            material: str | None = None, plate: int | None = None, history: Any = None
+            ) -> tuple[GcodeContext, dict[str, Any], dict[str, Any]]:
+    """Parse and check one file. Returns (context with every move, the slicer's notes, how profiles were chosen)."""
     config_dir = profiles_dir(config_dir)
     path = Path(path)
     trace = read_gcode(path, plate)
@@ -55,9 +54,31 @@ def check_gcode(config_dir: Path | str | None, path: Path | str, *, printer: str
         raise ConfigError("resin printers don't use G-code; check the model with `synthux physical check`")
     pr["label"] = (pr.get("names") or [pr["name"]])[0]
     nozzle = float(notes.get("nozzle") or pr["nozzle"])
+    if callable(history):                     # looked up once the printer and material are known
+        from synthux.physical.learn import job_key
+
+        history = history(pr["name"], mat["name"], job_key(path.name))
     ctx = GcodeContext(trace=trace, printer=pr, material=mat, nozzle=nozzle,
-                       filament_diameter=float(pr.get("filament_diameter", slicer.get("filament_diameter", 1.75))))
+                       filament_diameter=float(pr.get("filament_diameter", slicer.get("filament_diameter", 1.75))),
+                       history=history)
     run_gcode_checks(ctx, notes)
+    chosen = {"printer_source": "chosen" if printer else ("from the file" if detected else "default"),
+              "material_source": "chosen" if material else ("from the file" if notes.get("filament_type") else "default")}
+    return ctx, notes, chosen
+
+
+def check_gcode(config_dir: Path | str | None, path: Path | str, *, printer: str | None = None,
+                material: str | None = None, plate: int | None = None, out: Path | None = None,
+                write_report: bool = True, history: Any = None) -> dict[str, Any]:
+    """Check one sliced file. With write_report=False nothing is written (for tools that show results).
+
+    `history` is what real prints on this printer taught (synthux.physical.learn.history_for).
+    """
+    started = time.perf_counter()
+    path = Path(path)
+    ctx, notes, chosen = analyse(config_dir, path, printer=printer, material=material, plate=plate,
+                                 history=history)
+    trace, pr, mat, nozzle = ctx.trace, ctx.printer, ctx.material, ctx.nozzle
     images: dict[str, str] = {}
     if write_report:
         out = Path(out) if out else Path("reports") / "gcode" / Path(path).name.split(".")[0]
@@ -73,9 +94,7 @@ def check_gcode(config_dir: Path | str | None, path: Path | str, *, printer: str
                          "image": images.get(f.data.get("image_key") or "")})
     result = {
         "file": trace.source, "printer": pr, "material": mat, "nozzle": nozzle,
-        "printer_source": "chosen" if printer else ("from the file" if detected else "default"),
-        "material_source": "chosen" if material else ("from the file" if notes.get("filament_type") else "default"),
-        "notes": notes, "findings": findings, "metrics": m, "images": images,
+        **chosen, "history": ctx.history, "notes": notes, "findings": findings, "metrics": m, "images": images,
         "plates": trace.plate_info.get("plates"), "plate": trace.plate,
         "time": {"slicer": _hours(m.get("slicer_time_s")), "replay": _hours(m.get("replay_time_s"))},
         "cost": round(m.get("filament_g", 0) / 1000 * float(mat.get("price_per_kg", 0)), 2),

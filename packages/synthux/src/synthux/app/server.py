@@ -182,8 +182,16 @@ class App:
     def _gcode_work(self, job: Job, path: Path, opt: dict[str, str]) -> None:
         from synthux.physical.gcode.pipeline import check_gcode
 
+        from synthux.physical.learn import history_for, import_clearloop
+
+        job.stage = "reading what ClearLoop recorded about your prints"
+        try:
+            import_clearloop(self.db, self.settings.config_dir)
+        except Exception as exc:  # noqa: BLE001 - learning must never stop a check
+            log.warning("could not read ClearLoop's print journal: %s", exc)
         job.stage = "reading every move"
         result = check_gcode(self.settings.config_dir, path, printer=opt.get("printer") or None,
+                             history=lambda p, m, j: history_for(self.db, p, m, j),
                              material=opt.get("material") or None,
                              plate=int(opt["plate"]) if (opt.get("plate") or "").isdigit() else None,
                              out=path.parent / "report")
