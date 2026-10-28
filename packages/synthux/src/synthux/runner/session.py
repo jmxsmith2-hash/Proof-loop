@@ -19,13 +19,14 @@ from synthux.core.llm import LLMError
 from synthux.core.logging import get_logger
 from synthux.core.study import Conditions, Study, TaskSpec
 from synthux.engines.base import Actor, ActorContext
+from synthux.engines.heuristic import modal_visible
 from synthux.personas.models import Persona
 from synthux.runner.behavior import Frustration, Noise, PatienceBudget
 from synthux.runner.browser import BrowserPool, BrowserSession
 from synthux.runner.memory import SessionMemory
 from synthux.runner.observe import (DEEP_NAV_PAGES, compute_signals, issues_from_step, limitation_on_screen, screen_id,
                                     unsupported_interaction)
-from synthux.runner.perception import Screen, fuzzy_contains, normalize, perceive, perceive_async
+from synthux.runner.perception import Screen, fuzzy_contains, hash_distance, normalize, perceive_async
 from synthux.runner.types import (Action, Decision, IssueCandidate, SessionResult, Signals, StepRecord,
                                   ThinkAloud, Timing)
 from synthux.safety.allowlist import SafetyError
@@ -68,6 +69,7 @@ class SessionRunner:
         self.out_dir = out_dir
         self.guard = ActionGuard(settings.safety, sandbox=sandbox)
         self.vault = study.vault()
+        self._a11y_seen: list[tuple[str, str, int]] = []
 
     def conditions_for(self, persona: Persona, conditions: Conditions) -> dict[str, Any]:
         t = persona.traits
@@ -112,7 +114,8 @@ class SessionRunner:
             visit_index=visit_index, seed=seed, outcome=state.outcome, quit_reason=state.quit_reason,
             steps=state.steps, issues=_dedupe(state.issues), sim_seconds=round(state.sim_seconds, 1),
             wall_seconds=round(time.monotonic() - state.started, 1), final_frustration=round(frustration.score, 1),
-            frustration_timeline=frustration.timeline, memory=memory.long_term(), conditions=cond)
+            frustration_timeline=frustration.timeline, memory=memory.long_term(), conditions=cond,
+            a11y=state.a11y)
         log.info("%s %s/%s rep%d visit%d: %s after %d steps (frustration %.0f/%.0f)", session_id, persona.label,
                  task.id, repeat_index, visit_index, result.outcome, len(result.steps), frustration.score,
                  frustration.threshold)
@@ -182,6 +185,8 @@ class SessionRunner:
                 state.fail("agent_failure", f"persona engine failed: {exc}", "technical_error",
                            step_idx=idx, screen=screen_id(url), shot=str(shot_path))
                 return
+            if not (decision.dismisses_popup or modal_visible(screen)):  # the page as people see it, not behind a pop-up
+                self._audit(state, screen, url, cond, str(shot_path))
             if decision.action.kind == "quit":
                 state.record_quit(idx, decision, screen, url, shot_path, frustration, state.sim_seconds)
                 state.outcome, state.quit_reason = "quit", decision.quit_reason or "gave up"
@@ -258,6 +263,19 @@ class SessionRunner:
         state.outcome = "budget_exhausted"
         state.quit_reason = f"Ran out of patience after {len(state.steps)} actions without finishing."
 
+    def _audit(self, state: "_LoopState", screen: Screen, url: str, cond: dict[str, Any], shot: str) -> None:
+        """Measured accessibility check, once per distinct screen and device (on the full-quality screenshot)."""
+        from synthux.a11y import check_screen
+
+        device = cond.get("device") or "desktop"
+        sid = screen_id(url)
+        if any(s == sid and d == device and hash_distance(h, screen.dhash) <= 6 for s, d, h in self._a11y_seen):
+            return
+        self._a11y_seen.append((sid, device, screen.dhash))
+        cfg = self.settings.device(device)
+        state.a11y.extend(check_screen(screen, screen_id=sid, screenshot=shot, device=device, touch=cfg.mobile,
+                                       scale=cfg.scale))
+
     async def _guard(self, browser: BrowserSession, action: Action) -> str | None:
         if action.kind in ("click", "fill") and action.x is not None:
             kind = "click"
@@ -283,6 +301,7 @@ class _LoopState:
         self.sim_seconds = 0.0
         self.sim_interrupt_s = 0.0
         self.effort = 0.0
+        self.a11y: list[Any] = []
 
     def fail(self, outcome: str, reason: str, category: str, *, step_idx: int = 0, screen: str = "",
              shot: str = "") -> None:

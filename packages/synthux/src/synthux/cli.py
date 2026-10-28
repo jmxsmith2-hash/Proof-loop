@@ -6,6 +6,7 @@ import asyncio
 import sys
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 import typer
 
@@ -170,6 +171,183 @@ def run(
 
         asyncio.run(verify_run(s, db, st, profile, run_id))
     typer.secho(f"run {run_id} finished. Next: synthux report {run_id}", fg="green")
+
+
+@app.command()
+def init(config: Optional[Path] = ConfigOpt) -> None:
+    """Answer a few questions to set up a website test or a CAD design check."""
+    import re
+
+    import yaml
+
+    from synthux.core.config import load_yaml_file
+
+    kind = typer.prompt("What do you want to test? (web = a website or web app, cad = a CAD design)",
+                        default="web").strip().lower()
+    cfg_dir = Path(config) if config else Path("config")
+    if kind.startswith("c"):
+        cad_file = Path(typer.prompt("Path to the CAD file (STL, 3MF, OBJ, STEP...)"))
+        if not cad_file.is_file():
+            typer.secho(f"{cad_file} does not exist yet; you can still finish and add it later.", fg="yellow")
+        name = typer.prompt("Name of the design", default=cad_file.stem.replace("_", " "))
+        what = typer.prompt("What is it, in a sentence?", default="")
+        profiles = load_yaml_file(cfg_dir / "printers.yaml") or {}
+        printers, materials = sorted(profiles.get("printers", {})), sorted(profiles.get("materials", {}))
+        printer = typer.prompt(f"Printer ({', '.join(printers)})", default=profiles.get("default_printer", ""))
+        material = typer.prompt(f"Material ({', '.join(materials)})", default=profiles.get("default_material", "PLA"))
+        handheld = typer.confirm("Is it held in the hand?", default=False)
+        types = typer.prompt("Kind of product (everyday, electronics, wearable, 3d_printed; comma separated)",
+                             default="3d_printed")
+        design = {"name": name, "type": [t.strip() for t in types.split(",") if t.strip()], "description": what,
+                  "printer": printer, "material": material, "use": {"handheld": handheld}}
+        out = Path("designs") / (re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") + ".yaml")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text("# Created by `synthux init`. See examples/cad/*.yaml for ports, buttons, fit and loads.\n"
+                       + yaml.safe_dump(design, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        typer.secho(f"Saved {out}", fg="green")
+        typer.echo(f"Next:  synthux physical check {cad_file} --design {out}")
+        typer.echo(f"After printing:  synthux physical printed \"{name}\" --measure measurements.csv")
+        return
+
+    from synthux.safety.allow_edit import add_to_allowlist, host_entry
+    from synthux.safety.allowlist import SafetyError, check_url
+
+    url = typer.prompt("Address of the site (a staging or test copy is best)")
+    try:
+        host, _ = host_entry(url)
+    except ConfigError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2)
+    s = _settings(config)
+    try:
+        check_url(url, s.safety.allowlist)
+    except SafetyError:
+        typer.echo(f"{host} is not on the safety allowlist; personas only visit sites listed there.")
+        if typer.confirm(f"Add {host} now? (as a real site: payments, emails and deletes stay blocked)", default=True):
+            path, _ = add_to_allowlist(cfg_dir, url, note="added by synthux init")
+            typer.echo(f"Added to {path}.")
+        else:
+            typer.echo("Not added; add it to config/settings.yaml (safety.allowlist) before running.")
+    tasks = []
+    while True:
+        goal = typer.prompt(f"Task {len(tasks) + 1}: what does a person want to do? (empty to finish)",
+                            default="", show_default=False).strip()
+        if not goal:
+            if tasks:
+                break
+            typer.echo("Add at least one task.")
+            continue
+        done = typer.prompt("  What text appears on screen when that is done?")
+        find = typer.confirm("  Is it about finding information?", default=goal.lower().startswith(("find", "look")))
+        tasks.append({"id": f"task{len(tasks) + 1}", "goal": goal, "start": urlsplit(url).path or "/",
+                      "success_text": [done], "type": "find" if find else "do"})
+    count = typer.prompt("How many personas?", default=6, type=int)
+    parts = urlsplit(url)
+    study = {"name": re.sub(r"[^a-z0-9]+", "-", host.lower()).strip("-"),
+             "target": {"url": f"{parts.scheme}://{parts.netloc}"}, "tasks": tasks, "personas": {"count": count}}
+    out = Path("studies") / f"{study['name']}.yaml"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("# Created by `synthux init`. See studies/demo.yaml for inputs, keywords, devices and more.\n"
+                   + yaml.safe_dump(study, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    typer.secho(f"Saved {out}", fg="green")
+    typer.echo(f"Next:  synthux run {out}      (then: synthux report RUN_ID, or open the dashboard)")
+
+
+@app.command("test")
+def quick_test(
+    url: str = typer.Argument(..., help="Page where the personas start, e.g. https://staging.example.com/shop"),
+    task: list[str] = typer.Option(..., "--task", "-t", help="What a person wants to do there (repeatable)."),
+    success: list[str] = typer.Option(..., "--success", "-s",
+                                      help="Text that shows the task is done, one per --task, in the same order."),
+    find: bool = typer.Option(False, "--find", help="The tasks are about finding information (checks how buried it is)."),
+    personas: int = typer.Option(5, "--personas", "-n", help="How many personas."),
+    repeats: int = typer.Option(2, help="Runs per persona and task."),
+    device: Optional[str] = typer.Option(None, help="desktop, tablet or mobile (default: each persona's own)."),
+    allow: bool = typer.Option(False, "--allow", help="Add this site to the allowlist in config/settings.yaml first "
+                                                      "(as a real site: payments, emails and deletes stay blocked)."),
+    open_report: bool = typer.Option(False, "--open", help="Open the report in the browser when done."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask before a paid run."),
+    config: Optional[Path] = ConfigOpt,
+) -> None:
+    """Quick test: personas try one site and you get a report. No study file needed."""
+    import webbrowser
+
+    import yaml
+
+    from synthux.calibration.profiles import load_profile
+    from synthux.core.study import Study
+    from synthux.personas.generate import PersonaGenerator, save_personas
+    from synthux.report.build import ReportBuilder
+    from synthux.runner.orchestrator import Orchestrator
+    from synthux.safety.allow_edit import add_to_allowlist, host_entry
+    from synthux.safety.allowlist import SafetyError, check_url
+
+    if len(success) != len(task):
+        typer.secho(f"Give one --success per --task ({len(task)} tasks, {len(success)} --success).", fg="red", err=True)
+        raise typer.Exit(2)
+    try:
+        host, _ = host_entry(url)
+    except ConfigError as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2)
+    s = _settings(config)
+    try:
+        check_url(url, s.safety.allowlist)
+    except SafetyError:
+        if not allow:
+            typer.secho(f"{host} is not on the safety allowlist. Personas only visit sites you list there.\n"
+                        f"If this is your own staging or test site, run again with --allow to add it "
+                        f"(payments, emails and deletes stay blocked).", fg="red", err=True)
+            raise typer.Exit(3)
+        cfg_dir = Path(config) if config else Path("config")
+        path, added = add_to_allowlist(cfg_dir, url, note="added by synthux test --allow")
+        if added:
+            typer.echo(f"Added {host} to the allowlist in {path}.")
+        s = _settings(config)
+    parts = urlsplit(url)
+    base = f"{parts.scheme}://{parts.netloc}"
+    start = parts.path or "/"
+    if parts.query:
+        start += "?" + parts.query
+    raw = {"name": f"quick-{host}", "target": {"url": base},
+           "tasks": [{"id": f"task{i + 1}", "goal": goal, "start": start, "success_text": [done],
+                      "type": "find" if find else "do"} for i, (goal, done) in enumerate(zip(task, success))],
+           "personas": {"count": personas}, "repeats": repeats,
+           "conditions": {"device": device} if device else {}}
+    try:
+        st = Study.model_validate(raw)
+        for t in st.tasks:
+            check_url(st.task_url(t), s.safety.allowlist)
+    except (SafetyError, ValueError) as exc:
+        typer.secho(f"Refusing to run: {exc}", fg="red", err=True)
+        raise typer.Exit(3)
+    studies = s.data_dir / "studies"
+    studies.mkdir(parents=True, exist_ok=True)
+    saved = studies / f"{st.name}.yaml"
+    saved.write_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    db = _db(s)
+    profile = load_profile(s, db)
+    people = asyncio.run(PersonaGenerator().generate(personas, []))
+    save_personas(db, people, study=st.name)
+    orch = Orchestrator(s, db, st, profile)
+    estimate = orch.estimate(people, repeats)
+    typer.echo(f"{len(people)} personas x {len(st.tasks)} task(s) x {repeats} repeats on {base}")
+    typer.echo(estimate.describe())
+    if estimate.total_usd > 0 and not yes and not typer.confirm(f"This costs about ${estimate.total_usd:.2f}. Continue?"):
+        raise typer.Exit(1)
+
+    def progress(result) -> None:
+        typer.echo(f"  {result.task_id:8} {result.persona_id:16} rep{result.repeat_index}: {result.outcome}")
+
+    run_id = asyncio.run(orch.run(people, on_session=progress))
+    from synthux.judge.pipeline import verify_run
+
+    asyncio.run(verify_run(s, db, st, profile, run_id))
+    path = asyncio.run(ReportBuilder(s, db).build(run_id))
+    typer.secho(f"Report: {path}", fg="green")
+    typer.echo(f"This test was saved as {saved}; edit it to add tasks, then `synthux run {saved}`.")
+    if open_report:
+        webbrowser.open(path.resolve().as_uri())
 
 
 @app.command()
@@ -419,6 +597,75 @@ def calibrate_apply(calibration_id: str = typer.Argument(...),
     db.update("calibration_runs", "id", calibration_id, {"applied_version": new.version})
     typer.secho(f"new profile {new.version} (config/calibration/{new.version}.yaml). "
                 f"Use it with: synthux run STUDY --profile {new.version}", fg="green")
+
+
+@calibrate_app.command("search")
+def calibrate_search(
+    study: Path = typer.Argument(..., help="Study YAML whose tasks the real users also did."),
+    real: str = typer.Option(..., "--real", help="Real study id (from `synthux calibrate import`)."),
+    personas_n: int = typer.Option(6, "--personas", "-n", help="Personas per trial."),
+    repeats: int = typer.Option(1, help="Runs per persona and task in each trial."),
+    rounds: int = typer.Option(2, help="Passes over the knobs."),
+    apply: bool = typer.Option(False, "--apply", help="Save the best settings as a new profile version."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask before paid trials."),
+    profile_name: Optional[str] = typer.Option(None, "--profile", help="Profile to start from."),
+    config: Optional[Path] = ConfigOpt,
+) -> None:
+    """Try simulator settings automatically and keep what matches the real users best."""
+    import yaml
+
+    from synthux.calibration.search import KNOBS, search
+    from synthux.core.study import load_study
+    from synthux.personas.generate import PersonaGenerator, save_personas
+    from synthux.runner.orchestrator import Orchestrator
+    from synthux.safety.allowlist import SafetyError
+
+    s = _settings(config)
+    db = _db(s)
+    try:
+        st = load_study(study, s)
+    except (SafetyError, ConfigError) as exc:
+        typer.secho(f"Refusing to run: {exc}", fg="red", err=True)
+        raise typer.Exit(3)
+    base = Path(st.source_path).parent.parent if st.source_path else Path.cwd()
+    sources = [p if Path(p).is_absolute() else base / p for p in st.personas.sources]
+    people = asyncio.run(PersonaGenerator(seed=17).generate(personas_n, sources, st.personas.manual))
+    save_personas(db, people, study=st.name)
+    max_trials = 1 + rounds * sum(len(v) for v in KNOBS.values())
+    from synthux.calibration.profiles import load_profile
+
+    per_trial = Orchestrator(s, db, st, load_profile(s, db, profile_name)).estimate(people, repeats).total_usd
+    typer.echo(f"Up to {max_trials} trials of {len(people)} personas x shared tasks x {repeats} repeat(s); "
+               f"about ${per_trial:.2f} per trial.")
+    if per_trial > 0 and not yes and not typer.confirm(f"Up to ${per_trial * max_trials:.2f} in total. Continue?"):
+        raise typer.Exit(1)
+
+    def show(t) -> None:
+        knobs = ", ".join(f"{k} x{v:g}" for k, v in t.scales.items() if v != 1.0) or "current settings"
+        typer.echo(f"  {t.version:24} {knobs:34} score {t.score:.3f}  (completion MAE {t.completion_mae}, "
+                   f"quit-point agreement {t.quit_agreement})")
+
+    try:
+        result = asyncio.run(search(s, db, st, real, people, repeats=repeats, rounds=rounds,
+                                    profile_name=profile_name, on_trial=show))
+    except (ValueError, KeyError) as exc:
+        typer.secho(str(exc), fg="red", err=True)
+        raise typer.Exit(2)
+    best = result.best
+    if not result.improved:
+        typer.secho(f"The current settings ({result.base_version}) already match best (score {best.score:.3f}).",
+                    fg="green")
+        return
+    typer.secho(f"Best: {best.version} score {best.score:.3f} "
+                f"({', '.join(f'{k} x{v:g}' for k, v in best.scales.items() if v != 1.0)})", fg="green")
+    if apply and result.profile is not None:
+        path = s.config_dir / "calibration" / f"{best.version}.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"# Found by `synthux calibrate search` against {real} (score {best.score:.3f}).\n"
+                        + yaml.safe_dump(result.profile.model_dump(), sort_keys=False), encoding="utf-8")
+        typer.echo(f"Saved {path}. Use it with: synthux run STUDY --profile {best.version}")
+    else:
+        typer.echo(f"Try it with: synthux run {study} --profile {best.version}   (or re-run with --apply)")
 
 
 @calibrate_app.command("history")

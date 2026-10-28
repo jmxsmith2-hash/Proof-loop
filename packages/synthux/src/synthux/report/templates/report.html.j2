@@ -133,7 +133,10 @@ details { margin: 8px 0; } summary { cursor: pointer; color: var(--text-secondar
       </details>
     </div>
     <div>{% if t.image %}<a href="{{ t.image.full }}"><img src="{{ t.image.zoom }}" alt="Screenshot of {{ t.screen }} with the problem area outlined"></a>
-      <p class="small muted">Outlined: where it happened. Click for the full screenshot.</p>{% endif %}</div>
+      <p class="small muted">Outlined: where it happened. Click for the full screenshot.</p>{% endif %}
+      {% if t.replay_gif %}<details><summary>Replay the steps leading up to it</summary>
+        <img src="{{ t.replay_gif }}" loading="lazy" alt="Animated replay of the persona's last steps before this issue">
+        <p class="small muted">The persona's own screenshots; the red ring is where it clicked.</p></details>{% endif %}</div>
   </article>
   {% endfor %}
   {% if more %}
@@ -236,6 +239,19 @@ details { margin: 8px 0; } summary { cursor: pointer; color: var(--text-secondar
         <td class="small">{{ (r.judge_json or {}).get('reasons', [])|join('; ') }}</td></tr>{% endfor %}</table>
     </details>{% endif %}
   </div>
+</section>
+
+<section>
+  <h2>Accessibility (measured)</h2>
+  <p class="muted small">Measured on the screens the personas saw: text contrast against WCAG 2.2 AA (4.5:1, or 3:1 for
+    large text), very small text, and tap targets under 24 × 24 px on touch devices. These are measurements, not persona
+    opinions, and approximate (text size comes from OCR). Screens covered by a pop-up are skipped. A check like this
+    does not replace testing with assistive technology or with disabled users.</p>
+  {% if not a11y %}<p class="card">Nothing measured below the thresholds.</p>{% else %}
+  <table><tr><th>Check</th><th>Screen</th><th>What was measured</th><th>Seen on</th><th>Where</th></tr>
+  {% for f in a11y %}<tr><td>{{ f.title }}</td><td>{{ f.screen }}</td><td>{{ f.detail }}</td>
+    <td>{{ f.devices|join(', ') }}</td><td>{% if f.crop %}<img src="{{ f.crop }}" alt="{{ f.title }} on {{ f.screen }}" style="max-width:220px">{% endif %}</td></tr>
+  {% endfor %}</table>{% endif %}
 </section>
 
 <section>

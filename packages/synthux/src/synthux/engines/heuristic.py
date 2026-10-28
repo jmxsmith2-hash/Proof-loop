@@ -388,7 +388,10 @@ class HeuristicActor:
             if kind not in present or (ctx.last_signals and not ctx.last_signals.no_change):
                 mem.dismissed_popups.add(kind)
             elif ctx.last_signals and ctx.last_signals.no_change:
-                mem.popup_stuck.add(kind)
+                # Try once more before deciding it can't be closed (the first click may have missed).
+                mem.popup_misses[kind] = mem.popup_misses.get(kind, 0) + 1
+                if mem.popup_misses[kind] >= 2:
+                    mem.popup_stuck.add(kind)
         for kind, button in present.items():
             if button is None or kind in mem.popup_stuck:
                 continue
@@ -399,9 +402,11 @@ class HeuristicActor:
                 mem.dismissed_popups.discard(kind)
             mem.popup_pending = kind
             x, y = button.center
-            return _decision(ctx, items, Action("click", x=x, y=y, target=button.text),
-                             f"Closing the {kind} gets it out of my way.", f"I click '{button.text}' on the {kind}.",
-                             0.15, observations)
+            decision = _decision(ctx, items, Action("click", x=x, y=y, target=button.text),
+                                 f"Closing the {kind} gets it out of my way.", f"I click '{button.text}' on the {kind}.",
+                                 0.15, observations)
+            decision.dismisses_popup = True
+            return decision
         return None
 
     @staticmethod
@@ -747,6 +752,14 @@ class HeuristicActor:
         observations.append(Observation("cannot_find", "searched the whole page and found no way forward", None, 4))
         return _decision(ctx, items, Action("quit"), "There is no way forward.", "I give up.", 0.9,
                          observations, QUIT_LINES["cannot_find"])
+
+
+def modal_visible(screen: Screen) -> bool:
+    """A newsletter/offer pop-up is on screen (offer wording plus a way to close it, as the persona sees it)."""
+    if not any(w in screen.norm_text for w in MODAL_WORDS):
+        return False
+    return bool(HeuristicActor._short_button(screen.texts, MODAL_CLOSE) or
+                HeuristicActor._close_glyph(screen, screen.texts))
 
 
 def goal_keywords(goal: str) -> list[str]:

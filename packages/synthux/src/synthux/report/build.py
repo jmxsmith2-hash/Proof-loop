@@ -120,6 +120,7 @@ class ReportBuilder:
         for n, c in enumerate(promoted[:10]):
             rep = _representative(c)
             top.append({**cluster_summary(c), "rank": n + 1, "image": _evidence_image(rep, assets, c.id),
+                        "replay_gif": self._replay_gif(rep, assets, c.id),
                         "description": rep["description"],
                         "steps": (rep.get("evidence_json") or {}).get("steps", []),
                         "think": self._think(rep),
@@ -143,12 +144,47 @@ class ReportBuilder:
             "roster": self._roster(personas, sessions),
             "diversity": self._diversity(run["id"], personas),
             "limitations": LIMITATIONS,
+            "a11y": self._a11y(run["id"], assets),
             "counts": {"sessions": len(sessions), "personas": len(personas),
                        "completed": sum(1 for s in sessions if s["outcome"] == "completed"),
                        "quit": sum(1 for s in sessions if s["outcome"] in ("quit", "budget_exhausted")),
                        "agent_failures": sum(1 for s in sessions if s["outcome"] in ("agent_failure", "blocked")),
                        "promoted": len(promoted)},
         }
+
+    def _replay_gif(self, member: dict[str, Any], assets: Path, name: str) -> str | None:
+        """Animated replay of the persona's last steps up to the issue (from its own screenshots)."""
+        from synthux.report.replay_gif import issue_gif
+
+        steps = self.db.all("SELECT * FROM steps WHERE session_id = ? ORDER BY idx", [member["session_id"]])
+        try:
+            out = issue_gif(steps, member["step_idx"], assets / f"{name}_replay.gif", region=member.get("region_json"),
+                            evidence=(member.get("evidence_json") or {}).get("screenshot"))
+        except (OSError, ValueError) as exc:  # a screenshot went missing or is unreadable
+            log.warning("no replay for %s: %s", name, exc)
+            return None
+        return f"assets/{out.name}" if out else None
+
+    def _a11y(self, run_id: str, assets: Path, limit: int = 40) -> list[dict[str, Any]]:
+        from synthux.a11y import A11yFinding
+
+        rows = self.db.all("SELECT * FROM a11y_findings WHERE run_id = ? ORDER BY severity DESC, check_name, "
+                           "screen_id, measured", [run_id])
+        out = []
+        for i, r in enumerate(rows[:limit]):
+            f = A11yFinding(r["check_name"], r["screen_id"], r["text"], r["measured"], r["required"], r["severity"],
+                            r["region_json"] or {}, r["screenshot"] or "", r["devices_json"] or [])
+            crop = None
+            if f.screenshot and Path(f.screenshot).is_file() and f.region:
+                img = Image.open(f.screenshot).convert("RGB")
+                x, y, w, h = (f.region[k] for k in ("x", "y", "w", "h"))
+                box = (max(0, x - 40), max(0, y - 20), min(img.width, x + w + 40), min(img.height, y + h + 20))
+                assets.mkdir(parents=True, exist_ok=True)
+                img.crop(box).save(assets / f"a11y_{i}.png")
+                crop = f"assets/a11y_{i}.png"
+            out.append({"title": f.title, "detail": f.detail, "screen": f.screen_id, "severity": f.severity,
+                        "devices": f.devices, "crop": crop, "check": f.check})
+        return out
 
     def _think(self, member: dict[str, Any]) -> dict[str, Any]:
         """Think-aloud at the moment of the problem (the persona's reaction, for errors and slow loads)."""

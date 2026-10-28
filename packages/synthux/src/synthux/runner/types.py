@@ -66,6 +66,7 @@ class Decision:
     observations: list[Observation] = field(default_factory=list)
     quit_reason: str | None = None
     limitation: str | None = None     # set when the persona cannot perform what it needs (agent limitation)
+    dismisses_popup: bool = False     # closing a cookie banner or pop-up (the screen behind it is dimmed/covered)
 
 
 @dataclass
@@ -157,3 +158,4 @@ class SessionResult:
     frustration_timeline: list[float]
     memory: dict[str, Any]
     conditions: dict[str, Any]
+    a11y: list[Any] = field(default_factory=list)   # measured accessibility findings (synthux.a11y)

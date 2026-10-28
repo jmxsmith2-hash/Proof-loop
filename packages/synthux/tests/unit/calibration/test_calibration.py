@@ -120,3 +120,34 @@ def test_compare_end_to_end_on_stored_rows(db, settings):
     assert any(s["path"].startswith("frustration.threshold_by_patience") and s["to"] < s["from"]
                for s in result["suggestions"])
     assert history(db)[0]["agreement"] == result["metrics"]["agreement"]
+
+
+def test_search_scales_only_the_chosen_knobs():
+    from synthux.calibration.profiles import CalibrationProfile
+    from synthux.calibration.search import scaled_profile
+
+    base = CalibrationProfile()
+    p = scaled_profile(base, {"frustration": 0.5, "patience": 1.0, "perception": 2.0}, "default-search1")
+    assert p.version == "default-search1"
+    assert p.frustration.threshold_by_patience[3] == base.frustration.threshold_by_patience[3] * 0.5
+    assert p.patience == base.patience
+    assert p.perception.glance_contrast["normal"] == round(base.perception.glance_contrast["normal"] * 2, 2)
+    tiny = scaled_profile(base, {"patience": 0.01}, "x")
+    assert tiny.patience.base_steps == base.patience.min_steps          # never below the floor
+
+
+def test_search_score_rewards_matching_completion_and_quit_points(db):
+    from synthux.calibration.search import score_run
+
+    db.insert("runs", {"id": "run_a", "created_at": "t", "study": "s", "target_url": "u", "status": "done",
+                       "calibration_version": "default", "config_json": {"tasks": ["t1"]}})
+    for i, outcome in enumerate(["completed", "quit", "completed", "completed"]):
+        db.insert("sessions", {"id": f"ses_{i}", "run_id": "run_a", "persona_id": "p", "task_id": "t1",
+                               "repeat_index": i, "visit_index": 0, "seed": i, "conditions_json": {},
+                               "outcome": outcome, "steps_count": 1, "sim_seconds": 1, "wall_seconds": 1,
+                               "final_frustration": 0, "memory_json": {}, "started_at": "t", "ended_at": "t"})
+    real = {"tasks": [{"task_id": "t1", "participants": 4, "completed": 3}], "quits": {}}
+    score, mae, quits = score_run(db, "run_a", real, ["t1"])
+    assert mae == 0.0 and score == 1.0
+    worse = {"tasks": [{"task_id": "t1", "participants": 4, "completed": 1}], "quits": {}}
+    assert score_run(db, "run_a", worse, ["t1"])[0] < score

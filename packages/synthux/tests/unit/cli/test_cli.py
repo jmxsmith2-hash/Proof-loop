@@ -50,3 +50,33 @@ def test_calibrate_import_and_physical_review(tmp_path):
                               "-o", str(tmp_path / "phys"), "-c", str(cfg)])
     assert out.exit_code == 0 and "PREDICTION, NOT A TEST" in out.output
     assert (tmp_path / "phys" / "index.html").is_file()
+
+
+def test_quick_test_refuses_sites_off_the_allowlist_and_checks_its_arguments(tmp_path):
+    cfg = _config(tmp_path)
+    out = runner.invoke(app, ["test", "https://shop.example.com/", "-t", "Buy a lamp", "-s", "Thank you", "-c", str(cfg)])
+    assert out.exit_code == 3 and "--allow" in out.output
+    assert not (cfg / "settings.yaml").exists()                    # nothing was changed without --allow
+    out = runner.invoke(app, ["test", "https://shop.example.com/", "-t", "A", "-t", "B", "-s", "done", "-c", str(cfg)])
+    assert out.exit_code == 2 and "one --success per --task" in out.output
+    out = runner.invoke(app, ["test", "ftp://shop.example.com/", "-t", "A", "-s", "done", "-c", str(cfg)])
+    assert out.exit_code == 2
+
+
+def test_init_web_and_cad(tmp_path, monkeypatch):
+    cfg = _config(tmp_path)
+    (cfg / "printers.yaml").write_text((REPO / "config" / "printers.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    answers = "web\nhttps://staging.example.com/\ny\nFind the opening hours\nOpen today\ny\n\n4\n"
+    out = runner.invoke(app, ["init", "-c", str(cfg)], input=answers)
+    assert out.exit_code == 0, out.output
+    study = (tmp_path / "studies" / "staging-example-com.yaml").read_text(encoding="utf-8")
+    assert "Find the opening hours" in study and "type: find" in study
+    assert "staging.example.com" in (cfg / "settings.yaml").read_text(encoding="utf-8")
+    run = runner.invoke(app, ["run", "studies/staging-example-com.yaml", "--dry-run", "-c", str(cfg)])
+    assert run.exit_code == 0, run.output                          # the written study is valid and allowed
+    stl = REPO / "examples" / "cad" / "phone_stand_v1.stl"
+    out = runner.invoke(app, ["init", "-c", str(cfg)], input=f"cad\n{stl}\nPhone stand\nHolds a phone\n\nPLA\nn\n\n")
+    assert out.exit_code == 0, out.output
+    design = (tmp_path / "designs" / "phone_stand.yaml").read_text(encoding="utf-8")
+    assert "name: Phone stand" in design and "physical check" in out.output

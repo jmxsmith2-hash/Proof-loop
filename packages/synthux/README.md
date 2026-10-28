@@ -46,6 +46,16 @@ Python 3.11+ (and tells you the `winget` command if it is missing), creates
 Then open a new terminal in the folder and run `.venv\Scripts\activate`.
 **macOS / Linux:** `sh scripts/setup_unix.sh` does the same.
 
+**Fastest start:** `synthux init` asks a few questions, then writes a study for a website or a design
+file for a CAD part. Or test a site in one line, with no file at all:
+
+```bash
+synthux test https://staging.example.com/ --task "Find the returns policy" --success "30 days" --find --allow --open
+```
+
+`--allow` adds the site to the allowlist as a real site, where payments, emails and deletes stay blocked.
+The test is saved under `data/studies/` so you can edit it and run it again.
+
 By hand:
 
 ```bash
@@ -214,6 +224,12 @@ Useful options: `--task signup`, `--persona per_xxx`, `--repeats 5`,
 
 ## Reading the report
 
+* **Replays**: each top issue has a short animated replay of the persona's last steps. The clicks are marked,
+  and the replay ends on the screen where the problem shows.
+* **Accessibility (measured)**: text contrast against WCAG 2.2 AA, very small text, and tap targets under
+  24 × 24 px on touch screens. Each is measured on the full-quality screenshots of every screen the personas
+  saw, and screens covered by a pop-up are skipped. These are measurements, kept apart from persona findings.
+
 * **Header**: the synthetic-data disclaimer, engines, calibration profile,
   repeats and cost.
 * **Top 10 issues**: severity, confidence (high/medium/low), screen, sessions
@@ -240,6 +256,17 @@ synthux calibrate apply cal_xxx --only 1,3      # creates profile default-cal1 (
 synthux run studies/demo.yaml --profile default-cal1
 synthux calibrate history                       # agreement over versions (also on the dashboard)
 ```
+
+Or let it search for the settings automatically:
+
+```bash
+synthux calibrate search studies/demo.yaml --real real_xxx --apply
+```
+
+It re-runs the shared tasks with scaled patience, frustration and perception settings, one at a time, and
+keeps whichever version brings completion rates and quit points closest to the real users. Every trial uses
+the same random seeds, so the differences come from the settings alone. With the free engine it costs
+nothing; a paid engine asks first. On the bundled example it raised agreement from 0.50 to 0.63.
 
 `compare` reports three lists: issues **both** found, issues **only real users**
 found, and issues **only the personas** found. It also reports these metrics:

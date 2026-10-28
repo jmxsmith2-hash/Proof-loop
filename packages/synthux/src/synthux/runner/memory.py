@@ -37,7 +37,8 @@ class SessionMemory:
     last_scroll_dy: int = 0
     dismissed_popups: set[str] = field(default_factory=set)   # closed and confirmed gone
     popup_pending: str = ""                                    # closed last step, not yet confirmed
-    popup_stuck: set[str] = field(default_factory=set)         # closing it did nothing (covered?)
+    popup_stuck: set[str] = field(default_factory=set)         # closing it did nothing twice (covered?)
+    popup_misses: dict[str, int] = field(default_factory=dict)  # close clicks that did nothing, per pop-up
     ticked: set[str] = field(default_factory=set)
     nav_tried: dict[str, set[str]] = field(default_factory=dict)
     target_pending: tuple[str, dict[str, Any]] | None = None     # clicked; kept if it worked

@@ -19,8 +19,10 @@ def test_newsletter_popup_is_closed_before_the_cookie_banner_under_it():
     assert d.action.target == "No thanks"
 
 
-def test_popup_that_does_not_close_is_left_alone():
+def test_popup_that_does_not_close_is_tried_again_then_left_alone():
     mem = SessionMemory(popup_pending="pop-up")
+    again = decide(ctx(screen(POPUP + COOKIES), mem=mem, last=Signals(no_change=True)))
+    assert again.action.target == "No thanks" and not mem.popup_stuck   # the first click may have missed
     d = decide(ctx(screen(POPUP + COOKIES), mem=mem, last=Signals(no_change=True)))
     assert d.action.target == "Accept all" and "pop-up" in mem.popup_stuck
 

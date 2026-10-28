@@ -55,8 +55,11 @@ class Orchestrator:
     # ----------------------------------------------------------------- run
     async def run(self, personas: list[Persona], *, repeats: int | None = None, run_id: str | None = None,
                   task_ids: list[str] | None = None,
-                  on_session: Callable[[SessionResult], None] | None = None) -> str:
+                  on_session: Callable[[SessionResult], None] | None = None, seed_key: str | None = None) -> str:
+        """`seed_key` fixes the sessions' random seeds (instead of the run id): runs that share it differ only
+        in their settings, which is what a calibration search compares."""
         run_id = run_id or new_id("run")
+        seed_key = seed_key or run_id
         n_repeats = self.repeats(repeats)
         tasks = [t for t in self.study.tasks if not task_ids or t.id in task_ids]
         out_dir = self.settings.data_dir / "runs" / run_id
@@ -84,7 +87,7 @@ class Orchestrator:
                     async with semaphore:
                         result = await runner.run(
                             pool, persona, task, actor_for(persona, self.gateway),
-                            seed=session_seed(run_id, persona.id, task.id, repeat) + visit,
+                            seed=session_seed(seed_key, persona.id, task.id, repeat) + visit,
                             repeat_index=repeat, visit_index=visit, memory=memory)
                     self._store(run_id, result)
                     if on_session:
@@ -118,6 +121,23 @@ class Orchestrator:
             self.db.insert("steps", step_to_row(result.session_id, step))
         for issue in result.issues:
             self.db.insert("issues", issue_row(run_id, result, issue))
+        store_a11y(self.db, run_id, result.a11y)
+
+
+def store_a11y(db: Database, run_id: str, findings: list[Any]) -> None:
+    """One row per (check, screen, text) per run; the devices it was seen on accumulate."""
+    for f in findings:
+        row = db.one("SELECT id, devices_json, measured FROM a11y_findings WHERE run_id = ? AND check_name = ? "
+                     "AND screen_id = ? AND text = ?", [run_id, f.check, f.screen_id, f.text])
+        if row is None:
+            db.insert("a11y_findings", {"run_id": run_id, "check_name": f.check, "screen_id": f.screen_id,
+                                        "text": f.text, "measured": f.measured, "required": f.required,
+                                        "severity": f.severity, "region_json": f.region, "screenshot": f.screenshot,
+                                        "devices_json": list(f.devices)})
+        else:
+            devices = sorted(set(row["devices_json"]) | set(f.devices))
+            db.execute("UPDATE a11y_findings SET devices_json = ?, measured = ? WHERE id = ?",
+                       [devices, min(row["measured"], f.measured), row["id"]])
 
 
 def issue_row(run_id: str, result: SessionResult, issue: Any) -> dict[str, Any]:
