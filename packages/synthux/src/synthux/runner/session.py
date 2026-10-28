@@ -162,7 +162,8 @@ class SessionRunner:
                                last_signals=last_signals, last_timing=last_timing, browser_busy=browser.nav_pending,
                                interrupted=interrupted, framing=self.study.target.framing,
                                competitor_label=self.study.target.competitor_label,
-                               prompt_notes=self.profile.prompt_notes, rng=rng, seed=seed * 1000 + idx)
+                               prompt_notes=self.profile.prompt_notes, rng=rng, seed=seed * 1000 + idx,
+                               perception=self.profile.perception.model_dump())
             interrupted = False
             try:
                 decision = await actor.decide(ctx)

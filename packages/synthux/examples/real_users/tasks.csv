@@ -1,0 +1,7 @@
+task_id,participants,completed,median_seconds,quit_screen,quit_reason,quit_count
+signup,8,3,260,/signup,"kept saying invalid input, no idea which field",5
+choose_plan,8,4,140,/plans,could not find how to continue after picking a plan,4
+shipping,8,7,35,/cart,thought the site had frozen,1
+place_order,8,6,50,/checkout,worried the card was charged after the error,2
+login,8,8,25,,,
+contact,8,8,15,,,

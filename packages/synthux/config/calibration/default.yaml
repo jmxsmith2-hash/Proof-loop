@@ -1,6 +1,9 @@
 # Simulator parameters that calibration against real users adjusts.
 # Every run stores the version of this profile it used.
 version: default
+perception:                      # heuristic engine: contrast needed to notice text
+  glance_contrast: {normal: 2.2, color_blind: 2.3, low_vision: 3.6}
+  careful_contrast: {normal: 1.3, color_blind: 1.35, low_vision: 2.4}
 patience:
   base_steps: 14                 # step budget for a persona with patience 3
   steps_per_patience_point: 5    # +/- per patience point

@@ -1,0 +1,8 @@
+task_id,screen,title,description,severity,participants_affected,category
+signup,/signup,Date of birth format is not explained,Participants typed 03/14/1985 and got rejected,3,6,
+signup,/signup,Form wiped all fields after the error,Everything had to be retyped,3,5,
+signup,/signup,Unclear what the ID field wants,"Some typed email, some a username",2,4,
+choose_plan,/plans,Continue button nearly invisible,Light grey on white at the very bottom,4,5,
+choose_plan,/plans,Unclear if plan prices are monthly or yearly,Participants asked whether $5 is per month,2,3,
+shipping,/shipping,"Shipping page slow, looked frozen",No spinner; people clicked again,2,4,
+place_order,/checkout,Error 0x3F means nothing,Error code with no explanation,3,6,

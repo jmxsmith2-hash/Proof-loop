@@ -52,8 +52,15 @@ class NoveltyParams(BaseModel):
     min_share_low_familiarity: float = 0.75
 
 
+class PerceptionParams(BaseModel):
+    """Contrast a persona needs to notice text at a glance, and when looking carefully (heuristic engine)."""
+    glance_contrast: dict[str, float] = Field(default_factory=lambda: {"normal": 2.2, "color_blind": 2.3, "low_vision": 3.6})
+    careful_contrast: dict[str, float] = Field(default_factory=lambda: {"normal": 1.3, "color_blind": 1.35, "low_vision": 2.4})
+
+
 class CalibrationProfile(BaseModel):
     version: str = "default"
+    perception: PerceptionParams = Field(default_factory=PerceptionParams)
     patience: PatienceParams = Field(default_factory=PatienceParams)
     frustration: FrustrationParams = Field(default_factory=FrustrationParams)
     elicitation: ElicitationParams = Field(default_factory=ElicitationParams)

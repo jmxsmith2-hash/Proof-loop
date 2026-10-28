@@ -34,7 +34,8 @@ async def aggregate_run(db: Database, run_id: str, promote_min: int,
             "runs_total": d["recurrence"]["repeats"], "personas_json": d["personas"], "score": d["score"],
             "confidence": d["confidence"], "promoted": d["promoted"], "novelty": d["novelty"],
             "low_confidence_personas": len(d["low_confidence_personas"]), "replay_status": d["replay"],
-            "member_ids_json": [m["id"] for m in c.members], "detail_json": {**d, "tasks": c.tasks},
+            "member_ids_json": [m["id"] for m in c.members],
+            "detail_json": {**d, "tasks": c.tasks, "description": c.members[0]["description"]},
         })
         for m in c.members:
             db.update("issues", "id", m["id"], {"cluster_id": cid})

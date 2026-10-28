@@ -60,21 +60,25 @@ class FieldView:
 # ----------------------------------------------------------- perception
 
 
-def glance_threshold(t: Traits) -> float:
-    base = {"normal": 2.2, "color_blind": 2.3, "low_vision": 3.6}[t.eyesight]
+DEFAULT_PERCEPTION = {"glance_contrast": {"normal": 2.2, "color_blind": 2.3, "low_vision": 3.6},
+                      "careful_contrast": {"normal": 1.3, "color_blind": 1.35, "low_vision": 2.4}}
+
+
+def glance_threshold(t: Traits, perception: dict | None = None) -> float:
+    base = (perception or DEFAULT_PERCEPTION)["glance_contrast"][t.eyesight]
     base += {"scanner": 0.4, "methodical": -0.2, "explorer": 0.0}[t.style]
     if t.time_pressure or t.mood != "calm":
         base += 0.3
     return base
 
 
-def careful_threshold(t: Traits) -> float:
-    return {"normal": 1.3, "color_blind": 1.35, "low_vision": 2.4}[t.eyesight]
+def careful_threshold(t: Traits, perception: dict | None = None) -> float:
+    return (perception or DEFAULT_PERCEPTION)["careful_contrast"][t.eyesight]
 
 
-def noticed(screen: Screen, traits: Traits, careful: bool) -> list[TextBox]:
+def noticed(screen: Screen, traits: Traits, careful: bool, perception: dict | None = None) -> list[TextBox]:
     """Text a person with these traits would notice on this screen."""
-    min_contrast = careful_threshold(traits) if careful else glance_threshold(traits)
+    min_contrast = careful_threshold(traits, perception) if careful else glance_threshold(traits, perception)
     min_height = 12 if traits.eyesight == "low_vision" else 9
     return [t for t in screen.texts if t.contrast >= min_contrast and t.height >= min_height and t.conf >= 0.5]
 
@@ -217,7 +221,7 @@ class HeuristicActor:
 
     def _decide(self, ctx: ActorContext) -> Decision:
         screen, mem, t = ctx.screen, ctx.memory, ctx.persona.traits
-        items = noticed(screen, t, mem.careful)
+        items = noticed(screen, t, mem.careful, ctx.perception)
         observations: list[Observation] = []
         if ctx.interrupted:
             observations.append(Observation("interruption", "came back after an interruption"))

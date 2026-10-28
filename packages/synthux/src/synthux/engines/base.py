@@ -33,6 +33,7 @@ class ActorContext:
     prompt_notes: list[str]
     rng: random.Random
     seed: int
+    perception: dict | None = None  # calibrated contrast thresholds (heuristic engine)
 
 
 class Actor(Protocol):

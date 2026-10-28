@@ -22,7 +22,9 @@ app = typer.Typer(help="Synthetic user testing: personas that use your product l
 personas_app = typer.Typer(help="Create and inspect personas.", no_args_is_help=True)
 physical_app = typer.Typer(help="Predictive feedback on physical products (prediction, not a test).",
                            no_args_is_help=True)
+calibrate_app = typer.Typer(help="Compare with real users and tune the simulator.", no_args_is_help=True)
 app.add_typer(personas_app, name="personas")
+app.add_typer(calibrate_app, name="calibrate")
 app.add_typer(physical_app, name="physical")
 
 ConfigOpt = typer.Option(None, "--config", "-c", help="Config directory (default: ./config).")
@@ -117,6 +119,7 @@ def run(
     dry_run: bool = typer.Option(False, "--dry-run", help="Show the plan and estimated cost, then stop."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask before a paid run."),
     no_verify: bool = typer.Option(False, "--no-verify", help="Skip judge, replay and questionnaires."),
+    profile_name: Optional[str] = typer.Option(None, "--profile", help="Calibration profile version to use."),
     config: Optional[Path] = ConfigOpt,
 ) -> None:
     """Run personas against the study's target (allowlisted URLs only)."""
@@ -133,7 +136,7 @@ def run(
     except (SafetyError, ConfigError) as exc:
         typer.secho(f"Refusing to run: {exc}", fg="red", err=True)
         raise typer.Exit(3)
-    profile = load_profile(s, db)
+    profile = load_profile(s, db, profile_name)
     people = load_personas(db, ids=persona or st.personas.ids or None, study=None if (persona or st.personas.ids) else st.name)
     if not people:
         typer.echo("No stored personas for this study; generating them now.")
@@ -217,6 +220,90 @@ def personas_regenerate(persona_id: str = typer.Argument(..., help="Persona to r
     db.execute("UPDATE personas SET study = ? WHERE id = ?", [f"{study}:retired", persona_id])
     save_personas(db, [new], study=study)
     typer.echo(f"{persona_id} retired; new persona {new.id}: {new.label}")
+
+
+# ------------------------------------------------------------- calibrate
+
+
+@calibrate_app.command("import")
+def calibrate_import(
+    json_file: Optional[Path] = typer.Option(None, "--json", help="Real-user results as JSON."),
+    tasks_csv: Optional[Path] = typer.Option(None, "--tasks", help="Real-user task results CSV."),
+    issues_csv: Optional[Path] = typer.Option(None, "--issues", help="Real-user issues CSV."),
+    name: str = typer.Option("", help="Name for this real-user study."),
+    config: Optional[Path] = ConfigOpt,
+) -> None:
+    """Import results from a real user test (completion, quit points, issues)."""
+    from synthux.calibration.importer import ImportError_, import_real_study, load_real_results
+
+    db = _db(_settings(config))
+    try:
+        data = load_real_results(json_file, tasks_csv, issues_csv)
+    except ImportError_ as exc:
+        typer.secho(f"Import failed: {exc}", fg="red", err=True)
+        raise typer.Exit(2)
+    study_id = import_real_study(db, name, data, str(json_file or tasks_csv))
+    typer.secho(f"imported real study {study_id}. Next: synthux calibrate compare RUN_ID --real {study_id}", fg="green")
+
+
+@calibrate_app.command("compare")
+def calibrate_compare(run_id: str = typer.Argument(...), real: str = typer.Option(..., "--real", help="Real study id."),
+                      config: Optional[Path] = ConfigOpt) -> None:
+    """Compare a synthetic run with real-user results and suggest parameter changes."""
+    from synthux.calibration.compare import compare
+
+    s = _settings(config)
+    result = asyncio.run(compare(s, _db(s), run_id, real))
+    m = result["metrics"]
+    typer.echo(f"agreement score {m['agreement']:.2f}  (issues F1 {m['issues']['f1']:.2f}, precision "
+               f"{m['issues']['precision']}, recall {m['issues']['recall']}; completion MAE {m['completion']['mae']}; "
+               f"quit-point agreement {m['quits']['top_agreement']})")
+    typer.echo("\nFound by both:")
+    for b in result["both"]:
+        typer.echo(f"  = {b['real']}  <->  {b['synthetic']} ({b['screen']})")
+    typer.echo("Only real users found:")
+    for r in result["real_only"]:
+        typer.echo(f"  - {r['title']} ({r['screen']})")
+    typer.echo("Only the personas found:")
+    for r in result["synthetic_only"]:
+        typer.echo(f"  + {r['title']} ({r['screen']})")
+    typer.echo("\nSuggested adjustments:")
+    for sug in result["suggestions"]:
+        typer.echo(f"  [{sug['id']}] {sug['path']}: {sug['from']} -> {sug['to']}  ({sug['reason']})")
+    typer.secho(f"\ncalibration {result['id']}. Apply with: synthux calibrate apply {result['id']} [--only 1,2]",
+                fg="green")
+
+
+@calibrate_app.command("apply")
+def calibrate_apply(calibration_id: str = typer.Argument(...),
+                    only: str = typer.Option("", help="Comma-separated suggestion ids (default: all)."),
+                    config: Optional[Path] = ConfigOpt) -> None:
+    """Apply suggestions as a new, versioned calibration profile."""
+    from synthux.calibration.profiles import load_profile
+    from synthux.calibration.tune import apply_suggestions
+
+    s = _settings(config)
+    db = _db(s)
+    row = db.one("SELECT * FROM calibration_runs WHERE id = ?", [calibration_id])
+    if row is None:
+        typer.secho(f"no calibration {calibration_id}", fg="red", err=True)
+        raise typer.Exit(2)
+    ids = [int(x) for x in only.split(",") if x.strip()] or None
+    new = apply_suggestions(db, load_profile(s, db, row["profile_version"]), row["suggestions_json"],
+                            s.config_dir, only=ids, note=f"from {calibration_id}")
+    db.update("calibration_runs", "id", calibration_id, {"applied_version": new.version})
+    typer.secho(f"new profile {new.version} (config/calibration/{new.version}.yaml). "
+                f"Use it with: synthux run STUDY --profile {new.version}", fg="green")
+
+
+@calibrate_app.command("history")
+def calibrate_history(config: Optional[Path] = ConfigOpt) -> None:
+    """Agreement with real users over time, per profile version."""
+    from synthux.calibration.compare import history
+
+    for h in history(_db(_settings(config))):
+        typer.echo(f"{h['created_at']}  {h['id']}  profile {h['profile']:16} agreement {h['agreement']:.2f}  "
+                   f"F1 {h['f1']:.2f}  completion MAE {h['completion_mae']}  -> applied {h['applied'] or '-'}")
 
 
 @app.command()
