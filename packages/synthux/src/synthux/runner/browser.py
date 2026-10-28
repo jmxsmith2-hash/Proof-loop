@@ -53,6 +53,20 @@ def _small(png: bytes) -> Any:
     return np.asarray(Image.open(io.BytesIO(png)).convert("L").resize((200, 125)), dtype=np.int16)
 
 
+def _changed_pixels(a: bytes, b: bytes) -> int:
+    """Full-resolution count of pixels that differ visibly (for changes too small to see when downscaled)."""
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    x = np.asarray(Image.open(io.BytesIO(a)).convert("L"), dtype=np.int16)
+    y = np.asarray(Image.open(io.BytesIO(b)).convert("L"), dtype=np.int16)
+    if x.shape != y.shape:
+        return x.size
+    return int((np.abs(x - y) > 10).sum())
+
+
 def _diff(a: Any, b: Any) -> float:
     import numpy as np
 
@@ -320,7 +334,11 @@ class BrowserSession:
         final_small = _small(png)
         intermediate = sum(1 for _, f in frames[:-1]
                            if _diff(f, before_small) >= MAJOR_CHANGE and _diff(f, final_small) >= MAJOR_CHANGE)
-        responded = major_change is not None or (first_change is not None and not self.nav_pending)
+        # A change that is gone once the screen settles (a tap highlight flashing) is not a response;
+        # one that stays (a ticked box, a new page) is.
+        lasting = hashlib.sha1(png).digest() != before_hash and (
+            _diff(final_small, before_small) > 0 or _changed_pixels(png, before) >= 20)
+        responded = major_change is not None or (first_change is not None and lasting and not self.nav_pending)
         settled = time.monotonic() - start
         if quiet:
             settled = max(settled, max_wait)  # the persona would have waited this long for nothing
