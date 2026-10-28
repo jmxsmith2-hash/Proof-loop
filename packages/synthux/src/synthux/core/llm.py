@@ -67,6 +67,7 @@ class LLMResponse:
     cached: bool = False
     cache_read_tokens: int = 0    # input served from the provider's prompt cache (billed at ~0.1x)
     cache_write_tokens: int = 0   # input written to the prompt cache (billed at ~1.25x)
+    price_factor: float = 1.0     # 0.5 for batch requests
 
 
 class LLMClient(Protocol):
@@ -145,7 +146,7 @@ class AnthropicClient:
     # only risks a truncated (invalid) answer.
     MIN_MAX_TOKENS = 8000
 
-    async def complete(self, request: LLMRequest, model: str) -> LLMResponse:
+    def _params(self, request: LLMRequest, model: str) -> dict[str, Any]:
         content: list[dict[str, Any]] = [
             {"type": "image", "source": {"type": "base64", "media_type": _media_type(img),
                                          "data": base64.standard_b64encode(img).decode("ascii")}}
@@ -158,21 +159,10 @@ class AnthropicClient:
         output_config: dict[str, Any] = {"format": {"type": "json_schema", "schema": _strict_schema(request.schema)}}
         if request.effort:
             output_config["effort"] = request.effort
-        a = self._anthropic
-        try:
-            response = await self._client.messages.create(
-                model=model,
-                max_tokens=max(request.max_tokens, self.MIN_MAX_TOKENS),
-                system=system,
-                messages=[{"role": "user", "content": content}],
-                output_config=output_config,
-            )
-        except a.RateLimitError as exc:
-            raise LLMError(f"rate limited by Anthropic: {exc}") from exc
-        except a.APIStatusError as exc:
-            raise LLMError(f"Anthropic API error {exc.status_code}: {exc.message}") from exc
-        except a.APIConnectionError as exc:
-            raise LLMError(f"could not reach Anthropic: {exc}") from exc
+        return {"model": model, "max_tokens": max(request.max_tokens, self.MIN_MAX_TOKENS), "system": system,
+                "messages": [{"role": "user", "content": content}], "output_config": output_config}
+
+    def _parse(self, response: Any, model: str) -> LLMResponse:
         if response.stop_reason == "refusal":
             raise LLMError("the model declined this request")
         if response.stop_reason == "max_tokens":
@@ -187,6 +177,76 @@ class AnthropicClient:
                            input_tokens=usage.input_tokens, output_tokens=usage.output_tokens,
                            cache_read_tokens=int(getattr(usage, "cache_read_input_tokens", 0) or 0),
                            cache_write_tokens=int(getattr(usage, "cache_creation_input_tokens", 0) or 0))
+
+    async def complete(self, request: LLMRequest, model: str) -> LLMResponse:
+        a = self._anthropic
+        try:
+            response = await self._client.messages.create(**self._params(request, model))
+        except a.RateLimitError as exc:
+            raise LLMError(f"rate limited by Anthropic: {exc}") from exc
+        except a.APIStatusError as exc:
+            raise LLMError(f"Anthropic API error {exc.status_code}: {exc.message}") from exc
+        except a.APIConnectionError as exc:
+            raise LLMError(f"could not reach Anthropic: {exc}") from exc
+        return self._parse(response, model)
+
+
+class AnthropicBatchClient(AnthropicClient):
+    """Claude through the Message Batches API: half price, but results take minutes (up to 24 h).
+
+    Calls that arrive within `window` seconds of each other go into one batch, so a verification step that
+    asks many questions at once (one review per issue, one questionnaire per session) waits for one batch.
+    Only for roles where nobody is waiting on each answer; the per-step persona never uses it.
+    """
+
+    PRICE_FACTOR = 0.5
+
+    def __init__(self, window: float = 3.0, poll: float = 15.0) -> None:
+        super().__init__()
+        self.window, self.poll = window, poll
+        self._pending: list[tuple[LLMRequest, str, asyncio.Future]] = []
+        self._flusher: asyncio.Task | None = None
+
+    async def complete(self, request: LLMRequest, model: str) -> LLMResponse:
+        future: asyncio.Future = asyncio.get_running_loop().create_future()
+        self._pending.append((request, model, future))
+        if self._flusher is None:
+            self._flusher = asyncio.create_task(self._flush())
+        return await future
+
+    async def _flush(self) -> None:
+        await asyncio.sleep(self.window)
+        batch, self._pending, self._flusher = self._pending, [], None
+        a = self._anthropic
+        try:
+            created = await self._client.messages.batches.create(requests=[
+                {"custom_id": str(i), "params": self._params(req, model)} for i, (req, model, _) in enumerate(batch)])
+            log.info("submitted batch %s with %d requests (half price; results usually within minutes)",
+                     created.id, len(batch))
+            while (await self._client.messages.batches.retrieve(created.id)).processing_status != "ended":
+                await asyncio.sleep(self.poll)
+            results = {}
+            async for item in await self._client.messages.batches.results(created.id):
+                results[item.custom_id] = item.result
+        except (a.APIStatusError, a.APIConnectionError) as exc:
+            for _, _, future in batch:
+                if not future.done():
+                    future.set_exception(LLMError(f"Anthropic batch failed: {exc}"))
+            return
+        for i, (_, model, future) in enumerate(batch):
+            result = results.get(str(i))
+            if future.done():
+                continue
+            if result is None or result.type != "succeeded":
+                kind = getattr(result, "type", "missing")
+                future.set_exception(LLMError(f"batch request {kind}"))
+                continue
+            try:
+                response = self._parse(result.message, model)
+                response.price_factor = self.PRICE_FACTOR
+                future.set_result(response)
+            except LLMError as exc:
+                future.set_exception(exc)
 
 
 def _media_type(img: bytes) -> str:
@@ -275,7 +335,11 @@ class LLMGateway:
     def is_model_backed(self, role: str) -> bool:
         return self.engine_for(role) != "heuristic"
 
-    def _client(self, engine: str) -> LLMClient:
+    def _client(self, engine: str, role: str = "") -> LLMClient:
+        if engine == "anthropic" and self.settings.engine.batch and role in self.settings.engine.batch_roles:
+            if "anthropic-batch" not in self._clients:
+                self._clients["anthropic-batch"] = AnthropicBatchClient()
+            return self._clients["anthropic-batch"]
         if engine not in self._clients:
             if engine == "anthropic":
                 self._clients[engine] = AnthropicClient()
@@ -302,10 +366,11 @@ class LLMGateway:
         if request.cacheable and (hit := self._cache_get(key)) is not None:
             self._record(request.role, engine, model, 0, 0, 0.0, cached=True)
             return LLMResponse(data=hit, engine=engine, model=model, cached=True)
-        client = self._client(engine)
+        client = self._client(engine, request.role)
         response = await self._call_validated(client, request, model)
-        response.cost_usd = call_cost(self.settings, engine, model, response.input_tokens, response.output_tokens,
-                                      cache_read=response.cache_read_tokens, cache_write=response.cache_write_tokens)
+        response.cost_usd = response.price_factor * call_cost(
+            self.settings, engine, model, response.input_tokens, response.output_tokens,
+            cache_read=response.cache_read_tokens, cache_write=response.cache_write_tokens)
         self.spent_usd += response.cost_usd
         if request.cacheable:
             self._cache_put(key, model, response.data)

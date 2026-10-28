@@ -162,3 +162,73 @@ def test_estimate_is_far_lower_with_the_hybrid_persona(settings):
     settings.engine.roles = {"actor": "hybrid"}
     hyb = estimate_run(settings, sessions=100, avg_steps=8, viewport=(1280, 800)).total_usd
     assert 0 < hyb < full * 0.5
+
+
+def test_batch_client_groups_concurrent_calls_into_one_half_price_batch():
+    from synthux.core.llm import AnthropicBatchClient
+
+    created = []
+
+    def message(text):
+        usage = types.SimpleNamespace(input_tokens=100, output_tokens=10, cache_read_input_tokens=0,
+                                      cache_creation_input_tokens=0)
+        return types.SimpleNamespace(stop_reason="end_turn", usage=usage,
+                                     content=[types.SimpleNamespace(type="text", text=text)])
+
+    class Results:
+        def __init__(self, items):
+            self.items = items
+
+        def __aiter__(self):
+            self._it = iter(self.items)
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._it)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    class Batches:
+        async def create(self, requests):
+            created.append(list(requests))
+            return types.SimpleNamespace(id="msgbatch_1")
+
+        async def retrieve(self, batch_id):
+            return types.SimpleNamespace(processing_status="ended")
+
+        async def results(self, batch_id):
+            items = []
+            for r in reversed(created[-1]):            # results come back in any order
+                prompt = r["params"]["messages"][0]["content"][-1]["text"]
+                if prompt == "bad":
+                    items.append(types.SimpleNamespace(custom_id=r["custom_id"],
+                                                       result=types.SimpleNamespace(type="errored")))
+                else:
+                    items.append(types.SimpleNamespace(custom_id=r["custom_id"], result=types.SimpleNamespace(
+                        type="succeeded", message=message(f'{{"answer": {len(prompt)}}}'))))
+            return Results(items)
+
+    client = AnthropicBatchClient.__new__(AnthropicBatchClient)
+    client._anthropic = types.SimpleNamespace(RateLimitError=KeyError, APIStatusError=KeyError,
+                                              APIConnectionError=KeyError)
+    client._client = types.SimpleNamespace(messages=types.SimpleNamespace(batches=Batches()))
+    client.window, client.poll, client._pending, client._flusher = 0.01, 0.01, [], None
+
+    async def go():
+        reqs = [LLMRequest(role="judge", system="s", prompt=p, schema={"type": "object"}) for p in ("a", "bbb", "bad")]
+        return await asyncio.gather(*(client.complete(r, "claude-opus-5-5") for r in reqs), return_exceptions=True)
+
+    a, b, bad = asyncio.run(go())
+    assert len(created) == 1 and len(created[0]) == 3          # one batch for all three
+    assert a.data == {"answer": 1} and b.data == {"answer": 3}  # matched by custom_id, not position
+    assert a.price_factor == 0.5 and isinstance(bad, LLMError)
+
+
+def test_batch_mode_halves_the_estimate_for_verification_roles(settings):
+    settings.engine.roles = {"judge": "anthropic"}
+    full = estimate_run(settings, sessions=50, avg_steps=8, viewport=(1280, 800)).total_usd
+    settings.engine.batch = True
+    assert estimate_run(settings, sessions=50, avg_steps=8, viewport=(1280, 800)).total_usd == pytest.approx(full / 2, rel=0.01)
+    with pytest.raises(ValueError):
+        EngineConfig(batch_roles=["actor"])

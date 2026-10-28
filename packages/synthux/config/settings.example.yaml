@@ -16,6 +16,10 @@ engine:
     engine: anthropic          # or ollama (free, local)
     max_calls_per_session: 6
   model_image_width: 1024      # screenshots wider than this are scaled down before a model sees them
+  # batch: true = Claude answers the judge, questionnaire and grouping calls through the Batches API:
+  # half price, but verification waits for the batch (usually minutes, up to 24 h). Personas never batch.
+  batch: false
+  batch_roles: [judge, persona, grouper]
 
 # Only these hosts may ever be opened. A study cannot widen this list.
 safety:

@@ -143,6 +143,11 @@ Other ways the model engines are kept cheap:
   a cached system prompt. Cached input is billed at about a tenth of the normal input price.
 * Each role has its own effort level in `config/models.yaml` (`effort:`). Per-step decisions run at
   `low` and the judge at `medium`.
+* `engine.batch: true` sends the verification calls (judge reviews, questionnaires, duplicate grouping)
+  through Anthropic's Batches API at half price. They are sent all at once, so verification waits for one
+  batch (usually minutes) instead of many. The per-step persona never batches.
+* Verification runs its model calls concurrently, and text read by OCR is remembered between runs
+  (`data/cache/`), so testing the same site again is faster.
 
 You can spread personas over engines for extra variety (study file:
 `personas.engines: [heuristic, "anthropic:claude-haiku-5-5"]`). Model calls are
@@ -293,6 +298,7 @@ used, so results stay comparable over time.
 
 ## CAD designs: check before you print
 
+A typical part checks in about 6 seconds, and a 670,000-triangle export in about 13.
 Point it at a CAD export and it checks the geometry before you spend filament,
 then learns from your real prints so the next check is about *your* printer.
 
@@ -315,7 +321,9 @@ outside faces), the best print orientation, bed contact, thin walls and thin
 pins below what the nozzle can lay down, slender towers, sharp edges you will
 touch, clearances between parts that will fuse, parts joined only along an
 edge, and tipping over (centre of mass, plus a declared load such as a phone
-leaning on it). It also estimates mass, filament length, time and cost.
+leaning on it). It also estimates mass, filament length, time and cost. Support
+material is measured from each overhang down to the bed or the part below; it counts
+towards filament, time and cost but not towards the weight of the finished part.
 
 **Human fit**, from `data/anthropometrics.yaml` and the design YAML:
 

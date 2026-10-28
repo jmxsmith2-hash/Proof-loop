@@ -66,6 +66,8 @@ class EngineConfig(StrictModel):
     roles: dict[str, str] = Field(default_factory=dict)
     hybrid: HybridConfig = Field(default_factory=HybridConfig)
     model_image_width: int = Field(1024, ge=320, le=2000)  # screenshots wider than this are scaled down for models
+    batch: bool = False          # Claude via the Batches API for the roles below: half price, answers in minutes
+    batch_roles: list[str] = Field(default_factory=lambda: ["judge", "persona", "grouper"])
 
     @field_validator("default")
     @classmethod
@@ -85,6 +87,13 @@ class EngineConfig(StrictModel):
                 raise ValueError(f"unknown engine {engine!r} for role {role!r}")
             if engine == "hybrid" and role != "actor":
                 raise ValueError("hybrid is only for the actor role (the per-step browser behaviour)")
+        return value
+
+    @field_validator("batch_roles")
+    @classmethod
+    def _no_batch_actor(cls, value: list[str]) -> list[str]:
+        if "actor" in value:
+            raise ValueError("the actor (per-step persona) cannot use batches: each step waits for its answer")
         return value
 
     def engine_for(self, role: str) -> str:

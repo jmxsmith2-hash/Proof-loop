@@ -80,6 +80,12 @@ class Orchestrator:
         log.info("run %s: %d personas x %d tasks x %d repeats x %d visits (concurrency %d)", run_id, len(personas),
                  len(tasks), n_repeats, self.study.visits, self.settings.run.concurrency)
 
+        from synthux.runner.perception import OcrEngine
+
+        ocr_cache = self.settings.data_dir / "cache" / "ocr_lines.json"
+        loaded = await asyncio.to_thread(OcrEngine.shared().load_lines, ocr_cache)
+        if loaded:
+            log.info("reusing %d text lines read in earlier runs", loaded)
         async with BrowserPool(self.settings) as pool:
             async def chain(persona: Persona, task, repeat: int) -> None:
                 memory = SessionMemory()
@@ -96,6 +102,10 @@ class Orchestrator:
 
             jobs = [chain(p, t, r) for p in personas for t in tasks for r in range(n_repeats)]
             outcomes = await asyncio.gather(*jobs, return_exceptions=True)
+        try:
+            await asyncio.to_thread(OcrEngine.shared().save_lines, ocr_cache)
+        except OSError as exc:  # a full disk must not fail the run
+            log.warning("could not save the OCR cache: %s", exc)
         failures = [o for o in outcomes if isinstance(o, BaseException)]
         for failure in failures:
             log.error("session chain failed: %r", failure)

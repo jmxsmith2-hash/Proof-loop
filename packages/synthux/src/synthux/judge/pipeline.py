@@ -41,6 +41,14 @@ def _load(db: Database, run_id: str) -> tuple[list[dict], dict[str, list[dict]],
     return sessions, steps, issues
 
 
+MAX_PARALLEL_CALLS = 16   # model calls in flight at once during verification
+
+
+def _parallel(settings: Settings) -> int:
+    """In batch mode everything goes in at once, so it lands in one batch instead of many in a row."""
+    return 100_000 if settings.engine.batch else MAX_PARALLEL_CALLS
+
+
 async def elicit(settings: Settings, db: Database, study: Study, run_id: str, gateway: LLMGateway) -> int:
     sessions, steps, issues = _load(db, run_id)
     personas = {p.id: p for p in load_personas(db, ids=sorted({s["persona_id"] for s in sessions}))}
@@ -48,20 +56,25 @@ async def elicit(settings: Settings, db: Database, study: Study, run_id: str, ga
     heuristic = HeuristicElicitor(scales)
     model = ModelElicitor(gateway, scales) if gateway.is_model_backed("persona") else None
     added = 0
-    for session in sessions:
-        if db.one("SELECT id FROM questionnaires WHERE session_id = ?", [session["id"]]):
-            continue
-        rows = steps.get(session["id"], [])
-        if not rows:
-            continue
+    todo = [s for s in sessions if steps.get(s["id"]) and
+            not db.one("SELECT id FROM questionnaires WHERE session_id = ?", [s["id"]])]
+    limit = asyncio.Semaphore(_parallel(settings))
+
+    async def ask(session: dict[str, Any]) -> Any:
+        rows = steps[session["id"]]
         persona = personas[session["persona_id"]]
         task = study.task(session["task_id"])
-        own = [i for i in issues if i["session_id"] == session["id"]]
         if model is not None and (persona.engine or gateway.engine_for("persona")) != "heuristic":
-            q = await model.answer(persona, session, rows, task.price_points, study.target.framing,
-                                   study.target.competitor_label)
-        else:
-            q = heuristic.answer(persona, session, rows, task.price_points, study.target.framing, own)
+            async with limit:
+                return await model.answer(persona, session, rows, task.price_points, study.target.framing,
+                                          study.target.competitor_label)
+        own = [i for i in issues if i["session_id"] == session["id"]]
+        return heuristic.answer(persona, session, rows, task.price_points, study.target.framing, own)
+
+    answers = await asyncio.gather(*(ask(s) for s in todo))   # concurrently; stored in session order
+    for session, q in zip(todo, answers):
+        rows = steps[session["id"]]
+        persona = personas[session["persona_id"]]
         db.insert("questionnaires", {"session_id": session["id"], "persona_id": persona.id, "answers_json": q.to_json()})
         for c in q.complaints:
             if c.category != "elicited":
@@ -87,15 +100,16 @@ async def judge_all(settings: Settings, db: Database, profile: CalibrationProfil
     slow = settings.browser.slow_load_seconds
     judge = ModelJudge(gateway, slow) if gateway.is_model_backed("judge") else RuleJudge(slow)
     counts: dict[str, int] = defaultdict(int)
-    for issue in issues:
-        if issue["status"] != "pending":
-            continue
+    limit = asyncio.Semaphore(_parallel(settings))
+
+    async def review(issue: dict[str, Any]) -> tuple[dict[str, Any], Any, list[tuple[int, Any]]]:
         current = dict(issue)
         verdict = None
+        rounds: list[tuple[int, Any]] = []
         for round_no in range(1, profile.judge.max_rounds + 2):
-            verdict = await judge.review(current, steps.get(issue["session_id"], []))
-            db.insert("judge_reviews", {"issue_id": issue["id"], "round": round_no, "verdict": verdict.verdict,
-                                        "reasons_json": verdict.reasons, "created_at": utcnow()})
+            async with limit:
+                verdict = await judge.review(current, steps.get(issue["session_id"], []))
+            rounds.append((round_no, verdict))
             if verdict.verdict != "revise":
                 break
             if round_no > profile.judge.max_rounds:
@@ -109,6 +123,14 @@ async def judge_all(settings: Settings, db: Database, profile: CalibrationProfil
                 break
             current = revised
         assert verdict is not None
+        return current, verdict, rounds
+
+    pending = [i for i in issues if i["status"] == "pending"]
+    reviewed = await asyncio.gather(*(review(i) for i in pending))   # concurrently; stored in issue order
+    for issue, (current, verdict, rounds) in zip(pending, reviewed):
+        for round_no, v in rounds:
+            db.insert("judge_reviews", {"issue_id": issue["id"], "round": round_no, "verdict": v.verdict,
+                                        "reasons_json": v.reasons, "created_at": utcnow()})
         status = "accepted" if verdict.verdict == "accept" else "rejected"
         counts[status] += 1
         db.update("issues", "id", issue["id"], {"status": status, "description": current["description"],

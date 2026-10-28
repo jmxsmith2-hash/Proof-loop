@@ -173,6 +173,9 @@ def screen_diff(a: Screen, b: Screen) -> float:
 # ----------------------------------------------------------------------- OCR
 
 
+OCR_CACHE_VERSION = 1   # bump when OCR models or line recognition change
+
+
 class OcrEngine:
     """Local OCR (RapidOCR / ONNX). One shared instance with two caches.
 
@@ -204,6 +207,37 @@ class OcrEngine:
         self._line_cache_size = line_cache_size
         self._run_lock = threading.Lock()
         self.stats = {"screens": 0, "screen_hits": 0, "lines": 0, "line_hits": 0}
+
+    def save_lines(self, path: "Path | str", keep: int = 50_000) -> int:
+        """Keep recognised lines on disk so the next run on the same site reads repeated text for free."""
+        import json
+        from pathlib import Path
+
+        with self._run_lock:
+            items = list(self._lines.items())[-keep:]
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        tmp = Path(str(path) + ".tmp")
+        tmp.write_text(json.dumps({"version": OCR_CACHE_VERSION, "lines": items}), encoding="utf-8")
+        tmp.replace(path)
+        return len(items)
+
+    def load_lines(self, path: "Path | str") -> int:
+        import json
+        from pathlib import Path
+
+        p = Path(path)
+        if not p.is_file():
+            return 0
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return 0
+        if data.get("version") != OCR_CACHE_VERSION:
+            return 0  # recognised by a different OCR setup; start fresh
+        with self._run_lock:
+            for key, (text, conf) in data.get("lines", []):
+                self._lines.setdefault(key, (text, float(conf)))
+        return len(data.get("lines", []))
 
     @classmethod
     def shared(cls) -> "OcrEngine":

@@ -116,5 +116,6 @@ def estimate_run(
         if role == "actor" and n > sessions:  # later steps read the persona text from the prompt cache
             tok_in -= int((n - sessions) * ACTOR_CACHED_TOKENS * (1 - CACHE_READ_FACTOR))
         tok_out = n * base_out
-        est.add(role, engine, model, n, tok_in, tok_out, call_cost(settings, engine, model, tok_in, tok_out))
+        factor = 0.5 if engine == "anthropic" and settings.engine.batch and role in settings.engine.batch_roles else 1.0
+        est.add(role, engine, model, n, tok_in, tok_out, factor * call_cost(settings, engine, model, tok_in, tok_out))
     return est
