@@ -16,6 +16,27 @@ Status: **all 8 phases built and tested** (see README.md for usage).
   they need measured behaviour on the same element.
 * **Perception contrast thresholds** became calibration parameters, so calibration can tune them.
 
+### Second round ("improve this massively")
+
+Focus, from your answers: physical products first (concepts, prototypes and existing products;
+everyday goods, electronics, wearables, 3D-printed parts), working from CAD files before the first
+print and again after each print; then your websites; on Windows.
+
+* **CAD design checker** (`physical/cad/`): loads STL/3MF/OBJ/PLY/GLB (STEP optional), checks
+  printability (mesh, units, build volume, overhangs and bridges on outside faces, orientation,
+  bed contact, thin walls and pins, slender parts, sharp edges, clearances, weak joints, tipping
+  under a declared load) and human fit (grip, weight, wearable sizes, connector openings, button
+  size) against `data/anthropometrics.yaml`. Renders the model with findings marked and compares
+  each version with the last.
+* **Print iteration loop:** `physical printed` records measurements and defects; offsets are
+  learned per printer and material and applied to the next check.
+* **Web personas on real-site patterns:** cookie banners and stacked pop-ups, checkboxes,
+  dropdowns, placeholder labels, menu navigation toward the goal, backing out of dead ends,
+  retrying a click once before writing it off, `type: find` tasks with a buried-information
+  check. A second demo site (Pinecone Home) with its own ground truth tests all of this.
+* **Windows:** one-step `setup.bat`, browser discovery under `%LOCALAPPDATA%`, Ctrl+C handling,
+  and CI on real Windows and Linux runners (which caught data files missing from git).
+
 ## 1. Guiding principles
 
 1. **The persona model sees only pixels.** It gets screenshots and returns
@@ -290,6 +311,9 @@ Screenshots are stored as files under `data/runs/<run_id>/`, not as blobs.
 | 6 | Calibration import, matching, metrics, tuning, profiles | Metric tests on known fixtures; apply → new profile version |
 | 7 | Physical module | Review taxonomy, sensor anomaly tests, forbidden-claim filter |
 | 8 | Dashboard (local server over the DB) + README polish | Live e2e run (if API key available) + docs |
+| 9 | CAD checks, print iteration, physical personas from geometry | CAD unit tests; e2e: planted-flaw phone stand found, fixed v2 and control block clean |
+| 10 | Web personas on real-site patterns; second demo site | Pinecone e2e: 3 planted flaws found, clean parts stay clean, ≥60% of sessions finish |
+| 11 | Windows setup + CI | Unit, browser and e2e suites green on Windows and Ubuntu runners |
 
 ## 6. Known risks
 
