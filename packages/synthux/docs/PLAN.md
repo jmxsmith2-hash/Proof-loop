@@ -37,6 +37,29 @@ print and again after each print; then your websites; on Windows.
 * **Windows:** one-step `setup.bat`, browser discovery under `%LOCALAPPDATA%`, Ctrl+C handling,
   and CI on real Windows and Linux runners (which caught data files missing from git).
 
+### Third round (Bambu, G-code, app window, more checks, real products)
+
+From your answers: a Bambu Lab P2S now (H-series later); Fusion, Blender and Tinkercad; a mix of
+free and paid; and next, more CAD checks, a simple app window, real products and G-code testing.
+
+* **Printers and files:** the P2S is the default profile, with H2D and H2S ready; printers carry
+  hot-end flow and temperature limits, materials their temperature, flow, fan and snap-fit ranges,
+  and slicer names ("PLA Basic", "PETG HF") resolve. 3MF from Fusion, Tinkercad or Bambu Studio
+  loads with a built-in reader (components, separate object parts, transforms, units).
+* **G-code checker** (`physical/gcode/`): plain `.gcode` and Bambu `.gcode.3mf`: plate bounds,
+  printer and nozzle mismatches, layers, temperatures, volumetric flow, line width, retraction and
+  stringing over open space, cooling, adhesion, heaters left on, header consistency; layer
+  previews and a flow map.
+* **App window** (`synthux app`, the Synthux desktop shortcut): drop a CAD or G-code file, or
+  paste a website and a task; background jobs with links to reports; localhost only.
+* **More CAD checks:** fine detail and text the nozzle can't reproduce, engraved lines that fill
+  in, steps shallower than a layer, horizontal holes, flexing tabs and snap-fits.
+* **Real products:** `--process injection` (undercuts and side actions, draft, wall thickness,
+  inside corners, clamp force and cycle time) and `--process cnc` (tool reach and set-ups, tool
+  radius and slot width, deep pockets, thin walls, holes, stock and time).
+* **Free or smart per run:** `--smart` uses the cheap paid mode (rules plus Claude on hard screens
+  and for judging, batched at half price for full runs) when a key is set; otherwise it stays free.
+
 ## 1. Guiding principles
 
 1. **The persona model sees only pixels.** It gets screenshots and returns
