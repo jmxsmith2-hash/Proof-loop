@@ -28,11 +28,12 @@ behaviour.
 7. [Calibrating against real users](#calibrating-against-real-users)
 8. [CAD designs: check before you print](#cad-designs-check-before-you-print)
 9. [G-code: check the sliced file](#g-code-check-the-sliced-file)
-10. [Physical products (prediction, not a test)](#physical-products-prediction-not-a-test)
-11. [Safety sandbox](#safety-sandbox)
-12. [Tests](#tests)
-13. [Limitations](#limitations)
-14. [Project layout](#project-layout)
+10. [Moulded and machined products](#moulded-and-machined-products)
+11. [Physical products (prediction, not a test)](#physical-products-prediction-not-a-test)
+12. [Safety sandbox](#safety-sandbox)
+13. [Tests](#tests)
+14. [Limitations](#limitations)
+15. [Project layout](#project-layout)
 
 ---
 
@@ -416,6 +417,43 @@ about 5 seconds. `examples/gcode/` has a clean bracket and one with seven plante
 (`python examples/gcode/make_examples.py` regenerates them). `synthux physical check`
 on a `.gcode` file runs this check too.
 
+## Moulded and machined products
+
+The same CAD check works for parts that will be injection moulded or CNC machined:
+
+```bash
+synthux physical check housing.stl --process injection --material PP     # mould opens along the best axis
+synthux physical check housing.stl --process injection --pull z
+synthux physical check bracket.step --process cnc --material aluminium_6061
+```
+
+(or set `process:` and `pull:` in the design YAML, or pick "How it is made" in the app window).
+
+**Injection moulding** (two-part mould, straight pull):
+
+* undercuts: space with part material above and below it along the pull, which neither mould half
+  can form. It says which side a slider could come from, or that nothing can (a sealed space);
+* draft on side walls (1° by default, 3° for textured surfaces);
+* wall thickness from a distance map: too thin to fill (short shot), thick sections that sink or
+  void, and walls uneven enough to warp;
+* sharp inside corners;
+* shot weight, clamp force from the projected area, cooling and cycle time, and the shrinkage to
+  allow for.
+
+**CNC machining** (3-axis, re-clamped as needed):
+
+* material no straight tool can reach from any side;
+* the fewest set-ups that reach the rest;
+* inside corners sharper than the tool's radius, and slots narrower than the smallest tool
+  (gaps between separate bodies don't count);
+* pockets deeper than 4x their width, thin walls, deep or tiny holes;
+* stock size, how much is cut away, and a rough machining time.
+
+Grip, weight, sharp edges, clearances between parts and tipping are checked as for printed parts,
+and personas react the same way. Material and process figures live in `config/processes.yaml`
+(ABS, PP, PC, PA66, POM, HDPE and TPE for moulding; aluminium, steel, stainless, brass and plastics
+for machining). They are typical design-guide values; a moulder's or machinist's quote wins.
+
 ## Physical products (prediction, not a test)
 
 ```bash
@@ -530,7 +568,8 @@ src/synthux/
   report/          HTML report + inline SVG charts
   calibration/     profiles, import, matching, metrics, tuning, compare/history
   physical/        inputs, review taxonomy, evaluation, sensors, guardrails
-    cad/           mesh loading (incl. 3MF), voxel/print checks, renders, ergonomics, personas, print iteration
+    cad/           mesh loading (incl. 3MF), voxel/print checks, fine detail, moulding and CNC checks,
+                   renders, ergonomics, personas, print iteration
     gcode/         G-code parser (plain and Bambu .gcode.3mf), print checks, layer previews
   data/            anthropometrics, product-knowledge checklists, name lists
   dashboard/       local read-only web dashboard

@@ -3,14 +3,15 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ r.design }} v{{ r.version }}: design check</title>
+{% set made = r.process.kind if r.process else 'print' %}
 {% include "_physical_style.html.j2" %}
 </head>
 <body><main>
 <h1>{{ r.design }} <span class="muted">v{{ r.version }}</span></h1>
-<p class="secondary small">{{ r.file }} · {{ r.printer.name }} ({{ r.printer.nozzle }} mm nozzle, {{ r.printer.layer_height }} mm layers) ·
+<p class="secondary small">{{ r.file }} · {% if made == 'print' %}{{ (r.printer.names or [r.printer.name])[0] }} ({{ r.printer.nozzle }} mm nozzle, {{ r.printer.layer_height }} mm layers){% else %}{{ r.process.label }}{% if r.process.pull %}, pull along {{ r.process.pull|upper }}{% endif %}{% endif %} ·
   {{ r.material.name }}{% if r.material.learned_from_prints %} · <b>adjusted from {{ r.material.learned_from_prints }} real print(s)</b>{% endif %}
   · {{ r.generated }}</p>
-<div class="banner small"><b>Design checks</b> are measured from your CAD file before printing: they are about the geometry,
+<div class="banner small"><b>Design checks</b> are measured from your CAD file before {{ 'printing' if made == 'print' else 'making it' }}: they are about the geometry,
   not about people. <b>Persona reactions</b> are a {{ r.label|lower }}: grounded only in those measurements and
   approximate body-size data, never in how it feels, its texture, taste or smell. {{ r.disclaimer }}</div>
 
@@ -20,8 +21,9 @@
   <div class="stat"><b>{{ s3|length }}</b><span>major problems</span></div>
   <div class="stat"><b>{{ r.findings|length }}</b><span>findings in total</span></div>
   <div class="stat"><b>{{ r.metrics.estimates.printed_grams }} g</b><span>estimated mass of the part{% if r.metrics.estimates.support_grams %} (+ {{ r.metrics.estimates.support_grams }} g support){% endif %}</span></div>
-  <div class="stat"><b>{{ r.metrics.estimates.print_hours }} h</b><span>estimated print time</span></div>
+  {% if made == 'print' %}<div class="stat"><b>{{ r.metrics.estimates.print_hours }} h</b><span>estimated print time</span></div>{% endif %}
   <div class="stat"><b>{{ r.metrics.estimates.material_cost }}</b><span>material cost (at {{ r.material.price_per_kg }} per kg)</span></div>
+  {% for value, label in r.metrics.estimates.process_stats or [] %}<div class="stat"><b>{{ value }}</b><span>{{ label }}</span></div>{% endfor %}
   {% if r.metrics.tip_angle_deg is not none %}<div class="stat">{% if r.metrics.tip_angle_deg < 0 %}<b class="bad">falls over</b><span>as used</span>{% else %}<b>{{ r.metrics.tip_angle_deg }}°</b><span>tilt before it tips</span>{% endif %}</div>{% endif %}
 </div>
 
@@ -88,7 +90,9 @@
 <div class="card small"><table>
 <tr><td>Size</td><td>{{ r.metrics.size_mm|join(' x ') }} mm</td></tr>
 <tr><td>Solid volume</td><td>{{ r.metrics.estimates.solid_volume_cm3 }} cm³</td></tr>
-<tr><td>Filament</td><td>{{ r.metrics.estimates.filament_m }} m ({{ r.metrics.estimates.assumptions }})</td></tr>
+{% if made == 'print' %}<tr><td>Filament</td><td>{{ r.metrics.estimates.filament_m }} m ({{ r.metrics.estimates.assumptions }})</td></tr>
+{% else %}<tr><td>Assumptions</td><td>{{ r.metrics.estimates.assumptions }}</td></tr>
+{% if r.metrics.wall_mm %}<tr><td>Wall thickness</td><td>{{ r.metrics.wall_mm.min }} to {{ r.metrics.wall_mm.max }} mm (typical {{ r.metrics.wall_mm.typical }} mm)</td></tr>{% endif %}{% endif %}
 <tr><td>Mesh</td><td>{{ r.metrics.triangles }} triangles, {{ r.metrics.shells }} body/bodies, watertight: {{ 'yes' if r.metrics.watertight else 'no' }}</td></tr>
 <tr><td>Check resolution</td><td>{{ r.metrics.voxel_mm }} mm{% if r.metrics.resolution_note %} ({{ r.metrics.resolution_note }}){% endif %}</td></tr>
 </table></div>
@@ -96,9 +100,10 @@
 <h2>Limitations</h2>
 <ul class="card small">
   <li>Checks use your model as exported, Z up as the position it is used in. Rotate the file if it is used another way up.</li>
-  <li>Weight, time and cost are estimates from typical slicer settings; your slicer's numbers win.</li>
+  {% if made == 'print' %}<li>Weight, time and cost are estimates from typical slicer settings; your slicer's numbers win.</li>
+  {% else %}<li>Process figures (walls, draft, shrinkage, tool sizes, clamp force, cycle and machining times) are typical design-guide values from config/processes.yaml; your moulder's or machinist's quote wins.</li>{% endif %}
   <li>Strength is judged from thickness and layer direction only; no load simulation.</li>
   <li>Body-size ranges are approximate population figures, not measurements of anyone.</li>
-  <li>Print the part and record what happened (<code>synthux physical printed</code>): later checks learn from it.</li>
+  {% if made == 'print' %}<li>Print the part and record what happened (<code>synthux physical printed</code>): later checks learn from it.</li>{% endif %}
 </ul>
 </main></body></html>

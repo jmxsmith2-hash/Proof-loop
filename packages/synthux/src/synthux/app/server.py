@@ -97,11 +97,14 @@ class App:
         printers = [{"id": k, "label": (v.get("names") or [k])[0], "type": v.get("type", "fdm")}
                     for k, v in (data.get("printers") or {}).items()]
         materials = list((data.get("materials") or {}).keys())
+        procs = load_yaml_file(self.settings.config_dir / "processes.yaml") or {}
+        process_materials = {"print": materials, **{k: list((v or {}).get("materials", {})) for k, v in procs.items()}}
         hosts = sorted({f"{a.host}" + (f":{','.join(map(str, a.ports))}" if a.ports else "")
                         for a in self.settings.safety.allowlist})
         smart = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
         return self.env.get_template("app.html.j2").render(
             printers=printers, materials=materials, default_printer=data.get("default_printer"),
+            process_materials=process_materials,
             default_material=data.get("default_material"), hosts=hosts, smart=smart, header=HEADER,
             devices=sorted(self.settings.devices))
 
@@ -159,14 +162,22 @@ class App:
         if opt.get("handheld") in ("1", "true", "on"):
             spec.use["handheld"] = True
         people = asyncio.run(PersonaGenerator(seed=11).generate(5, include_accessibility=True))
+        process = opt.get("process") if opt.get("process") in ("injection", "cnc") else None
+        if process:
+            job.stage = {"injection": "checking it for injection moulding", "cnc": "checking it for CNC machining"}[process]
         result = check_design(self.settings, self.db, path, spec, people, path.parent / "report",
-                              opt.get("printer") or None, opt.get("material") or None, opt.get("units") or None)
+                              opt.get("printer") or None, opt.get("material") or None, opt.get("units") or None,
+                              process=process, pull=opt.get("pull") or None)
         job.report = result["report"]
         job.title = f"{result['design']} v{result['version']}"
         self._summarise(job, result["findings"])
         est = result["metrics"]["estimates"]
-        printer = (result["printer"].get("names") or [result["printer"]["name"]])[0]
-        job.summary.append(f"about {est['printed_grams']} g, {est['print_hours']} h on {printer}")
+        if result["process"]["kind"] == "print":
+            printer = (result["printer"].get("names") or [result["printer"]["name"]])[0]
+            job.summary.append(f"about {est['printed_grams']} g, {est['print_hours']} h on {printer}")
+        else:
+            job.summary.append(f"{result['process']['label']} in {result['material']['name']}: " +
+                               "; ".join(f"{label} {value}" for value, label in est.get("process_stats", [])[:3]))
 
     def _gcode_work(self, job: Job, path: Path, opt: dict[str, str]) -> None:
         from synthux.physical.gcode.pipeline import check_gcode

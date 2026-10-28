@@ -714,7 +714,8 @@ def check_detail(ctx: Context) -> None:
     found = lost_detail(mesh, nozzle, layer, one_body, face_shell)
     if found["skipped"]:
         ctx.metrics["detail_note"] = found["skipped"][0]
-    near = [f.location for f in ctx.findings if f.location and f.check in ("thin_wall", "clearance")]
+    # thin walls are already reported; gaps between separate bodies were left out by one_body above
+    near = [f.location for f in ctx.findings if f.location and f.check == "thin_wall"]
 
     def grouped(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         groups: dict[tuple[int, int], list[dict[str, Any]]] = {}

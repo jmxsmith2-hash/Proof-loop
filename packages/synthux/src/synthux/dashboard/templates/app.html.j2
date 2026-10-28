@@ -44,11 +44,17 @@ button { margin-top: 12px; padding: 8px 16px; border-radius: 9px; border: 0; bac
 <div class="cards">
   <section class="tool" aria-labelledby="cad-h">
     <h2 id="cad-h">CAD design</h2>
-    <p>STL, 3MF, OBJ, PLY, GLB from Fusion, Tinkercad or Blender. Checks walls, overhangs, holes, fit, strength and how people would hold it.</p>
+    <p>STL, 3MF, OBJ, PLY, GLB from Fusion, Tinkercad or Blender. Checks it for printing, moulding or machining, and how people would hold it.</p>
     <div class="drop" id="cad-drop" tabindex="0" role="button" aria-label="Choose a CAD file"><b>Drop a CAD file here</b>or click to choose</div>
     <input type="file" id="cad-file" accept=".stl,.3mf,.obj,.ply,.glb,.gltf,.off,.step,.stp" hidden>
     <div class="row">
-      <div><label for="cad-printer">Printer</label><select id="cad-printer">{% for p in printers %}<option value="{{ p.id }}" {{ 'selected' if p.id == default_printer }}>{{ p.label }}</option>{% endfor %}</select></div>
+      <div><label for="cad-process">How it is made</label><select id="cad-process">
+        <option value="print">3D printing</option><option value="injection">Injection moulding</option><option value="cnc">CNC machining</option></select></div>
+      <div id="cad-pull-box" hidden><label for="cad-pull">Mould opens along</label><select id="cad-pull">
+        <option value="auto">Best direction</option><option value="z">Z</option><option value="x">X</option><option value="y">Y</option></select></div>
+    </div>
+    <div class="row">
+      <div id="cad-printer-box"><label for="cad-printer">Printer</label><select id="cad-printer">{% for p in printers %}<option value="{{ p.id }}" {{ 'selected' if p.id == default_printer }}>{{ p.label }}</option>{% endfor %}</select></div>
       <div><label for="cad-material">Material</label><select id="cad-material">{% for m in materials %}<option {{ 'selected' if m == default_material }}>{{ m }}</option>{% endfor %}</select></div>
     </div>
     <label for="cad-design">Design name <span class="muted">(same name = next version; shows what changed)</span></label>
@@ -102,7 +108,9 @@ function uploader(kind) {
     err.textContent = "";
     const q = new URLSearchParams({name: file.name, kind: kind === "g" ? "gcode" : "cad"});
     const pick = (id, key) => { const el = document.getElementById(id); if (el && el.value) q.set(key, el.value); };
-    if (kind === "cad") { pick("cad-printer", "printer"); pick("cad-material", "material"); pick("cad-design", "design");
+    if (kind === "cad") { pick("cad-material", "material"); pick("cad-design", "design");
+      const proc = document.getElementById("cad-process").value;
+      if (proc === "print") pick("cad-printer", "printer"); else { q.set("process", proc); if (proc === "injection") pick("cad-pull", "pull"); }
       if (document.getElementById("cad-handheld").checked) q.set("handheld", "1"); }
     else { pick("g-printer", "printer"); pick("g-material", "material"); }
     const xhr = new XMLHttpRequest();
@@ -126,6 +134,13 @@ function uploader(kind) {
   drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) send(f); });
 }
 uploader("cad"); uploader("g");
+const MATERIALS = {{ process_materials|tojson }}, DEFAULT_MATERIAL = {{ default_material|tojson }};
+document.getElementById("cad-process").addEventListener("change", (e) => {
+  const proc = e.target.value, sel = document.getElementById("cad-material");
+  sel.innerHTML = (MATERIALS[proc] || []).map(m => `<option${proc === "print" && m === DEFAULT_MATERIAL ? " selected" : ""}>${m}</option>`).join("");
+  document.getElementById("cad-printer-box").hidden = proc !== "print";
+  document.getElementById("cad-pull-box").hidden = proc !== "injection";
+});
 // a file dropped anywhere else goes to the right card by its type
 window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => { if (e.target.closest(".drop")) return; e.preventDefault();

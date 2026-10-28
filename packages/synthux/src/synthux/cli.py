@@ -432,6 +432,10 @@ def physical_check(
     material: Optional[str] = typer.Option(None, help="PLA, PETG, ABS, ASA, TPU, resin ..."),
     units: Optional[str] = typer.Option(None, help="mm (default), cm, m or in, if the file was exported differently."),
     handheld: bool = typer.Option(False, "--handheld", help="It is held in the hand (grip and weight checks)."),
+    process: Optional[str] = typer.Option(None, "--process",
+                                          help="How it will be made: print (default), injection or cnc."),
+    pull: Optional[str] = typer.Option(None, "--pull", help="Injection moulding: mould opening direction x, y, z "
+                                                          "or auto (default: the one with the fewest undercuts)."),
     personas: int = typer.Option(5, "--personas", "-n", help="How many personas react to the design."),
     out: Optional[Path] = typer.Option(None, "--out", "-o", help="Report folder."),
     config: Optional[Path] = ConfigOpt,
@@ -453,25 +457,33 @@ def physical_check(
         spec.use["handheld"] = True
     people = asyncio.run(PersonaGenerator(seed=11).generate(personas, include_accessibility=True))
     try:
-        result = check_design(s, db, cad_file, spec, people, out, printer, material, units)
+        result = check_design(s, db, cad_file, spec, people, out, printer, material, units, process=process,
+                              pull=pull)
     except ConfigError as exc:
         typer.secho(f"Cannot check {cad_file}: {exc}", fg="red", err=True)
         raise typer.Exit(2)
-    typer.echo(f"{result['design']} v{result['version']}  ({result['printer']['name']}, {result['material']['name']})")
+    made = result["process"]
+    how = (result["printer"].get("names") or [result["printer"]["name"]])[0] if made["kind"] == "print" else \
+        made["label"] + (f", pull {made['pull'].upper()}" if made.get("pull") else "")
+    typer.echo(f"{result['design']} v{result['version']}  ({how}, {result['material']['name']})")
     for f in result["findings"]:
         typer.echo(f"  {f['n']:2}. [{f['severity_name']:9}] {f['title']}")
     if not result["findings"]:
         typer.secho("  no problems found by the geometry checks", fg="green")
     est = result["metrics"]["estimates"]
-    support = f" + {est['support_grams']} g support" if est.get("support_grams") else ""
-    typer.echo(f"  about {est['printed_grams']} g{support}, {est['print_hours']} h, material {est['material_cost']}")
+    if made["kind"] == "print":
+        support = f" + {est['support_grams']} g support" if est.get("support_grams") else ""
+        typer.echo(f"  about {est['printed_grams']} g{support}, {est['print_hours']} h, material {est['material_cost']}")
+    else:
+        typer.echo("  " + "; ".join(f"{label}: {value}" for value, label in est.get("process_stats", [])))
     c = result["comparison"]
     if c:
         typer.echo(f"  since v{c['previous_version']}: {len(c['fixed'])} fixed, {len(c['persisting'])} still there, "
                    f"{len(c['new'])} new")
     typer.secho(f"report: {result['report']}", fg="green")
-    typer.echo(f"After printing: synthux physical printed \"{result['design']}\" --measure measurements.csv "
-               "[--defect warping ...]")
+    if made["kind"] == "print":
+        typer.echo(f"After printing: synthux physical printed \"{result['design']}\" --measure measurements.csv "
+                   "[--defect warping ...]")
 
 
 @physical_app.command("gcode")
