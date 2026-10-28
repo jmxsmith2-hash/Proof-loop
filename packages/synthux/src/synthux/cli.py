@@ -432,6 +432,8 @@ def physical_check(
     material: Optional[str] = typer.Option(None, help="PLA, PETG, ABS, ASA, TPU, resin ..."),
     units: Optional[str] = typer.Option(None, help="mm (default), cm, m or in, if the file was exported differently."),
     handheld: bool = typer.Option(False, "--handheld", help="It is held in the hand (grip and weight checks)."),
+    auto_eject: bool = typer.Option(False, "--auto-eject", help="Printed in a FarmLoop loop: check the pusher "
+                                                              "can clear it, and how many fit per plate."),
     process: Optional[str] = typer.Option(None, "--process",
                                           help="How it will be made: print (default), injection or cnc."),
     pull: Optional[str] = typer.Option(None, "--pull", help="Injection moulding: mould opening direction x, y, z "
@@ -455,6 +457,8 @@ def physical_check(
     spec = design_spec(design, cad_file)
     if handheld:
         spec.use["handheld"] = True
+    if auto_eject:
+        spec.use["auto_eject"] = True
     people = asyncio.run(PersonaGenerator(seed=11).generate(personas, include_accessibility=True))
     try:
         result = check_design(s, db, cad_file, spec, people, out, printer, material, units, process=process,
@@ -480,6 +484,11 @@ def physical_check(
     if c:
         typer.echo(f"  since v{c['previous_version']}: {len(c['fixed'])} fixed, {len(c['persisting'])} still there, "
                    f"{len(c['new'])} new")
+    from synthux.physical.cad.eject import copies_note
+
+    note = copies_note(result["metrics"], est.get("printed_grams"))
+    if note:
+        typer.echo(f"  auto-eject: {note}")
     typer.secho(f"report: {result['report']}", fg="green")
     if made["kind"] == "print":
         typer.echo(f"After printing: synthux physical printed \"{result['design']}\" --measure measurements.csv "
@@ -498,6 +507,7 @@ def physical_prepare(
     process_preset: Optional[str] = typer.Option(None, "--process-preset", help="The slicer's process preset name."),
     filament_preset: Optional[str] = typer.Option(None, "--filament-preset", help="The slicer's filament preset name."),
     loops: int = typer.Option(0, help="Also make a ClearLoop loop file with this many loops, and check it."),
+    auto_eject: bool = typer.Option(False, "--auto-eject", help="Check the FarmLoop pusher can clear it (on with --loops)."),
     design: Optional[str] = typer.Option(None, "--design", "-d", help="Design name or design YAML."),
     out: Optional[Path] = typer.Option(None, "--out", "-o", help="Report folder."),
     open_report: bool = typer.Option(False, "--open", help="Open the report in the browser."),
@@ -513,7 +523,7 @@ def physical_prepare(
     try:
         r = prepare(s, _db(s), model, printer=printer, material=material, layer=layer, slicer=slicer,
                     process_preset=process_preset, filament_preset=filament_preset, support=support, loops=loops,
-                    out=out, history=history, design=design)
+                    out=out, history=history, design=design, auto_eject=auto_eject or loops > 0)
     except ConfigError as exc:
         typer.secho(f"Cannot prepare {model}: {exc}", fg="red", err=True)
         raise typer.Exit(2)

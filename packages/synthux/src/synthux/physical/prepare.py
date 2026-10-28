@@ -112,7 +112,7 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
             material: str | None = None, layer: float = 0.2, slicer: str | Path | None = None,
             process_preset: str | None = None, filament_preset: str | None = None, support: bool | None = None,
             loops: int = 0, out: Path | None = None, personas: int = 5, history=None,
-            design: str | None = None) -> dict[str, Any]:
+            design: str | None = None, auto_eject: bool = False) -> dict[str, Any]:
     from synthux.personas.generate import PersonaGenerator
     from synthux.physical.cad.load import load_model
     from synthux.physical.cad.pipeline import check_design, design_spec
@@ -139,6 +139,8 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
     presets = write_presets(lib, out / "presets", machine, proc, fil, overrides)
 
     spec = design_spec(design, model)
+    if auto_eject or loops:
+        spec.use["auto_eject"] = True
     people = asyncio.run(PersonaGenerator(seed=11).generate(personas, include_accessibility=True))
     cad = check_design(settings, db, model, spec, people, out / "design", pr["name"], mat["name"])
     sliced, log = slice_model(found, model, presets, out / "sliced")
@@ -168,6 +170,7 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
         "ready": not blocking, "blocking": len(blocking), "design": cad, "gcode": gcode,
         "slicer_findings": slicer_findings, "alignment_note": align_note, "loop": loop_result,
         "grams": m.get("filament_g"), "time": gcode["time"]["slicer"] or gcode["time"]["replay"],
+        "auto_eject": cad["metrics"].get("auto_eject"),
         "layers": m.get("layers"), "sliced": str(sliced), "slicer_log": log[-4000:], "generated": utcnow(),
         "links": {"design": _rel(cad["report"], out), "gcode": _rel(gcode["report"], out),
                   "loop": _rel(loop_result["report"], out) if loop_result else None,

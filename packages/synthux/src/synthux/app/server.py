@@ -168,6 +168,8 @@ class App:
         spec = design_spec(opt.get("design") or None, path)
         if opt.get("handheld") in ("1", "true", "on"):
             spec.use["handheld"] = True
+        if opt.get("auto_eject") in ("1", "true", "on"):
+            spec.use["auto_eject"] = True
         people = asyncio.run(PersonaGenerator(seed=11).generate(5, include_accessibility=True))
         process = opt.get("process") if opt.get("process") in ("injection", "cnc") else None
         if not process and opt.get("slice") in ("1", "true", "on"):
@@ -197,6 +199,7 @@ class App:
         r = prepare(self.settings, self.db, path, printer=opt.get("printer") or None,
                     material=opt.get("material") or None, support=support, out=path.parent / "report",
                     loops=int(opt["loops"]) if (opt.get("loops") or "").isdigit() else 0, design=opt.get("design") or None,
+                    auto_eject=opt.get("auto_eject") in ("1", "true", "on"),
                     history=lambda p, m, j: history_for(self.db, p, m, j))
         job.report = r["report"]
         job.title = f"{r['model']}: {'ready to print' if r['ready'] else 'fix first'}"

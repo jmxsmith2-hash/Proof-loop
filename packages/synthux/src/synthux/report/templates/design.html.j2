@@ -59,6 +59,15 @@
 </div>
 {% endfor %}
 
+{% if r.metrics.auto_eject %}{% set ae = r.metrics.auto_eject %}
+<h2>Auto-eject (FarmLoop / ClearLoop)</h2>
+<div class="card small">
+  <p>{% if ae.copies_per_plate %}<b>{{ ae.copies_per_plate }} copies</b> fit on one plate ({{ ae.layout[0] }} across x {{ ae.layout[1] }} deep), inside the pusher's lanes (X {{ ae.usable_x[0] }} to {{ ae.usable_x[1] }} mm) and in front of Y {{ ae.rear_limit_y }} mm.{% else %}It doesn't fit inside the pusher's lanes.{% endif %}</p>
+  <table><tr><th>Part</th><th class="n">height mm</th><th class="n">pushed at mm</th><th class="n">footprint mm</th><th class="n">flat contact cm²</th></tr>
+  {% for p in ae.parts %}<tr><td>{{ loop.index }}</td><td class="n">{{ p.height }}</td><td class="n">{{ p.push_z }}</td><td class="n">{{ p.width }} x {{ p.depth }}</td><td class="n">{{ p.contact_cm2 }}</td></tr>{% endfor %}</table>
+  <p class="muted">Pusher floor {{ ae.settings.floor_z }} mm{% if not ae.settings.floor_calibrated %} (not calibrated yet){% endif %}, push depth {{ ae.settings.push_offset }} mm, release at {{ ae.settings.release_temp }} °C, bender {{ 'fitted' if ae.settings.bender_fitted else 'not fitted' }}{% if ae.settings.from_clearloop %}, from your ClearLoop settings{% else %} (ClearLoop's defaults){% endif %}.</p>
+</div>{% endif %}
+
 {% if r.metrics.orientation %}{% set o = r.metrics.orientation %}
 <h2>Print orientation</h2>
 <div class="card"><table><tr><th></th><th class="n">overhang mm²</th><th class="n">bed contact mm²</th><th class="n">height mm</th><th>fits</th></tr>

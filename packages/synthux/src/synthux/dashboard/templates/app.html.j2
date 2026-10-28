@@ -60,6 +60,7 @@ button { margin-top: 12px; padding: 8px 16px; border-radius: 9px; border: 0; bac
     <label for="cad-design">Design name <span class="muted">(same name = next version; shows what changed)</span></label>
     <input type="text" id="cad-design" placeholder="from the file name">
     <label class="check"><input type="checkbox" id="cad-handheld"> It is held in the hand (grip and weight checks)</label>
+    <label class="check"><input type="checkbox" id="cad-eject"> Printed in a FarmLoop loop (check the pusher clears it; copies per plate)</label>
     {% if slicer %}<label class="check" id="cad-slice-box"><input type="checkbox" id="cad-slice" checked> Slice it with {{ slicer }} too and check the G-code (ready-to-print verdict)</label>
     <div class="row" id="cad-slice-opts"><div><label for="cad-support">Support</label><select id="cad-support"><option value="">As the preset has it</option><option value="on">On (tree)</option><option value="off">Off</option></select></div>
       <div><label for="cad-loops">ClearLoop loops</label><input type="number" id="cad-loops" min="0" max="50" value="0"></div></div>{% endif %}
@@ -117,7 +118,8 @@ function uploader(kind) {
         const sl = document.getElementById("cad-slice");
         if (sl && sl.checked) { q.set("slice", "1"); pick("cad-support", "support"); const l = document.getElementById("cad-loops"); if (l && +l.value) q.set("loops", l.value); } }
       else { q.set("process", proc); if (proc === "injection") pick("cad-pull", "pull"); }
-      if (document.getElementById("cad-handheld").checked) q.set("handheld", "1"); }
+      if (document.getElementById("cad-handheld").checked) q.set("handheld", "1");
+      if (document.getElementById("cad-eject").checked) q.set("auto_eject", "1"); }
     else { pick("g-printer", "printer"); pick("g-material", "material"); }
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/check?" + q.toString());

@@ -320,6 +320,7 @@ synthux physical check part.stl                         # STL, 3MF, OBJ, PLY, GL
 synthux physical check part.3mf --material "PETG HF"    # 3MF from Fusion, Tinkercad or Bambu Studio
 synthux physical check part.stl --printer bambu_h2d --handheld
 synthux physical check part_v2.stl --design examples/cad/phone_stand.yaml   # same design name = next version
+synthux physical check part.stl --auto-eject             # for FarmLoop loops: pusher, copies per plate
 synthux physical printed "Phone stand" --measure measured.csv --defect stringing --notes "clip too tight"
 synthux physical history "Phone stand"                  # versions and what changed
 ```
@@ -356,6 +357,15 @@ check.
 bend before the material is strained past its limit (`snap_strain_pct` per material in
 `config/printers.yaml`: about 2% for PLA, 4% for PETG, 5% for ABS). Tabs standing upright are flagged,
 because bending them pulls the layers apart.
+
+**Auto-eject (FarmLoop / ClearLoop):** with `--auto-eject` (or `use: {auto_eject: true}`, or
+`prepare --loops N`), each part standing on the bed is checked against how ClearLoop's pusher
+clears it: pushed at its height minus the push depth (10 mm), never below the pusher's calibrated
+floor, from the back of the plate to the front. It flags parts too low for the pusher or barely
+above its floor, parts that tip rather than slide, large flat contact patches that may not release
+at the release temperature (more so without the bender), and very small parts. It also says how many
+copies fit on one plate inside the pusher's lanes. Floor, push depth, release temperature and bender
+come from your ClearLoop settings when present.
 
 **Human fit**, from `data/anthropometrics.yaml` and the design YAML:
 

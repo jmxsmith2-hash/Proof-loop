@@ -1016,6 +1016,12 @@ def estimates(ctx: Context) -> dict[str, Any]:
 # ------------------------------------------------------------------------ run
 
 
+def _auto_eject(ctx: Context) -> None:
+    from synthux.physical.cad.eject import check_auto_eject
+
+    check_auto_eject(ctx)
+
+
 def run_checks(model: Model, printer: dict, material: dict, slicer: dict, use: dict | None = None,
                pitch: float | None = None) -> Context:
     ctx = Context(model=model, printer=printer, material=material, slicer=slicer, use=use or {})
@@ -1029,7 +1035,7 @@ def run_checks(model: Model, printer: dict, material: dict, slicer: dict, use: d
                                           f"under about {2 * ctx.metrics['voxel_mm']:.1f} mm may be missed")
     for check in (check_mesh, check_build_volume, check_overhangs, check_orientation, check_bed, check_thin,
                   check_cantilevers, check_slender, check_holes, check_horizontal_holes, check_sharp_edges,
-                  check_clearances, check_detail, check_stability):
+                  check_clearances, check_detail, check_stability, _auto_eject):
         try:
             check(ctx)
         except Exception as exc:  # one failing check must not hide the others
