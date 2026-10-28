@@ -28,6 +28,7 @@ button { margin-top: 12px; padding: 8px 16px; border-radius: 9px; border: 0; bac
 .job h3 { margin: 0; font-size: 15px; } .job ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; color: var(--text-secondary); }
 .status { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--border); }
 .status.done { color: #0a7d0a; border-color: #0a7d0a; } .status.failed { color: #c81e1e; border-color: #c81e1e; }
+.loop { margin-top: 8px; font-size: 14px; } .loop input { width: 64px; }
 .status.running { color: var(--accent); border-color: var(--accent); }
 .bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 6px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
@@ -186,12 +187,43 @@ async function refresh() {
       <div class="muted">${esc(j.status === "failed" ? (j.error || "failed") : j.stage)}${counts}</div>
       ${j.status === "running" && j.progress !== null ? `<div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div>` : ""}
       ${j.summary.length ? `<ul>${j.summary.map(s => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}
-      ${j.report_url ? `<a class="open" href="${j.report_url}" target="_blank" rel="noopener">Open the report</a>` : ""}</div>
+      ${j.report_url ? `<a class="open" href="${j.report_url}" target="_blank" rel="noopener">Open the report</a>` : ""}
+      ${j.download ? `<a class="open" style="margin-left:14px" href="${j.download}" download>Download the loop file</a>` : ""}
+      ${j.can_loop && j.status === "done" ? `<div class="loop">Make a loop file (ClearLoop):
+        <input type="number" min="1" max="500" value="${LOOPS[j.id] || 5}" aria-label="Loops" id="loops-${esc(j.id)}">
+        <button type="button" data-loop="${esc(j.id)}">Make it</button></div>` : ""}</div>
       <div><span class="status ${esc(j.status)}">${esc(j.status)}</span></div></div>`;
   }).join("");
+  for (const j of jobs) {
+    const was = SEEN[j.id];
+    if (was && was !== j.status && (j.status === "done" || j.status === "failed")) tell(j);
+    SEEN[j.id] = j.status;
+  }
   const busy = jobs.some(j => j.status === "running" || j.status === "queued");
   clearTimeout(window._t); window._t = setTimeout(refresh, busy ? 1200 : 5000);
 }
+// a desktop notice when a check finishes while the window is in the background
+const SEEN = {}, LOOPS = {};  // LOOPS keeps a typed loop count across refreshes
+document.getElementById("jobs").addEventListener("input", (e) => {
+  if (e.target.id && e.target.id.startsWith("loops-")) LOOPS[e.target.id.slice(6)] = +e.target.value; });
+function askToTell() { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); }
+function tell(j) {
+  if (!window.Notification || Notification.permission !== "granted" || !document.hidden) return;
+  const n = new Notification(`${LABEL[j.kind]}: ${j.title} ${j.status === "done" ? "is done" : "failed"}`,
+    {body: j.status === "done" ? (j.summary[0] || "") : (j.error || "")});
+  n.onclick = () => { window.focus(); if (j.report_url) window.open(j.report_url, "_blank", "noopener"); };
+}
+document.addEventListener("click", askToTell, {once: true});
+document.getElementById("jobs").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-loop]"); if (!b) return;
+  const loops = +document.getElementById("loops-" + b.dataset.loop).value; b.disabled = true;
+  try {
+    const r = await fetch("/api/loop", {method: "POST", headers: {...H, "Content-Type": "application/json"},
+      body: JSON.stringify({job: b.dataset.loop, loops})});
+    if (!r.ok) alert((await r.json()).error);
+  } catch (x) { alert("Could not make the loop file"); }
+  b.disabled = false; refresh();
+});
 refresh();
 </script>
 </body></html>

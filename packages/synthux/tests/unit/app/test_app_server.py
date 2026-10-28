@@ -90,3 +90,39 @@ def test_upload_names_are_made_safe():
     assert safe_name("..\\..\\evil/../x.stl") == "x.stl"
     assert safe_name("bad<>:name.gcode") == "bad_name.gcode"
     assert file_kind("Part.GCODE.3MF") == "gcode" and file_kind("part.3mf") == "cad" and file_kind("a.pdf") is None
+
+
+def test_make_a_loop_file_from_a_checked_plate(app):
+    pytest.importorskip("clearloop")
+    body = (REPO / "examples" / "gcode" / "bracket_plate.gcode.3mf").read_bytes()
+    status, data = _req(app, "POST", "/api/check?name=bracket_plate.gcode.3mf", body, {"X-Synthux": "1"})
+    plate = _wait(app, json.loads(data)["id"])
+    assert plate["status"] == "done" and plate["can_loop"]
+    status, data = _req(app, "POST", "/api/loop", json.dumps({"job": plate["id"], "loops": 3}).encode(),
+                        {"X-Synthux": "1"})
+    assert status == 201, data
+    job = _wait(app, json.loads(data)["id"])
+    assert job["status"] == "done", job["error"]
+    assert any("loop file by ClearLoop: 3 loops" in s for s in job["summary"]) and not job["can_loop"]
+    status, made = _req(app, "GET", job["download"])
+    assert status == 200 and made[:2] == b"PK"
+
+
+def test_loop_needs_a_plate_and_the_app_window(app):
+    status, data = _req(app, "POST", "/api/loop", b'{"job": "nope", "loops": 3}', {"X-Synthux": "1"})
+    assert status == 400 and b"no Bambu plate" in data
+    assert _req(app, "POST", "/api/loop", b'{"job": "nope", "loops": 3}')[0] == 403
+
+
+def test_long_jobs_send_a_notification(app, monkeypatch):
+    from synthux import notify
+    from synthux.app import server as srv
+
+    sent = []
+    monkeypatch.setattr(notify, "send", lambda title, msg, link=None: sent.append((title, msg)) or 1)
+    monkeypatch.setattr(srv, "NOTIFY_AFTER_S", 0)
+    body = (REPO / "examples" / "gcode" / "bracket_good.gcode").read_bytes()
+    _, data = _req(app, "POST", "/api/check?name=bracket_good.gcode", body, {"X-Synthux": "1"})
+    _wait(app, json.loads(data)["id"])
+    time.sleep(0.2)
+    assert sent and sent[0][0] == "Synthux: bracket_good.gcode is done"

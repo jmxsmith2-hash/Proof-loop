@@ -61,3 +61,19 @@ jobs:
           .\.venv\Scripts\synthux.exe physical check examples\cad\phone_stand_v2.stl --design examples\cad\phone_stand.yaml
           .\.venv\Scripts\synthux.exe physical history
           .\.venv\Scripts\synthux.exe physical gcode examples\gcode\bracket_flawed.gcode
+
+  windows-no-python:
+    name: windows / setup.bat on a PC without Python (uv)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the setup script, made to fetch its own Python
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -ForceUv
+      - name: Use the installed tool
+        shell: pwsh
+        run: |
+          .\.venv\Scripts\python.exe -c "import sys; print(sys.version); assert sys.version_info[:2] == (3, 12)"
+          .\.venv\Scripts\synthux.exe physical gcode examples\gcode\bracket_flawed.gcode
+          if (-not (Test-Path ([IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "Synthux.lnk")))) { exit 1 }

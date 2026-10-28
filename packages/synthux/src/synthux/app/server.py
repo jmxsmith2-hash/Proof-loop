@@ -40,6 +40,9 @@ GCODE_SUFFIXES = (".gcode", ".gcode.3mf", ".gco", ".bgcode")
 HEADER = "X-Synthux"
 
 
+NOTIFY_AFTER_S = 30  # only jobs that take this long are worth a phone alert
+
+
 @dataclass
 class Job:
     id: str
@@ -54,12 +57,23 @@ class Job:
     summary: list[str] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
     error: str | None = None
+    source: str | None = None      # the uploaded plate, when ClearLoop can turn it into a loop file
+    download: str | None = None    # a file made for you (a loop file)
 
     def public(self) -> dict[str, Any]:
         data = asdict(self)
         data.pop("report")
+        data.pop("source")
         data["report_url"] = f"/job/{self.id}/" if self.report else None
+        data["can_loop"] = bool(self.source)
+        data["download"] = f"/job/{self.id}/download/{Path(self.download).name}" if self.download else None
         return data
+
+
+def _has_clearloop() -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec("clearloop") is not None
 
 
 def safe_name(name: str) -> str:
@@ -138,6 +152,18 @@ class App:
             job.status, job.error = "failed", f"{type(exc).__name__}: {exc}"
         finally:
             job.finished = time.time()
+            if job.finished - job.created >= NOTIFY_AFTER_S:
+                self._notify(job)
+
+    @staticmethod
+    def _notify(job: Job) -> None:
+        from synthux import notify
+
+        if job.status == "done":
+            worst = "; ".join(job.summary[:2]) or "finished"
+            notify.send(f"Synthux: {job.title} is done", worst)
+        else:
+            notify.send(f"Synthux: {job.title} failed", job.error or "see the app")
 
     def submit_file(self, filename: str, body_reader: Callable[[Path], int], options: dict[str, str]) -> Job:
         name = safe_name(filename)
@@ -239,6 +265,30 @@ class App:
         else:
             job.summary.append(f"{result['printer']['label']}, {result['material']['name']}: "
                                f"{m.get('filament_g', 0)} g, {when}")
+            if path.name.lower().endswith(".3mf") and _has_clearloop():
+                job.source = str(path)
+
+    def submit_loop(self, job_id: str, loops: int) -> Job:
+        """Turn a checked Bambu plate into a ClearLoop loop file, then check the loop file."""
+        src = self.jobs.get(job_id)
+        if src is None or not src.source:
+            raise ValueError("that job has no Bambu plate ClearLoop can loop")
+        if not 1 <= loops <= 500:
+            raise ValueError("loops must be between 1 and 500")
+        job = self._new("gcode", f"{src.title} \u00d7 {loops} loops")
+        folder = self.root / job.id
+        folder.mkdir(parents=True)
+        self.checks.submit(self._run, job, lambda j: self._loop_work(j, Path(src.source), loops, folder))
+        return job
+
+    def _loop_work(self, job: Job, plate: Path, loops: int, folder: Path) -> None:
+        from synthux.physical.prepare import make_loop_file
+
+        job.stage = "making the loop file with ClearLoop"
+        made = make_loop_file(plate, loops, folder)
+        job.download = str(made)
+        self._gcode_work(job, made, {})
+        job.title = made.name
 
     @staticmethod
     def _summarise(job: Job, findings: list[dict[str, Any]]) -> None:
@@ -307,6 +357,8 @@ class App:
     # ------------------------------------------------------------------ files
     def job_file(self, job_id: str, rel: str) -> Path:
         job = self.jobs.get(job_id)
+        if job is not None and job.download and rel == f"download/{Path(job.download).name}":
+            return Path(job.download)
         if job is None or not job.report:
             raise FileNotFoundError(job_id)
         base = Path(job.report).resolve().parent
@@ -325,9 +377,12 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
         def log_message(self, fmt: str, *args: Any) -> None:
             log.debug("app: " + fmt, *args)
 
-        def _send(self, body: bytes, ctype: str = "text/html; charset=utf-8", status: int = 200) -> None:
+        def _send(self, body: bytes, ctype: str = "text/html; charset=utf-8", status: int = 200,
+                  attachment: str | None = None) -> None:
             self.send_response(status)
             self.send_header("Content-Type", ctype)
+            if attachment:
+                self.send_header("Content-Disposition", f'attachment; filename="{safe_name(attachment)}"')
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
@@ -355,6 +410,8 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     file = app.job_file(parts[2], parts[3] if len(parts) > 3 else "")
                     if not file.is_file():
                         return self._send(b"not found", "text/plain", 404)
+                    if "/download/" in path:
+                        return self._send(file.read_bytes(), "application/octet-stream", attachment=file.name)
                     return self._send(file.read_bytes(), mimetypes.guess_type(file.name)[0] or "application/octet-stream")
                 return self._send(b"not found", "text/plain", 404)
             except PermissionError:
@@ -379,6 +436,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     opts = {k: v[0] for k, v in parse_qs(url.query).items()}
                     job = app.submit_file(opts.pop("name", "upload"), lambda dest: self._save_body(dest, length), opts)
                     return self._json(job.public(), 201)
+                if url.path == "/api/loop":
+                    form = json.loads(self.rfile.read(length) or b"{}")
+                    return self._json(app.submit_loop(str(form.get("job", "")), int(form.get("loops") or 0)).public(), 201)
                 if url.path == "/api/test":
                     form = json.loads(self.rfile.read(length) or b"{}")
                     return self._json(app.submit_test(form).public(), 201)

@@ -40,20 +40,32 @@ behaviour.
 
 ## Quick start
 
-Requirements: Python 3.11+, and Chromium for Playwright.
+Requirements: Python 3.11+ (Windows setup fetches it for you), and Chromium for Playwright.
 
 **Windows:** double-click `setup.bat` (or run
-`powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1`). It finds
-Python 3.11+ (and tells you the `winget` command if it is missing), creates
+`powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1`). It uses Python 3.11+ if
+you have it; if not, it fetches [uv](https://docs.astral.sh/uv/) (one program, installed for your
+user only, no admin rights) and uv downloads a Python 3.12 just for this folder. Then it creates
 `.venv`, installs everything, downloads Chromium, runs `synthux check` and puts a
-**Synthux** shortcut on the desktop. For the command line, open a new terminal in the
-folder and run `.venv\Scripts\activate`.
+**Synthux** shortcut on the desktop. If the ClearLoop folder sits next to this one
+(`..\Something-B` or `..\clearloop`), or git can fetch it, ClearLoop is installed into the same
+`.venv` and gets its own **ClearLoop** shortcut (`ClearLoop.bat`); without it everything but loop
+files works. Switches: `-NoClearLoop`, `-NoShortcuts`, `-ForceUv`. For the command line, open a new
+terminal in the folder and run `.venv\Scripts\activate`.
 **macOS / Linux:** `sh scripts/setup_unix.sh` does the same.
 
 **The app window:** double-click **Synthux** (or `Synthux.bat`, or run `synthux app`). Drop a
 CAD file or sliced G-code on it, or paste a website address and a task; each job runs in the
 background and links to its report. It opens as its own window in Edge or Chrome, runs only
 on this computer, and adds a website to the allowlist only when you tick "This is my own site".
+A checked Bambu plate (`.gcode.3mf`) gets a **Make a loop file (ClearLoop)** button: pick the
+number of loops and it makes the loop file, checks it, and offers it for download.
+
+**Being told when it's done:** checks that take over 30 seconds send a notification to the
+ntfy, Discord or webhook targets you set up in ClearLoop (so one setup covers both), or to
+`SYNTHUX_NOTIFY_URL` (an ntfy topic URL, a Discord webhook URL or any URL that takes a JSON POST;
+`SYNTHUX_NOTIFY_TOKEN` is sent as a bearer token). The app window also shows a desktop notice when
+a job finishes while it's in the background, if you allow it the first time you click.
 
 **Fastest start:** `synthux init` asks a few questions, then writes a study for a website or a design
 file for a CAD part. Or test a site in one line, with no file at all:
