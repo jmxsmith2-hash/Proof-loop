@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests tools
+      - run: pytest -q
+
+  evidence:
+    # Re-check the built-in P2S profile against the public FarmLoop files it was learned from.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: |
+          git clone https://github.com/Liaminamerica2/p2s-autofarm-playbook /tmp/playbook
+          git -C /tmp/playbook checkout 7b9a988963bf152c3839344d441e82bdcd96b924
+      - run: CLEARLOOP_EVIDENCE=/tmp/playbook/evidence pytest -q tests/test_evidence.py

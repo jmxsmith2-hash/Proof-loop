@@ -1,0 +1,73 @@
+{
+  "id": "p2s-stage2-farmboard",
+  "name": "P2S \u00b7 Stage 2 (FarmBoard)",
+  "printer_model_id": "N7",
+  "stage": 2,
+  "description": "FarmLoop Stage 2 kit on a P2S: FarmBoard door, bender and pusher.",
+  "source": {
+    "kind": "builtin",
+    "evidence": "https://github.com/Liaminamerica2/p2s-autofarm-playbook/tree/7b9a988963bf152c3839344d441e82bdcd96b924/evidence",
+    "farmloop_file": "FL_S2_Poop-Bucket-Logo-V2(5)_Poop Bucket.gcode.3mf",
+    "farmloop_file_sha256": "e75259043c768a2f4a3a3804839996c645a31194f73ebb2dc0f124c368ea9f68",
+    "farmloop_app": "2.72",
+    "farmboard_firmware": "2.94",
+    "slicer": "BambuStudio 02.07.01.62"
+  },
+  "sweep": {
+    "y_rear": 250.0,
+    "y_front": 0.0,
+    "passes": [
+      {
+        "feed": 3000,
+        "lanes": [
+          125.0,
+          125.0,
+          220.0,
+          190.0,
+          160.0,
+          130.0,
+          100.0,
+          70.0,
+          30.0
+        ]
+      },
+      {
+        "feed": 12000,
+        "lanes": [
+          220.0,
+          190.0,
+          160.0,
+          130.0,
+          100.0,
+          70.0,
+          30.0
+        ]
+      }
+    ],
+    "z_feed": 12000,
+    "park": [
+      "G1 X65 Y245 F12000",
+      "G1 Y265 F3000"
+    ]
+  },
+  "start_anchor": "^;=+ \\d{4}/\\d{2}/\\d{2} =+$",
+  "start_block": "G28\n\n; --- V2.93 MQTT sentinel: RESET (arm MQTT auto-trigger) ---\nM104 S1                ; FL_S2 RESET sentinel (arm MQTT via nozzle_target_temper=1)\n\n; --- RESET: 4 quick taps (within 3 seconds) ---\nG1 Z255 F6000     ; Tap 1 - press\nG4 P150\nG1 Z243 F3000    ; Release\nG4 P250\nG1 Z255 F3000    ; Tap 2 - press\nG4 P150\nG1 Z243 F3000    ; Release\nG4 P250\nG1 Z255 F3000    ; Tap 3 - press\nG4 P150\nG1 Z243 F3000    ; Release\nG4 P250\nG1 Z255 F3000    ; Tap 4 - press\nG4 P150\nG1 Z243 F3000    ; Release\n\n; Wait for reset sequence (bender returns home ~7s)\nG4 P1000         ; Wait for reset complete\n\n; --- TRIGGER 0: Long tap (3-4s) + Short tap ---\n\nG1 Z255 F3000\nM400\nG4 P3500\nG1 Z243 F3000    ; Release switch\nG4 P500          ; Wait 500ms\n\nG1 Z255 F3000    ; Short tap - quick press\nG4 P200          ; Brief contact\nG1 Z20 F3000    ; Release switch\n",
+  "door_open": "; --- V2.93 MQTT sentinel: T1 (last-layer done) ---\nM104 S2                ; FL_S2 T1 sentinel (open door + fan via nozzle_target_temper=2)\n\n; --- TRIGGER 1: Long press (4-6 seconds) - Fan ON + Door Open ---\nG1 Z243 F3000    ; Go to position\nM400\nG1 Z255 F3000       ; Press switch (slow = ~5s contact)\nM400\nG4 S5\nM400\nG1 Z243 F3000    ; Release switch\n",
+  "bend": "; --- V2.93 MQTT sentinel: T2 (cool-done) ---\nM104 S3                ; FL_S2 T2 sentinel (start bending via nozzle_target_temper=3)\n\n; --- TRIGGER 2: Triple tap - Start bending ---\nG4 P500\nG1 Z255 F1000    ; Tap 1\nG4 P150\nG1 Z243 F3000\nG4 P300\nG1 Z255 F1000    ; Tap 2\nG4 P150\nG1 Z243 F3000\nG4 P300\nG1 Z255 F1000    ; Tap 3\nG4 P150\nG1 Z243 F3000\n\nG4 P6000         ; Wait for count window to expire\n\n; --- Wait for bending cycles ---\n; 5 cycles \u00d7 ~16s each = ~80 seconds\n; Adjust based on your configured cycle count\nG4 P85000        ; Wait for bending complete\n",
+  "safety": "; --- V2.93 MQTT sentinel: Safety (push-done) ---\nM104 S4                ; FL_S2 safety sentinel (run safety check via nozzle_target_temper=4)\n\n; --- TRIGGER SAFETY CHECK: Double tap ---\nG1 Z243 F3000    ; Go to position\nM400\nG1 Z255 F1000    ; Tap 1\nG4 P150\nG1 Z243 F3000\nG4 P300\nG1 Z255 F1000    ; Tap 2\nG4 S5\nG1 Z243 F3000\n\n; --- Wait for safety check (5-step sequence) ---\n; Bender extend(7s) + retract(7s) + extend(7s) + door open(8s) + door close(8s) = ~37s\nG4 P20000        ; Wait for safety check\n",
+  "door_close": "; --- V2.93 MQTT sentinel: T3 (push-done, door close) ---\nM104 S5                ; FL_S2 T3 sentinel (final door close via nozzle_target_temper=5)\n\n; --- TRIGGER 3: Long press (4-6 seconds) - Final door close ---\nG1 Z255 F3000\nM400       ; Press switch (slow = ~5s contact)\nG4 S5\nM400\nG1 Z220 F3000    ; Release switch\n",
+  "cooldown_fan": [
+    "M106 P2 S255 ; turn on remote part cooling fan"
+  ],
+  "cooldown_repeat": 62,
+  "fans_off": [
+    "M106 S0 ; turn off fan",
+    "M106 P2 S0 ; turn off remote part cooling fan",
+    "M106 P3 S0 ; turn off chamber cooling fan"
+  ],
+  "notes": [
+    "FarmBoard triggers, switch gestures, waits, sweep path and park position are copied verbatim from the FarmLoop app's own P2S output.",
+    "The door closes on T3 even when T2 (bend) and the safety check are skipped: observed on a P2S in the playbook's first live run (GCODE-HOWTO.md section 9). ClearLoop's 'bender removed' option relies on this.",
+    "Left out on purpose: the FarmLoop app's 120-minute natural-cooldown wait that it places before the print with the heaters on (FL_S2_INCIDENT.md)."
+  ]
+}
