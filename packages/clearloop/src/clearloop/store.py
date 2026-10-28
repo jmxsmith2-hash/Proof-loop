@@ -80,6 +80,15 @@ CREATE TABLE IF NOT EXISTS production (
     grams REAL NOT NULL,
     ok INTEGER NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS outcomes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,        -- when the print ended
+    printer TEXT NOT NULL,
+    job TEXT,
+    outcome TEXT NOT NULL,   -- finished, failed, cancelled, unknown
+    data TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(ts);
 CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage(ts);
 CREATE INDEX IF NOT EXISTS idx_usage_spool ON usage(spool_id, ts);
 CREATE INDEX IF NOT EXISTS idx_production_ts ON production(ts);
@@ -294,6 +303,34 @@ class Store:
             rows = self._db.execute("SELECT name, ts, data FROM jobs ORDER BY ts DESC LIMIT ?", (limit,))
             return [{"name": r[0], "ts": r[1], **json.loads(r[2])} for r in rows]
 
+    # ---- print journal ------------------------------------------------------------
+    def add_outcome(self, data: dict) -> int:
+        with self._lock:
+            cur = self._db.execute(
+                "INSERT INTO outcomes (ts, printer, job, outcome, data) VALUES (?,?,?,?,?)",
+                (data.get("ended") or time.time(), data["printer"], data.get("job"), data["outcome"],
+                 json.dumps(data)),
+            )
+            return int(cur.lastrowid)
+
+    def update_outcome(self, oid: int, data: dict) -> None:
+        with self._lock:
+            self._db.execute("UPDATE outcomes SET data=?, outcome=? WHERE id=?",
+                             (json.dumps(data), data["outcome"], oid))
+
+    def outcome(self, oid: int) -> dict | None:
+        with self._lock:
+            r = self._db.execute("SELECT data FROM outcomes WHERE id=?", (oid,)).fetchone()
+        return json.loads(r[0]) if r else None
+
+    def outcomes(self, since: float = 0, limit: int = 500, printer: str | None = None) -> list[dict]:
+        q, args = "SELECT id, ts, data FROM outcomes WHERE ts>=?", [since]
+        if printer:
+            q, args = q + " AND printer=?", [*args, printer]
+        with self._lock:
+            rows = self._db.execute(q + " ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()
+        return [{"id": r[0], "ts": r[1], **json.loads(r[2])} for r in rows]
+
     # ---- production ----------------------------------------------------------------
     def add_production(self, printer: str, job: str, loop_no: int, parts: int, grams: float, ok=True) -> None:
         with self._lock:
@@ -313,7 +350,7 @@ class Store:
         """Everything worth backing up (events and checks are logs, not state)."""
         with self._lock:
             out = {}
-            for t in ("spools", "usage", "jobs", "assignments", "production", "timings", "counters"):
+            for t in ("spools", "usage", "jobs", "assignments", "production", "timings", "counters", "outcomes"):
                 out[t] = [dict(r) for r in self._db.execute(f"SELECT * FROM {t}")]
         return out
 
@@ -321,7 +358,8 @@ class Store:
         with self._lock:
             self._db.execute("BEGIN")
             try:
-                for t in ("spools", "usage", "jobs", "assignments", "production", "timings", "counters"):
+                for t in ("spools", "usage", "jobs", "assignments", "production", "timings", "counters",
+                          "outcomes"):
                     rows = data.get(t)
                     if rows is None:
                         continue

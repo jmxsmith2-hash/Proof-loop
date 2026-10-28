@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from .config import Defaults, SettingsStore
 from .filament import prices_for
 from .gcode.processor import ProcessError, analyze, process
 from .importer import ImportError_, import_profile
+from .journal import PrintJournal
 from .lint import lint
 from .printer.ams import label as tray_label
 from .profiles import ProfileStore
@@ -91,7 +93,31 @@ def cmd_make(a) -> int:
         return 2
     out = Path(a.output) if a.output else Path(a.input).with_name(r.filename)
     out.write_bytes(r.data)
+    PrintJournal(None, a.data).keep_file(r.filename, r.data)  # so the print journal can find its G-code
     print(f"\n✓ wrote {out}")
+    return 0
+
+
+def cmd_history(a) -> int:
+    from .store import Store
+
+    store = Store(Path(a.data) / "clearloop.db")
+    rows = store.outcomes(limit=a.limit)
+    if a.json:
+        import json
+
+        print(json.dumps(rows, indent=2))
+        return 0
+    if not rows:
+        print("No prints recorded yet: the Monitor records every print on the printers it watches.")
+        return 0
+    for r in rows:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"]))
+        loop = f" loop {r['loop_no']}" if r.get("loop_file") else ""
+        layer = f" at layer {r['layer']}/{r['total_layers']}" if r["outcome"] != "finished" and r.get("layer") else ""
+        hms = f"  HMS {', '.join(h['code'] for h in r['hms'])}" if r.get("hms") else ""
+        eject = {"clear": "  plate empty", "parts_left": "  PARTS LEFT"}.get(r.get("eject") or "", "")
+        print(f"  {when}  {r['printer']:10} {r['outcome']:9} {r['job']}{loop}{layer}{hms}{eject}")
     return 0
 
 
@@ -332,6 +358,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("spools", help="list your filament spools and what's left on them")
     p.add_argument("--all", action="store_true", help="include archived spools")
     p.set_defaults(fn=cmd_spools)
+
+    p = sub.add_parser("history", help="how recent prints ended (recorded by the Monitor)")
+    p.add_argument("--limit", type=int, default=30)
+    p.add_argument("--json", action="store_true", help="everything recorded, as JSON")
+    p.set_defaults(fn=cmd_history)
 
     p = sub.add_parser("profiles", help="list hardware profiles")
     p.set_defaults(fn=cmd_profiles)

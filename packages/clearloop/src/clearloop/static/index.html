@@ -490,9 +490,16 @@ details summary{cursor:pointer;font-weight:600}
   <div id="monitorEmpty" class="banner info hidden"><span class="ic info">i</span><div>No printers yet. Add one below. The printer needs <b>LAN-only mode</b> with <b>Developer Mode</b> on; its IP, serial number and access code are on the printer's screen.</div></div>
   <div class="grid" id="printerCards" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))"></div>
   <div class="grid two" style="margin-top:16px">
+    <div class="grid" style="align-content:start">
+    <div class="card">
+      <h2>Print history</h2>
+      <p class="hint">How every print on these printers ended. Tools such as synthux learn from it which settings fail on your printer.</p>
+      <div class="tw"><table id="outcomes"></table></div>
+    </div>
     <div class="card">
       <h2>Recent events</h2>
       <div class="tw"><table id="events"></table></div>
+    </div>
     </div>
     <div class="grid" style="align-content:start">
       <div class="card">
@@ -1417,6 +1424,9 @@ async function refreshMonitor() {
           ${m.waiting_for_you ? `<button class="btn danger" data-act="resume" data-n="${n}">Resume without check</button>` : ''}
           <button class="btn danger" data-act="remove" data-n="${n}">Remove</button></div></div>`;
     }).join('');
+    const oc = await json('/api/outcomes?limit=25');
+    const how = {finished: '<span class="chip ok">finished</span>', failed: '<span class="chip bad">failed</span>', cancelled: '<span class="chip">cancelled</span>', unknown: '<span class="chip">?</span>'};
+    $('#outcomes').innerHTML = '<tr><th>Ended</th><th>Printer</th><th>File</th><th>Result</th></tr>' + (oc.length ? '' : '<tr><td colspan="4" class="muted">Nothing yet. Every print the Monitor sees is recorded here.</td></tr>') + oc.map(o => `<tr><td class="num muted">${new Date(o.ts * 1000).toLocaleString()}</td><td>${esc(o.printer)}</td><td>${esc(o.job || '')}${o.loop_file ? ' <span class="muted">loop ' + o.loop_no + '</span>' : ''}</td><td>${how[o.outcome] || esc(o.outcome)}${o.outcome !== 'finished' && o.layer ? ' <span class="muted">at layer ' + o.layer + (o.total_layers ? '/' + o.total_layers : '') + '</span>' : ''}${o.hms && o.hms.length ? ' <span class="muted">HMS ' + o.hms.map(h => esc(h.code)).join(', ') + '</span>' : ''}${o.eject === 'parts_left' ? ' <span class="chip warn">parts left</span>' : ''}${o.has_picture ? ` <button class="btn" data-act="outpic" data-id="${o.id}">Picture</button>` : ''}</td></tr>`).join('');
     const ev = await json('/api/events?limit=40');
     $('#events').innerHTML = '<tr><th>Time</th><th>Printer</th><th>What happened</th></tr>' + (ev.length ? '' : '<tr><td colspan="3" class="muted">Nothing yet. Events appear here as printers connect and loops run.</td></tr>') + ev.map(e => `<tr><td class="num muted">${new Date(e.ts * 1000).toLocaleString()}</td><td>${esc(e.printer || '')}</td><td>${e.level === 'error' ? '<span class="chip bad">!</span> ' : e.level === 'warning' ? '<span class="chip warn">!</span> ' : ''}${esc(e.message)}</td></tr>`).join('');
     const q = STATE.quiet_hours, qf = $('#quietForm');
@@ -1425,6 +1435,11 @@ async function refreshMonitor() {
     if (nt) { const f = $('#notifyForm'); f.kind.value = nt.kind; f.url.value = nt.url; f.min_level.value = nt.min_level; }
   } catch (e) { toast(e.message); }
 }
+$('#outcomes').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-act="outpic"]'); if (!b) return;
+  const r = await api(`/api/outcomes/${b.dataset.id}/picture`);
+  if (r.ok) window.open(URL.createObjectURL(await r.blob()), '_blank'); else toast('No picture');
+});
 $('#printerCards').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-act]'); if (!b) return; const n = b.dataset.n, card = b.closest('.card');
   try {

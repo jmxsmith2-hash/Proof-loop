@@ -195,6 +195,18 @@ FarmLoop's or ClearLoop's, and reports known problems:
    8. Optional pause for the plate check.
 4. **Loops** repeat the whole plate, the same layout the FarmLoop app uses.
 
+### Print history
+
+The Monitor records how every print on your printers ended, not only loop files: finished,
+failed or cancelled, the layer it got to, the printer's HMS alerts and error code, the nozzle and
+bed temperatures, the AMS trays it fed from, and whether the plate check found parts left behind.
+When a print fails or parts are left, the camera picture is kept with it. Files ClearLoop makes are
+kept too (the last 100, in `files/`), so the exact G-code that ran can be checked afterwards.
+See it under *Monitor › Print history*, or run `clearloop history` (`--json` for everything).
+
+[synthux](https://github.com/jmxsmith2-hash/Something-C) reads this history (`synthux physical learn`)
+and learns, per printer and filament, which flows, first layers and files fail on your machine.
+
 ### Print checks too (optional)
 
 Install [synthux](https://github.com/jmxsmith2-hash/Something-C) alongside ClearLoop
@@ -215,6 +227,7 @@ clearloop calibrate sweep-floor tiny.gcode.3mf
 clearloop profiles
 clearloop cost plate.gcode.3mf --loops 20 --cooldown-min 15   # uses the prices saved in the app
 clearloop spools                                                # your spools and what's left
+clearloop history                                               # how recent prints ended
 ```
 
 Settings, imported profiles, spools, usage, empty-plate pictures and the

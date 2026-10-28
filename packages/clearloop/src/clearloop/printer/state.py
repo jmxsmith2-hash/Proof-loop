@@ -46,6 +46,8 @@ class PrinterState:
     layer_num: int = 0
     total_layers: int = 0
     nozzle_target: float = 0.0  # FarmBoard sentinels arrive here (M104 S1..S5)
+    bed_target: float = 0.0
+    print_error: int = 0  # Bambu's error code for the current job (0 = none)
     bed_temp: float = 0.0
     nozzle_temp: float = 0.0
     subtask_name: str = ""
@@ -63,6 +65,8 @@ class PrinterState:
             self.layer_num = _int(p.get("layer_num"), self.layer_num)
             self.total_layers = _int(p.get("total_layer_num"), self.total_layers)
             self.nozzle_target = _float(p.get("nozzle_target_temper"), self.nozzle_target)
+            self.bed_target = _float(p.get("bed_target_temper"), self.bed_target)
+            self.print_error = _int(p.get("print_error"), self.print_error)
             self.bed_temp = _float(p.get("bed_temper"), self.bed_temp)
             self.nozzle_temp = _float(p.get("nozzle_temper"), self.nozzle_temp)
             self.subtask_name = str(p.get("subtask_name", self.subtask_name))

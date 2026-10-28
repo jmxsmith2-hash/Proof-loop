@@ -76,6 +76,7 @@ class PrinterWatch:
         attempts: int = 3,
         retry_s: float = 2.0,
         filament=None,
+        journal=None,
     ):
         self.name = name
         self.link = link
@@ -108,6 +109,8 @@ class PrinterWatch:
         self._last_start = 0.0
         # Filament: an object with loop_done / loop_failed / blocker / on_ams, or None.
         self.filament = filament
+        # Print journal: an object with on_state / printed / failed / plate_checked, or None.
+        self.journal = journal
         self._has_sentinels = False  # this job drives a FarmBoard (Stage 2)
         self._printed = False  # the current loop's print has finished (and been charged)
         self._trays_loop: list[int] = []  # AMS trays the printer fed from during this loop
@@ -139,6 +142,7 @@ class PrinterWatch:
 
             self._track_loop(s)
             self._call("on_ams", s)
+            self._log("on_state", s)
 
             if s.gcode_state != self._gcode_state:
                 prev, self._gcode_state = self._gcode_state, s.gcode_state
@@ -222,11 +226,13 @@ class PrinterWatch:
         elif st == "FINISH" and prev:
             if is_loop_job(s):
                 self._loop_printed(s)
+            self._log("printed", s)
             self.status = "finished: checking the plate"
             self._start_check("finished")
         elif st == "FAILED" and prev:
             self.status = "print failed or cancelled"
             self.event("error", "failed", "the print failed or was cancelled; check the plate")
+            self._log("failed", s)
             if is_loop_job(s) and not self._printed:
                 self._printed = True
                 # layer_num is the layer being printed; the ones before it are finished.
@@ -242,6 +248,7 @@ class PrinterWatch:
         if not self._printed and is_loop_job(s):
             self._printed = True
             self._call("loop_done", s)
+            self._log("printed", s)
 
     def _call(self, what: str, *args):
         fn = getattr(self.filament, what, None) if self.filament else None
@@ -252,6 +259,15 @@ class PrinterWatch:
         except Exception:  # filament bookkeeping must never stop the plate check
             log.exception("%s: filament %s failed", self.name, what)
             return None
+
+    def _log(self, what: str, *args) -> None:
+        fn = getattr(self.journal, what, None) if self.journal else None
+        if fn is None:
+            return
+        try:
+            fn(self, *args)
+        except Exception:  # the journal must never stop the plate check
+            log.exception("%s: journal %s failed", self.name, what)
 
     @property
     def trays_this_loop(self) -> list[int]:
@@ -339,6 +355,7 @@ class PrinterWatch:
                         check.as_dict(),
                     )
                     self.store.add_check(self.name, reason, True, check.changed_fraction, False)
+                    self._log("plate_checked", True, None)
                     return
                 if at_pause and self.auto_resume and quiet:
                     self.pending_resume = True
@@ -349,6 +366,7 @@ class PrinterWatch:
                         f"plate empty; holding the next loop until {quiet} (quiet hours)",
                     )
                     self.store.add_check(self.name, reason, True, check.changed_fraction, False)
+                    self._log("plate_checked", True, None)
                     return
                 if at_pause and self.auto_resume:
                     resumed = bool(self.link.resume())
@@ -380,6 +398,7 @@ class PrinterWatch:
                 check.changed_fraction if check else None,
                 resumed,
             )
+            self._log("plate_checked", check.clear if check else None, jpeg)
 
     # ---- actions from the app ---------------------------------------------------------
     def check_again(self) -> None:

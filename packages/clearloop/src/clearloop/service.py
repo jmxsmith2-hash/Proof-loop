@@ -14,6 +14,7 @@ from .config import Defaults, PrinterConfig, Settings, SettingsStore
 from .filament import Inventory, Spool
 from .gcode.routines import LoopSettings
 from .gcode.sweep import SweepSettings
+from .journal import PrintJournal
 from .monitor import PrinterWatch
 from .notify import Notifier
 from .profiles import ProfileStore
@@ -100,6 +101,7 @@ class App:
             self.store, lambda: self.settings.filament, self._filament_event, self._spoolman_for_reports
         )
         self.tracker = FilamentTracker(self)
+        self.journal = PrintJournal(self.store, self.data_dir, {p.name: p.model_id for p in self.settings.printers})
         self._migrate_cost_spools()
         for p in self.settings.printers:
             self._start_watch(p)
@@ -164,7 +166,9 @@ class App:
             quiet_until=lambda: self.settings.quiet_hours.until(),
             settle_s=p.verify.settle_s,
             filament=self.tracker,
+            journal=self.journal,
         )
+        self.journal.models[p.name] = p.model_id
         link.add_listener(w.on_state)
         if self.connect:
             link.connect()
