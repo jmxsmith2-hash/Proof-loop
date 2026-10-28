@@ -404,6 +404,7 @@ printer's own presets, checks the G-code and compares the two:
 synthux physical prepare part.stl                        # P2S + PLA by default
 synthux physical prepare part.stl --material PETG --support --open
 synthux physical prepare part.stl --loops 5              # also a ClearLoop loop file, checked too
+synthux physical prepare part.stl --fix                  # apply the setting fixes and slice again
 ```
 
 * The slicer is found where it is normally installed (or `--slicer PATH`, or `SYNTHUX_SLICER`).
@@ -415,6 +416,9 @@ synthux physical prepare part.stl --loops 5              # also a ClearLoop loop
   support but which got none, and a thin wall or detail the slicer left out because no line fits.
 * The verdict is **Ready to print** or **Fix N things first**, with the slicer's own grams and time,
   and links to the full design check and G-code check.
+* `--fix` applies the slicer settings that fix what was found (support on, max volumetric speed,
+  fan, first-layer height, temperatures, Arachne walls ...), slices again and checks again, up to
+  twice, and shows what changed and how many problems were left.
 * In the app window, tick "Slice it with Bambu Studio too" on the CAD card.
 
 The command line follows Bambu Studio's own option definitions (`--slice`, `--export-3mf`,
@@ -448,6 +452,11 @@ temperature and fan command is measured against the printer profile and the mate
 * **cooling**: part fan off for PLA, too much fan for ABS/ASA, layers too quick to cool;
 * **adhesion**: warping materials on open printers, tall narrow parts without a brim;
 * **end**: heaters left on; **consistency**: the moves against the slicer's own header.
+
+Findings a slicer setting can fix come with the exact setting and value, named the way Bambu
+Studio and OrcaSlicer show it ("Filament › Max volumetric speed = 21"), and the report writes them
+as user presets that inherit from the presets the file was sliced with, ready for
+*File › Import › Import Configs*.
 
 The report shows the first layer on the plate (anything off the plate in red), layer
 previews, a side view with thick layers marked, and a flow map. A 50 MB file checks in

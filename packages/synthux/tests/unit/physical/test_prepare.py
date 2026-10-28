@@ -155,3 +155,15 @@ def test_app_window_slices_when_asked(profiles, tmp_path):
     finally:
         server.shutdown()
         db.close()
+
+
+def test_fix_applies_the_settings_and_slices_again(profiles, setup, tmp_path):
+    settings, db = setup
+    r = prepare(settings, db, REPO / "examples" / "cad" / "phone_stand_v1.stl", fix=True, out=tmp_path / "fix",
+                personas=2)
+    assert r["rounds"] and r["rounds"][0]["blocking_after"] < r["rounds"][0]["blocking_before"]
+    applied = {s["key"]: s["value"] for s in r["rounds"][0]["applied"]}
+    assert applied["enable_support"] == "1" and applied["support_type"] == "tree(auto)"
+    assert not r["slicer_findings"] and r["presets"]["overrides"]["process"]["enable_support"] == "1"
+    flat = json.loads((tmp_path / "fix" / "presets" / "2" / "process.json").read_text(encoding="utf-8"))
+    assert flat["enable_support"] == "1"

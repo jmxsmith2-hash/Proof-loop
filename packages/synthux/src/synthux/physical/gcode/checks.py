@@ -846,4 +846,7 @@ def run_gcode_checks(ctx: GcodeContext, notes: dict[str, Any]) -> GcodeContext:
                 "Each change purges filament (often 1-3 g each with an AMS) and adds about a minute.",
                 "Group colours by layer, or print a single colour, to save filament.")
     ctx.findings.sort(key=lambda f: -f.severity)
+    from synthux.physical.gcode.settings_fixes import fixes_for
+
+    fixes_for(ctx)
     return ctx

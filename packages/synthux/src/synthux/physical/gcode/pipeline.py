@@ -97,7 +97,7 @@ def build_result(ctx: GcodeContext, notes: dict[str, Any], chosen: dict[str, Any
         findings.append({"n": n, "check": f.check, "severity": f.severity, "severity_name": f.severity_name,
                          "title": f.title, "detail": f.detail, "fix": f.fix, "location": f.location,
                          "layer": f.data.get("layer"), "loop_no": f.data.get("loop_no"),
-                         "layer_in_loop": f.data.get("layer_in_loop"),
+                         "layer_in_loop": f.data.get("layer_in_loop"), "settings": f.data.get("settings") or [],
                          "image": images.get(f.data.get("image_key") or "")})
     result = {
         "file": trace.source, "printer": pr, "material": mat, "nozzle": nozzle,
@@ -109,8 +109,14 @@ def build_result(ctx: GcodeContext, notes: dict[str, Any], chosen: dict[str, Any
         "seconds": round(time.perf_counter() - started, 1),
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
     }
+    from synthux.physical.gcode.settings_fixes import merged, user_presets
+
+    result["setting_fixes"] = merged(findings)
     if write_report:
         from synthux.physical.cad.report import write_report
 
+        if result["setting_fixes"]:
+            result["fix_presets"] = {k: f"slicer-fixes/{v}" for k, v in
+                                     user_presets(result["setting_fixes"], trace.header, out / "slicer-fixes").items()}
         result["report"] = str(write_report("gcode.html.j2", result, out))
     return result

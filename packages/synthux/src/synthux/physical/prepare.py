@@ -79,7 +79,10 @@ def compare(design: dict[str, Any], mesh, ctx) -> tuple[list[dict[str, Any]], st
                                       "the sliced file prints no support under it, so it will droop or fail."
                                       + ("" if support_used else " Support is off in the process preset."),
                             "fix": "Turn support on (tree, auto) for this print (synthux physical prepare --support), "
-                                   "or turn the part so the overhang faces up.", "design_finding": f["n"]})
+                                   "or turn the part so the overhang faces up.", "design_finding": f["n"],
+                            "settings": [_setting("process", "enable_support", 1, "No support under the overhang"),
+                                         _setting("process", "support_type", "tree(auto)",
+                                                  "No support under the overhang")]})
         elif f["check"] in ("thin_wall", "fine_detail"):
             if not _near(ctx, x, y, max(0.0, z - 1.0), z + 1.0, 1.5, support=False):
                 wall = f["check"] == "thin_wall"
@@ -88,9 +91,17 @@ def compare(design: dict[str, Any], mesh, ctx) -> tuple[list[dict[str, Any]], st
                             "detail": f"The design check found #{f['n']} ({f['title']}); the sliced file prints nothing "
                                       "there, because the slicer can't fit a line that narrow. It will be missing "
                                       "from the print.",
-                            "fix": "Thicken it in the CAD model (see the design check's fix), or use a smaller nozzle.",
-                            "design_finding": f["n"]})
+                            "fix": "Thicken it in the CAD model (see the design check's fix), or use a smaller nozzle. "
+                                   "Arachne walls print some thin features the classic wall generator drops.",
+                            "design_finding": f["n"],
+                            "settings": [_setting("process", "wall_generator", "arachne", "The slicer left out detail")]})
     return out, note
+
+
+def _setting(preset: str, key: str, value: Any, why: str) -> dict[str, Any]:
+    from synthux.physical.gcode.settings_fixes import WHERE
+
+    return {"preset": preset, "key": key, "value": str(value), "label": WHERE.get(key, key), "why": why}
 
 
 def make_loop_file(sliced: Path, loops: int, out_dir: Path) -> Path:
@@ -112,12 +123,15 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
             material: str | None = None, layer: float = 0.2, slicer: str | Path | None = None,
             process_preset: str | None = None, filament_preset: str | None = None, support: bool | None = None,
             loops: int = 0, out: Path | None = None, personas: int = 5, history=None,
-            design: str | None = None, auto_eject: bool = False) -> dict[str, Any]:
+            design: str | None = None, auto_eject: bool = False, fix: bool = False) -> dict[str, Any]:
+    """With fix=True, the slicer settings that fix what was found are applied and the model sliced
+    again (up to two more times); the result says what changed and how many problems were left."""
     from synthux.personas.generate import PersonaGenerator
     from synthux.physical.cad.load import load_model
     from synthux.physical.cad.pipeline import check_design, design_spec
     from synthux.physical.cad.report import write_report
     from synthux.physical.gcode.pipeline import analyse, build_result
+    from synthux.physical.gcode.settings_fixes import as_overrides, merged
 
     model = Path(model)
     found = find_slicer(slicer)
@@ -135,26 +149,47 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
     machine = lib.machine((pr.get("names") or [pr["name"]])[0], float(pr["nozzle"]))
     proc = lib.process(machine, layer, process_preset)
     fil = lib.filament(machine, mat["name"], filament_preset)
-    overrides = {} if support is None else {"process": SUPPORT_ON if support else SUPPORT_OFF}
-    presets = write_presets(lib, out / "presets", machine, proc, fil, overrides)
+    overrides: dict[str, dict[str, Any]] = {} if support is None else \
+        {"process": dict(SUPPORT_ON if support else SUPPORT_OFF)}
 
     spec = design_spec(design, model)
     if auto_eject or loops:
         spec.use["auto_eject"] = True
     people = asyncio.run(PersonaGenerator(seed=11).generate(personas, include_accessibility=True))
     cad = check_design(settings, db, model, spec, people, out / "design", pr["name"], mat["name"])
-    sliced, log = slice_model(found, model, presets, out / "sliced")
-    ctx, notes, chosen = analyse(settings.config_dir, sliced, printer=pr["name"], material=mat["name"],
-                                 history=history)
-    gcode = build_result(ctx, notes, chosen, sliced, out=out / "gcode")
     mesh = load_model(model, spec.units).mesh
-    slicer_findings, align_note = compare(cad, mesh, ctx)
+
+    def run_once(over: dict[str, dict[str, Any]], tag: str) -> tuple:
+        presets = write_presets(lib, out / "presets" / tag, machine, proc, fil, over)
+        sliced, log = slice_model(found, model, presets, out / "sliced" / tag)
+        ctx, notes, chosen = analyse(settings.config_dir, sliced, printer=pr["name"], material=mat["name"],
+                                     history=history)
+        gcode = build_result(ctx, notes, chosen, sliced, out=out / "gcode" / tag)
+        slicer_findings, align_note = compare(cad, mesh, ctx)
+        return sliced, log, gcode, slicer_findings, align_note
+
+    def blocking_of(gcode: dict[str, Any], slicer_findings: list[dict[str, Any]]) -> int:
+        return sum(f["severity"] >= 3 for f in gcode["findings"]) + sum(f["severity"] >= 3 for f in slicer_findings)
+
+    sliced, log, gcode, slicer_findings, align_note = run_once(overrides, "1")
+    rounds: list[dict[str, Any]] = []
+    for n in range(2 if fix else 0):
+        changes = [c for c in merged(slicer_findings + gcode["findings"])
+                   if str(overrides.get(c["preset"], {}).get(c["key"])) != c["value"]]
+        if not changes:
+            break                                          # nothing left that a slicer setting fixes
+        for kind, values in as_overrides(changes).items():
+            overrides[kind] = {**overrides.get(kind, {}), **values}
+        before = blocking_of(gcode, slicer_findings)
+        sliced, log, gcode, slicer_findings, align_note = run_once(overrides, str(n + 2))
+        rounds.append({"applied": changes, "blocking_before": before,
+                       "blocking_after": blocking_of(gcode, slicer_findings)})
 
     loop_result = None
     if loops:
         from synthux.physical.gcode.pipeline import check_gcode
 
-        loop_path = make_loop_file(sliced, loops, out / "sliced")
+        loop_path = make_loop_file(sliced, loops, sliced.parent)
         loop_result = check_gcode(settings.config_dir, loop_path, printer=pr["name"], material=mat["name"],
                                   out=out / "loop", history=history)
         loop_result["path"] = str(loop_path)
@@ -168,7 +203,8 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
         "model": model.name, "printer": pr, "material": mat, "slicer": {"name": found.label, "exe": str(found.exe)},
         "presets": {"machine": machine, "process": proc, "filament": fil, "overrides": overrides},
         "ready": not blocking, "blocking": len(blocking), "design": cad, "gcode": gcode,
-        "slicer_findings": slicer_findings, "alignment_note": align_note, "loop": loop_result,
+        "slicer_findings": slicer_findings, "alignment_note": align_note, "loop": loop_result, "rounds": rounds,
+        "setting_fixes": [] if fix else merged(slicer_findings + gcode["findings"]),
         "grams": m.get("filament_g"), "time": gcode["time"]["slicer"] or gcode["time"]["replay"],
         "auto_eject": cad["metrics"].get("auto_eject"),
         "layers": m.get("layers"), "sliced": str(sliced), "slicer_log": log[-4000:], "generated": utcnow(),

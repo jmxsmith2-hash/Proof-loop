@@ -508,6 +508,7 @@ def physical_prepare(
     filament_preset: Optional[str] = typer.Option(None, "--filament-preset", help="The slicer's filament preset name."),
     loops: int = typer.Option(0, help="Also make a ClearLoop loop file with this many loops, and check it."),
     auto_eject: bool = typer.Option(False, "--auto-eject", help="Check the FarmLoop pusher can clear it (on with --loops)."),
+    fix: bool = typer.Option(False, "--fix", help="Apply the slicer settings that fix what was found, and slice again."),
     design: Optional[str] = typer.Option(None, "--design", "-d", help="Design name or design YAML."),
     out: Optional[Path] = typer.Option(None, "--out", "-o", help="Report folder."),
     open_report: bool = typer.Option(False, "--open", help="Open the report in the browser."),
@@ -523,7 +524,7 @@ def physical_prepare(
     try:
         r = prepare(s, _db(s), model, printer=printer, material=material, layer=layer, slicer=slicer,
                     process_preset=process_preset, filament_preset=filament_preset, support=support, loops=loops,
-                    out=out, history=history, design=design, auto_eject=auto_eject or loops > 0)
+                    out=out, history=history, design=design, auto_eject=auto_eject or loops > 0, fix=fix)
     except ConfigError as exc:
         typer.secho(f"Cannot prepare {model}: {exc}", fg="red", err=True)
         raise typer.Exit(2)
@@ -531,8 +532,15 @@ def physical_prepare(
                 fg="green" if r["ready"] else "red", bold=True)
     typer.echo(f"  sliced by {r['slicer']['name']}: {r['presets']['process']}, {r['presets']['filament']}")
     typer.echo(f"  {r['grams']} g, {r['time']}, {r['layers']} layers")
+    for rd in r["rounds"]:
+        changed = ", ".join(f"{st['label']} = {st['value']}" for st in rd["applied"])
+        typer.echo(f"  sliced again with {changed}: {rd['blocking_before']} -> {rd['blocking_after']} problem(s)")
     for f in r["slicer_findings"]:
         typer.echo(f"  [{ {4: 'will fail', 3: 'major', 2: 'minor', 1: 'note'}[f['severity']]:9}] {f['title']}")
+    if r["setting_fixes"]:
+        typer.echo("  slicer settings that would fix it (run with --fix to apply and slice again):")
+        for st in r["setting_fixes"]:
+            typer.echo(f"    {st['label']} = {st['value']}")
     for kind in ("design", "gcode"):
         for f in r[kind]["findings"]:
             if f["severity"] >= 3:
@@ -573,6 +581,10 @@ def physical_gcode(
         typer.echo(f"  {f['n']:2}. [{f['severity_name']:9}] {f['title']}{where}")
     if not r["findings"]:
         typer.secho("  no problems found in the G-code", fg="green")
+    if r.get("setting_fixes"):
+        typer.echo("  slicer settings to change:")
+        for st in r["setting_fixes"]:
+            typer.echo(f"    {st['label']} = {st['value']}")
     m = r["metrics"]
     when = r["time"]["slicer"] or f"about {r['time']['replay']}"
     lf = m.get("loop_file")

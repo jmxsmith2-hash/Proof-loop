@@ -22,6 +22,15 @@
   <p class="links small"><a href="{{ r.links.design }}">Design check</a><a href="{{ r.links.gcode }}">G-code check</a>{% if r.links.loop %}<a href="{{ r.links.loop }}">Loop file check</a>{% endif %}<a href="{{ r.links.sliced }}">Sliced file</a></p>
 </div>
 
+{% if r.rounds %}<h2>Settings changed and sliced again</h2>
+<div class="card small"><table><tr><th>Round</th><th>Changed</th><th class="n">Problems before</th><th class="n">after</th></tr>
+{% for rd in r.rounds %}<tr><td>{{ loop.index + 1 }}</td><td>{% for st in rd.applied %}{{ st.label }} = <b>{{ st.value }}</b>{% if not loop.last %}<br>{% endif %}{% endfor %}</td><td class="n">{{ rd.blocking_before }}</td><td class="n">{{ rd.blocking_after }}</td></tr>{% endfor %}</table>
+<p class="muted">The final slice above uses these settings; set them in your slicer (or import the presets from the G-code check) for the real print.</p></div>{% endif %}
+
+{% if r.setting_fixes %}<h2>Slicer settings that would fix it</h2>
+<div class="card small"><table>{% for st in r.setting_fixes %}<tr><td>{{ st.label }}</td><td class="n"><b>{{ st.value }}</b></td><td>{{ st.why }}</td></tr>{% endfor %}</table>
+<p class="muted">Run again with <code>--fix</code> to apply them and slice again.</p></div>{% endif %}
+
 {% if r.slicer_findings %}<h2>What the slicer did with the design</h2>
 {% if r.alignment_note %}<p class="small muted">Note: {{ r.alignment_note }}.</p>{% endif %}
 {% for f in r.slicer_findings %}<div class="card"><h3><span class="num sev{{ f.severity }}">!</span>{{ f.title }}</h3>

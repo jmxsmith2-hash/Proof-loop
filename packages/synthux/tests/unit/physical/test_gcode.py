@@ -1,3 +1,4 @@
+import json
 import math
 import zipfile
 from pathlib import Path
@@ -177,3 +178,18 @@ def test_other_tools_can_check_a_file_without_a_config_folder(tmp_path, monkeypa
     pkg = Path(__import__("synthux").__file__).parent / "data"
     for name in ("printers.yaml", "processes.yaml"):               # the shipped copies stay in step
         assert (pkg / name).read_text(encoding="utf-8") == (CFG / name).read_text(encoding="utf-8")
+
+
+def test_findings_come_with_the_slicer_settings_that_fix_them(tmp_path):
+    r = check_gcode(CFG, EX / "bracket_flawed.gcode", out=tmp_path / "s")
+    by_key = {s["key"]: s["value"] for s in r["setting_fixes"]}
+    assert by_key == {"initial_layer_print_height": "0.24", "layer_height": "0.3",
+                      "filament_max_volumetric_speed": "21", "fan_min_speed": "70", "fan_max_speed": "100",
+                      "filament_retraction_length": "0.8"}
+    flow = next(f for f in r["findings"] if f["check"] == "flow")
+    assert flow["settings"][0]["label"] == "Filament › Max volumetric speed"
+    fil = json.loads((tmp_path / "s" / r["fix_presets"]["filament"]).read_text(encoding="utf-8"))
+    assert fil["type"] == "filament" and fil["fan_max_speed"] == ["100"] and fil["from"] == "User"
+    proc = json.loads((tmp_path / "s" / r["fix_presets"]["process"]).read_text(encoding="utf-8"))
+    assert proc["layer_height"] == "0.3" and proc["initial_layer_print_height"] == "0.24"
+    assert not check_gcode(CFG, EX / "bracket_good.gcode", out=tmp_path / "g")["setting_fixes"]
