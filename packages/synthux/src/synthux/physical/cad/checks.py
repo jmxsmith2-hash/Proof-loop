@@ -371,7 +371,8 @@ def _capped_distance(solid: np.ndarray, cap: float) -> np.ndarray:
     return out
 
 
-def _thin_components(ctx: Context, limit_mm: float, grid: VoxelGrid | None = None) -> list[dict[str, Any]]:
+def _thin_components(ctx: Context, limit_mm: float, grid: VoxelGrid | None = None,
+                     with_voxels: bool = False) -> list[dict[str, Any]]:
     """Solid regions thinner than `limit_mm`, found with fast morphology (erosion + dilation).
 
     The thickness of each region is then measured with an exact distance transform on a small crop.
@@ -402,7 +403,10 @@ def _thin_components(ctx: Context, limit_mm: float, grid: VoxelGrid | None = Non
         centre = grid.centre(coords.mean(axis=0))
         extent = (np.array([s.stop - s.start for s in sl])) * grid.pitch
         est = float((2 * float(d) - 0.5) * grid.pitch)
-        out.append({"centre": centre, "extent": extent, "thickness": max(grid.pitch, est), "voxels": int(count)})
+        item = {"centre": centre, "extent": extent, "thickness": max(grid.pitch, est), "voxels": int(count)}
+        if with_voxels:
+            item["index"] = coords
+        out.append(item)
     return sorted(out, key=lambda c: -c["voxels"])
 
 
@@ -430,8 +434,12 @@ def check_thin(ctx: Context) -> None:
 def check_slender(ctx: Context) -> None:
     """Slender features standing upright break along their layer lines."""
     # Features up to ~6 mm wide don't need the fine grid used for thin walls.
+    tabs = ctx.cache.get("cantilevers", [])
     for comp in _thin_components(ctx, 5.0, coarse_grid(ctx, 0.8))[:10]:
         ex, ey, ez = comp["extent"]
+        if any(np.all(comp["centre"] >= lo) and np.all(comp["centre"] <= hi) for lo, hi in
+               (t["box"] for t in tabs)):
+            continue                                     # already reported as a flexing tab
         if ez >= 3 * max(ex, ey) and ez >= 8 and max(ex, ey) < 6:
             ctx.add(CadFinding("weak_layers", 2, "Upright slender feature is weak across layers",
                                f"A feature about {max(ex, ey):.1f} mm wide and {ez:.0f} mm tall stands upright, so "
@@ -449,7 +457,17 @@ FIT_HOLE_MAX_MM = 8.0             # holes up to this size are usually for screws
 
 def find_vertical_holes(grid: VoxelGrid) -> list[dict[str, Any]]:
     """Round-ish empty areas enclosed by material in the layers (holes printed layer by layer)."""
-    solid = grid.solid
+    return find_holes(grid, axis=2)
+
+
+def find_holes(grid: VoxelGrid, axis: int = 2) -> list[dict[str, Any]]:
+    """Round-ish empty areas enclosed by material in planes across `axis`, through at least two planes.
+
+    axis 2 (Z) finds holes printed layer by layer; axis 0 or 1 finds horizontal holes along X or Y.
+    """
+    order = {2: (0, 1, 2), 0: (1, 2, 0), 1: (0, 2, 1)}[axis]
+    solid = np.transpose(grid.solid, order)
+    back = np.argsort(order)
     enclosed = np.zeros_like(solid)
     for k in range(1, solid.shape[2] - 1):
         empty = ~solid[:, :, k]
@@ -462,7 +480,7 @@ def find_vertical_holes(grid: VoxelGrid) -> list[dict[str, Any]]:
         enclosed[:, :, k] = (labels > 0) & ~np.isin(labels, edge)
     if not enclosed.any():
         return []
-    labels3, n3 = ndimage.label(enclosed)          # the same hole through many layers
+    labels3, n3 = ndimage.label(enclosed)          # the same hole through many planes
     holes = []
     for k, sl in enumerate(ndimage.find_objects(labels3), 1):
         if sl is None:
@@ -477,9 +495,9 @@ def find_vertical_holes(grid: VoxelGrid) -> list[dict[str, Any]]:
         round_enough = max(w, d) <= 1.6 * max(min(w, d), grid.pitch) and area >= 0.55 * (math.pi / 4) * w * d
         if not round_enough:
             continue                                # a slot or gap, not a hole
-        coords = np.argwhere(region) + np.array([s.start for s in sl])
+        coords = (np.argwhere(region) + np.array([s.start for s in sl]))[:, back]
         holes.append({"diameter": 2 * math.sqrt(area / math.pi), "depth": len(layers) * grid.pitch,
-                      "centre": grid.centre(coords.mean(axis=0))})
+                      "centre": grid.centre(coords.mean(axis=0)), "axis": "xyz"[axis]})
     return holes
 
 
@@ -518,6 +536,230 @@ def check_holes(ctx: Context) -> None:
                                    {"diameter_mm": round(dia, 2), "offset_mm": round(offset, 3)}))
     else:
         check_resin_traps(ctx)
+
+
+def check_horizontal_holes(ctx: Context) -> None:
+    """Holes along X or Y: their top is a flat overhang that sags, so they print oval or need a teardrop."""
+    grid, printer, mat = ctx.grid, ctx.printer, ctx.material
+    if grid is None or printer.get("type", "fdm") != "fdm":
+        return
+    holes = [h for axis in (0, 1) for h in find_holes(grid, axis) if h["diameter"] >= 3 * grid.pitch]
+    ctx.metrics["horizontal_holes"] = [round(h["diameter"], 2) for h in holes]
+    bridge = float(mat.get("max_bridge_mm", 20))
+    groups: dict[tuple[str, float], list[dict[str, Any]]] = {}
+    for h in holes:
+        groups.setdefault(("fit" if h["diameter"] < FIT_HOLE_MAX_MM else "large", round(h["diameter"])), []).append(h)
+    reported = 0
+    for (kind, _), hs in sorted(groups.items(), key=lambda kv: -max(h["diameter"] for h in kv[1])):
+        if reported >= 3:
+            break
+        reported += 1
+        dia = float(np.median([h["diameter"] for h in hs]))
+        many = f"{len(hs)} horizontal holes" if len(hs) > 1 else "A horizontal hole"
+        where = _loc(hs[0]["centre"], max(dia, 3.0))
+        data = {"diameter_mm": round(dia, 2), "count": len(hs), "axis": hs[0]["axis"]}
+        if kind == "fit":
+            ctx.add(CadFinding("horizontal_hole", 1, f"Horizontal {dia:.1f} mm hole prints oval",
+                               f"{many} about {dia:.1f} mm across run{'' if len(hs) > 1 else 's'} sideways (along "
+                               f"{hs[0]['axis'].upper()}). The top of each is printed in mid-air, so it sags about "
+                               "0.2-0.3 mm and the hole comes out oval and tight for a pin or bolt.",
+                               "Give the hole a teardrop top (a 45° point upwards) or model it 0.3 mm taller, "
+                               "and drill or ream it to size if it is a fit.", where, data))
+        else:
+            severe = dia > bridge
+            ctx.add(CadFinding("horizontal_hole", 3 if severe else 2, f"Top of a {dia:.0f} mm horizontal hole sags",
+                               f"{many} about {dia:.0f} mm across run{'' if len(hs) > 1 else 's'} sideways; the top of "
+                               f"the hole is a flat overhang about {dia * 0.6:.0f} mm wide that droops"
+                               + (f", wider than {mat['name']} bridges cleanly ({bridge:g} mm)." if severe else "."),
+                               "Use a teardrop or diamond-shaped top so the roof is 45° and needs no support, "
+                               "or turn the part so the hole is vertical.", where, data))
+
+
+def check_cantilevers(ctx: Context) -> None:
+    """Thin tabs fixed at one end (clips, snap-fits, latches, spring fingers): how far they bend safely."""
+    grid, mat = ctx.grid, ctx.material
+    if grid is None:
+        return
+    min_wall = max(mat["min_wall_mm"], 2 * ctx.printer["nozzle"])
+    strain = float(mat.get("snap_strain_pct", 2.0)) / 100
+    found = []
+    g = coarse_grid(ctx, max(0.5, 2 * grid.pitch))   # candidates on a coarser grid; thickness measured finely below
+    for comp in _thin_components(ctx, 3.5, g, with_voxels=True)[:12]:
+        if comp["voxels"] < 12:
+            continue
+        idx = comp["index"]
+        t = _fine_thickness(grid, g, idx) or comp["thickness"]
+        if t < min_wall * 0.9:
+            continue                                     # thinner than a wall: check_thin reports it
+        pts = g.centre(idx)
+        centred = pts - pts.mean(axis=0)
+        _, _, vt = np.linalg.svd(centred, full_matrices=False)
+        axis = vt[0]
+        along = centred @ axis
+        length = float(np.ptp(along)) + g.pitch
+        width = float(np.ptp(centred @ vt[1])) + g.pitch
+        if length < 6 or length < 5 * t or width < 1.5 * t or width > max(25.0, length / 2):
+            continue                                     # pins (slender check) and wide plates are not tabs
+        region = np.zeros(g.solid.shape, bool)
+        region[tuple(idx.T)] = True
+        lo = np.maximum(idx.min(axis=0) - 2, 0)
+        hi = np.minimum(idx.max(axis=0) + 3, g.solid.shape)
+        box = tuple(slice(a, b) for a, b in zip(lo, hi))
+        touch = ndimage.binary_dilation(region[box], np.ones((3, 3, 3))) & g.solid[box] & ~region[box]
+        if not touch.any():
+            continue                                     # the whole part is thin: a plate, not a tab
+        contact = (g.centre(np.argwhere(touch) + lo) - pts.mean(axis=0)) @ axis
+        span = float(np.ptp(contact)) + g.pitch
+        lo_end, hi_end = along.min(), along.max()
+        at_end = contact.max() < lo_end + 0.3 * length or contact.min() > hi_end - 0.3 * length
+        if span > 0.35 * length or not at_end:
+            continue                                     # held along its length or at both ends: a wall or a bridge
+        upright = abs(axis[2]) > 0.7
+        deflect = strain * length ** 2 / (1.5 * t)
+        found.append({"centre": comp["centre"], "box": (pts.min(axis=0) - 1, pts.max(axis=0) + 1)})
+        detail = (f"A tab about {length:.0f} mm long, {width:.0f} mm wide and {t:.1f} mm thick is fixed at one end, like a "
+                  f"clip or snap-fit. In {mat['name']} its free end can bend about {deflect:.1f} mm before it is "
+                  f"strained past about {strain:.0%} (where it cracks or stays bent).")
+        if upright:
+            ctx.add(CadFinding("cantilever", 3, "Flexing tab printed upright snaps along its layers",
+                               detail + " It stands upright, so bending pulls the layers apart: it will snap at the root.",
+                               "Print it lying flat (layers along the tab), give it a fillet where it joins, "
+                               "or use PETG or ABS, which flex further.", _loc(comp["centre"], length / 2),
+                               {"length_mm": round(length, 1), "thickness_mm": round(t, 2), "safe_deflection_mm":
+                                round(deflect, 2), "upright": True}))
+        else:
+            ctx.add(CadFinding("cantilever", 1, f"Flexing tab: bends about {deflect:.1f} mm safely",
+                               detail, f"For more travel make it longer or thinner at the root, or taper it "
+                               f"(thickest at the root); a snap-fit hook should need less than {deflect:.1f} mm.",
+                               _loc(comp["centre"], length / 2),
+                               {"length_mm": round(length, 1), "thickness_mm": round(t, 2), "safe_deflection_mm":
+                                round(deflect, 2), "upright": False}))
+        if len(found) >= 4:
+            break
+    ctx.cache["cantilevers"] = found
+
+
+def _fine_thickness(fine: VoxelGrid, coarse: VoxelGrid, idx: np.ndarray) -> float | None:
+    """Thickness of a region found on a coarse grid, measured on the fine grid (twice the deepest point)."""
+    k = max(1, int(round(coarse.pitch / fine.pitch)))
+    lo = np.maximum(idx.min(axis=0) * k - 2, 0)
+    hi = np.minimum((idx.max(axis=0) + 1) * k + 2, fine.solid.shape)
+    crop = fine.solid[tuple(slice(a, b) for a, b in zip(lo, hi))]
+    if not crop.any():
+        return None
+    mask = np.zeros(crop.shape, bool)
+    for off in np.ndindex(k, k, k):                   # the fine voxels inside the region's coarse voxels
+        cells = idx * k + np.array(off) - lo
+        ok = np.all((cells >= 0) & (cells < crop.shape), axis=1)
+        mask[tuple(cells[ok].T)] = True
+    dist = ndimage.distance_transform_edt(np.pad(crop, 1))[1:-1, 1:-1, 1:-1]
+    inside = dist[mask & crop]
+    return float((2 * inside.max() - 0.5) * fine.pitch) if inside.size else None
+
+
+def check_detail(ctx: Context) -> None:
+    """Detail finer than the nozzle or a layer: thin raised lines and text, narrow engravings, shallow steps."""
+    from synthux.physical.cad.detail import lost_detail, thin_steps
+
+    printer = ctx.printer
+    if printer.get("type", "fdm") != "fdm" or ctx.grid is None:
+        return
+    nozzle, layer = float(printer["nozzle"]), float(printer.get("layer_height", 0.2))
+    mesh = ctx.mesh
+    if "face_shell" not in ctx.cache:
+        ctx.cache["face_shell"] = trimesh.graph.connected_component_labels(mesh.face_adjacency,
+                                                                          node_count=len(mesh.faces))
+    face_shell = ctx.cache["face_shell"]
+    n_shells = int(face_shell.max()) + 1
+    tri = mesh.triangles
+    lo = np.full((n_shells, 3), np.inf)
+    hi = np.full((n_shells, 3), -np.inf)
+    np.minimum.at(lo, face_shell, tri.min(axis=1))
+    np.maximum.at(hi, face_shell, tri.max(axis=1))
+    order = np.argsort(face_shell, kind="stable")
+    starts = np.searchsorted(face_shell[order], np.arange(n_shells + 1))
+    touching: dict[tuple[int, int], bool] = {}
+
+    def shell_mesh(k: int) -> trimesh.Trimesh:
+        return trimesh.Trimesh(mesh.vertices, mesh.faces[order[starts[k]:starts[k + 1]]], process=False)
+
+    def neighbours(k: int) -> list[int]:
+        near = np.flatnonzero(np.all(lo <= hi[k] + TOUCH_MM, axis=1) & np.all(hi >= lo[k] - TOUCH_MM, axis=1))
+        out = []
+        for other in near:
+            if other == k:
+                continue
+            key = (min(k, int(other)), max(k, int(other)))
+            if key not in touching:
+                touching[key] = shell_gap(shell_mesh(k), shell_mesh(int(other)), samples=4000)[0] < TOUCH_MM
+            if touching[key]:
+                out.append(int(other))
+        return out
+
+    def one_body(sets: list[set[int]]) -> bool:
+        """Do the shells around each piece join up through shells that touch (overlap or share a face)?"""
+        if n_shells == 1:
+            return True
+        start = next(iter(sets[0]))
+        reached, frontier = {start}, [start]
+        while frontier and len(reached) < 200:
+            if all(s & reached for s in sets):
+                return True
+            for other in neighbours(frontier.pop()):
+                if other not in reached:
+                    reached.add(other)
+                    frontier.append(other)
+        return len(reached) >= 200 or all(s & reached for s in sets)   # very many shells: assume one body
+
+    found = lost_detail(mesh, nozzle, layer, one_body, face_shell)
+    if found["skipped"]:
+        ctx.metrics["detail_note"] = found["skipped"][0]
+    near = [f.location for f in ctx.findings if f.location and f.check in ("thin_wall", "clearance")]
+
+    def grouped(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        groups: dict[tuple[int, int], list[dict[str, Any]]] = {}
+        for d in items:
+            groups.setdefault((int(d["x"] // 4), int(d["y"] // 4)), []).append(d)
+        out = []
+        for g in groups.values():
+            x, y = float(np.mean([d["x"] for d in g])), float(np.mean([d["y"] for d in g]))
+            if any(math.hypot(x - loc["x"], y - loc["y"]) < 3 for loc in near):
+                continue
+            out.append({"x": x, "y": y, "z": float(np.median([d["z"] for d in g])), "n": len(g),
+                        "width": float(min(d["width"] for d in g)), "area": float(sum(d["area"] for d in g))})
+        return sorted(out, key=lambda g: -g["area"])
+
+    thin, gaps = grouped(found["thin"]), grouped(found["gaps"])
+    if thin:
+        w = min(g["width"] for g in thin)
+        top = thin[0]
+        vanish = w < 0.6 * nozzle
+        ctx.add(CadFinding("fine_detail", 2, "Raised detail thinner than the nozzle" + (" (text?)" if len(thin) >= 3 else ""),
+                           f"{len(thin)} place(s) have raised lines or features about {w:.2f} mm wide; a {nozzle:g} mm "
+                           "nozzle " + ("can't trace them, so the slicer drops them." if vanish else
+                                        "traces them as a single thin line, so they come out blurry and fragile."),
+                           f"Make raised lines and text strokes at least {1.5 * nozzle:.1f} mm wide (bold font, "
+                           f"about 5 mm tall letters or more), or engrave them instead.",
+                           _loc(np.array([top["x"], top["y"], top["z"]]), 4.0),
+                           {"width_mm": round(w, 2), "places": len(thin)}))
+    if gaps:
+        w = min(g["width"] for g in gaps)
+        top = gaps[0]
+        ctx.add(CadFinding("fine_detail", 2, "Engraved detail narrower than the nozzle fills in",
+                           f"{len(gaps)} place(s) have engraved lines or slots about {w:.2f} mm wide; the {nozzle:g} mm "
+                           "nozzle's line is wider, so they close up or vanish.",
+                           f"Make engraved lines at least {nozzle + 0.1:.1f} mm wide, ideally {2 * nozzle:.1f} mm.",
+                           _loc(np.array([top["x"], top["y"], top["z"]]), 4.0),
+                           {"width_mm": round(w, 2), "places": len(gaps)}))
+    steps = thin_steps(ctx.mesh, layer)
+    if steps:
+        st = min(steps, key=lambda x: x["step"])
+        ctx.add(CadFinding("fine_detail", 2, f"Detail only {st['step']:.2f} mm high: less than a layer",
+                           f"{len(steps)} raised or sunk area(s) differ by only {st['step']:.2f} mm in height; at "
+                           f"{layer:g} mm layers the slicer rounds that to zero or one layer, so it vanishes or "
+                           "comes out a different depth.",
+                           f"Make raised or engraved detail at least {2 * layer:.1f} mm ({2} layers) high or deep.",
+                           _loc(st["centre"], 4.0), {"step_mm": round(st["step"], 3), "places": len(steps)}))
 
 
 def check_resin_traps(ctx: Context) -> None:
@@ -785,7 +1027,8 @@ def run_checks(model: Model, printer: dict, material: dict, slicer: dict, use: d
         ctx.metrics["resolution_note"] = (f"large part: checked at {ctx.metrics['voxel_mm']} mm resolution, so walls "
                                           f"under about {2 * ctx.metrics['voxel_mm']:.1f} mm may be missed")
     for check in (check_mesh, check_build_volume, check_overhangs, check_orientation, check_bed, check_thin,
-                  check_slender, check_holes, check_sharp_edges, check_clearances, check_stability):
+                  check_cantilevers, check_slender, check_holes, check_horizontal_holes, check_sharp_edges,
+                  check_clearances, check_detail, check_stability):
         try:
             check(ctx)
         except Exception as exc:  # one failing check must not hide the others

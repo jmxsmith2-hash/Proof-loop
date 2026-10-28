@@ -104,25 +104,26 @@ printers:
     volumetric_speed_mm3_s: 40
 
 # nozzle_c / bed_c: usual printing ranges; flow_mm3_s: typical safe melt rate on a standard hot end;
-# fan_pct: part-cooling range the material wants after the first layers.
+# fan_pct: part-cooling range the material wants after the first layers;
+# snap_strain_pct: how far it stretches in a snap-fit or flexing clip before it cracks or stays bent.
 materials:
   PLA:   {density_g_cm3: 1.24, price_per_kg: 22, max_overhang_deg: 45, max_bridge_mm: 25, min_wall_mm: 0.8,
           clearance_mm: 0.3, shrinkage_pct: 0.3, warp_risk: low,
-          nozzle_c: [190, 235], bed_c: [35, 65], flow_mm3_s: 21, fan_pct: [70, 100], aliases: [PLA Basic, PLA Matte, PLA+]}
+          nozzle_c: [190, 235], bed_c: [35, 65], flow_mm3_s: 21, fan_pct: [70, 100], snap_strain_pct: 2, aliases: [PLA Basic, PLA Matte, PLA+]}
   PETG:  {density_g_cm3: 1.27, price_per_kg: 24, max_overhang_deg: 40, max_bridge_mm: 15, min_wall_mm: 0.8,
           clearance_mm: 0.35, shrinkage_pct: 0.4, warp_risk: low,
-          nozzle_c: [220, 270], bed_c: [60, 85], flow_mm3_s: 16, fan_pct: [20, 70], aliases: [PETG HF, PETG Basic, PETG-CF]}
+          nozzle_c: [220, 270], bed_c: [60, 85], flow_mm3_s: 16, fan_pct: [20, 70], snap_strain_pct: 4, aliases: [PETG HF, PETG Basic, PETG-CF]}
   ABS:   {density_g_cm3: 1.04, price_per_kg: 22, max_overhang_deg: 45, max_bridge_mm: 20, min_wall_mm: 1.0,
           clearance_mm: 0.35, shrinkage_pct: 0.7, warp_risk: high,
-          nozzle_c: [240, 280], bed_c: [90, 110], flow_mm3_s: 20, fan_pct: [0, 40], aliases: [ABS-GF]}
+          nozzle_c: [240, 280], bed_c: [90, 110], flow_mm3_s: 20, fan_pct: [0, 40], snap_strain_pct: 5, aliases: [ABS-GF]}
   ASA:   {density_g_cm3: 1.07, price_per_kg: 28, max_overhang_deg: 45, max_bridge_mm: 20, min_wall_mm: 1.0,
           clearance_mm: 0.35, shrinkage_pct: 0.6, warp_risk: high,
-          nozzle_c: [240, 280], bed_c: [90, 110], flow_mm3_s: 18, fan_pct: [0, 40], aliases: []}
+          nozzle_c: [240, 280], bed_c: [90, 110], flow_mm3_s: 18, fan_pct: [0, 40], snap_strain_pct: 4, aliases: []}
   TPU:   {density_g_cm3: 1.21, price_per_kg: 32, max_overhang_deg: 35, max_bridge_mm: 8, min_wall_mm: 1.2,
           clearance_mm: 0.5, shrinkage_pct: 0.3, warp_risk: low,
-          nozzle_c: [210, 250], bed_c: [25, 60], flow_mm3_s: 4, fan_pct: [30, 100], aliases: [TPU 95A, TPU 90A]}
+          nozzle_c: [210, 250], bed_c: [25, 60], flow_mm3_s: 4, fan_pct: [30, 100], snap_strain_pct: 30, aliases: [TPU 95A, TPU 90A]}
   resin: {density_g_cm3: 1.15, price_per_kg: 45, max_overhang_deg: 30, max_bridge_mm: 5, min_wall_mm: 0.4,
-          clearance_mm: 0.15, shrinkage_pct: 0.5, warp_risk: medium}
+          clearance_mm: 0.15, shrinkage_pct: 0.5, warp_risk: medium, snap_strain_pct: 1.5}
 
 slicer:                              # assumptions for weight/time estimates
   perimeters: 2

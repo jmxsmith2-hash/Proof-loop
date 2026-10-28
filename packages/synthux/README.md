@@ -340,7 +340,20 @@ towards filament, time and cost but not towards the weight of the finished part.
 **Holes:** vertical holes small enough to close up for your nozzle are flagged. Small fit holes, under 8 mm
 (screws, pins, heat-set inserts), get the size to model them at. That uses the offset your own measured
 prints taught it, or a typical FDM allowance until you record a print. On resin printers, sealed hollow
-pockets that would trap liquid resin are flagged, with where to add drain holes.
+pockets that would trap liquid resin are flagged, with where to add drain holes. Horizontal holes
+(along X or Y) are flagged too: their top is printed in mid-air, so small ones come out oval and
+large ones sag; the fix is a teardrop or diamond top.
+
+**Fine detail:** cross-sections are cut the way a slicer cuts them and drawn at a sixth of the nozzle
+width. Raised lines or text strokes narrower than the nozzle (dropped or blurred), engraved lines
+it can't leave open (they fill in), and raised or sunk areas shallower than a layer (they vanish) are
+reported with the sizes to use instead. Narrow gaps between separate parts are left to the clearance
+check.
+
+**Flexing tabs:** thin tabs fixed at one end (clips, snap-fits, latches) get how far their free end can
+bend before the material is strained past its limit (`snap_strain_pct` per material in
+`config/printers.yaml`: about 2% for PLA, 4% for PETG, 5% for ABS). Tabs standing upright are flagged,
+because bending them pulls the layers apart.
 
 **Human fit**, from `data/anthropometrics.yaml` and the design YAML:
 
