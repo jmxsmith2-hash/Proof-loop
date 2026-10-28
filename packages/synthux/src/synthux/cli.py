@@ -460,6 +460,12 @@ def physical_check(
     from synthux.personas.generate import PersonaGenerator
     from synthux.physical.cad.pipeline import check_design, design_spec
 
+    if cad_file.name.lower().endswith((".gcode", ".gcode.3mf", ".gco")):
+        typer.echo("This is sliced G-code; checking it as G-code (synthux physical gcode).")
+        physical_gcode(cad_file, printer=printer, material=material, plate=None, out=out, open_report=False,
+                       config=config)
+        return
+
     s = _settings(config)
     db = _db(s)
     spec = design_spec(design, cad_file)
@@ -486,6 +492,42 @@ def physical_check(
     typer.secho(f"report: {result['report']}", fg="green")
     typer.echo(f"After printing: synthux physical printed \"{result['design']}\" --measure measurements.csv "
                "[--defect warping ...]")
+
+
+@physical_app.command("gcode")
+def physical_gcode(
+    gcode_file: Path = typer.Argument(..., help="Sliced .gcode, or a Bambu Studio .gcode.3mf (Export plate sliced file)."),
+    printer: Optional[str] = typer.Option(None, help="Printer profile (default: the one the file was sliced for)."),
+    material: Optional[str] = typer.Option(None, help="PLA, PETG, ABS ... (default: the file's filament)."),
+    plate: Optional[int] = typer.Option(None, help="Plate number in a .gcode.3mf (default: the first)."),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Report folder."),
+    open_report: bool = typer.Option(False, "--open", help="Open the report in the browser."),
+    config: Optional[Path] = ConfigOpt,
+) -> None:
+    """Check sliced G-code before printing: plate, layers, temperatures, flow, retraction, cooling."""
+    import webbrowser
+
+    from synthux.physical.gcode.pipeline import check_gcode
+
+    cfg = Path(config) if config else Path("config")
+    try:
+        r = check_gcode(cfg, gcode_file, printer=printer, material=material, plate=plate, out=out)
+    except ConfigError as exc:
+        typer.secho(f"Cannot check {gcode_file}: {exc}", fg="red", err=True)
+        raise typer.Exit(2)
+    typer.echo(f"{r['file']}  ({r['printer']['label']} {r['printer_source']}, {r['material']['name']} "
+               f"{r['material_source']}, {r['nozzle']:g} mm nozzle)")
+    for f in r["findings"]:
+        where = f"  [layer {f['layer']}]" if f.get("layer") else ""
+        typer.echo(f"  {f['n']:2}. [{f['severity_name']:9}] {f['title']}{where}")
+    if not r["findings"]:
+        typer.secho("  no problems found in the G-code", fg="green")
+    m = r["metrics"]
+    when = r["time"]["slicer"] or f"about {r['time']['replay']}"
+    typer.echo(f"  {m.get('layers', 0)} layers, {m.get('filament_g', 0)} g, {when}")
+    typer.secho(f"report: {r['report']}", fg="green")
+    if open_report:
+        webbrowser.open(Path(r["report"]).resolve().as_uri())
 
 
 @physical_app.command("printed")

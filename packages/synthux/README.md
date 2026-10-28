@@ -27,11 +27,12 @@ behaviour.
 6. [Reading the report](#reading-the-report)
 7. [Calibrating against real users](#calibrating-against-real-users)
 8. [CAD designs: check before you print](#cad-designs-check-before-you-print)
-9. [Physical products (prediction, not a test)](#physical-products-prediction-not-a-test)
-10. [Safety sandbox](#safety-sandbox)
-11. [Tests](#tests)
-12. [Limitations](#limitations)
-13. [Project layout](#project-layout)
+9. [G-code: check the sliced file](#g-code-check-the-sliced-file)
+10. [Physical products (prediction, not a test)](#physical-products-prediction-not-a-test)
+11. [Safety sandbox](#safety-sandbox)
+12. [Tests](#tests)
+13. [Limitations](#limitations)
+14. [Project layout](#project-layout)
 
 ---
 
@@ -363,6 +364,39 @@ Bambu Lab P2S; H2D, H2S, X1, Prusa MK4, Ender 3 and generic FDM and resin profil
 ("PLA Basic", "PETG HF") are understood. Add your own printer to `config/printers.yaml`.
 From Blender, export STL or 3MF; from Fusion, *File > 3D Print* or *Export > 3MF*.
 
+## G-code: check the sliced file
+
+After slicing, check the file itself before it goes to the printer:
+
+```bash
+synthux physical gcode part.gcode                       # Bambu Studio, OrcaSlicer, PrusaSlicer, Cura
+synthux physical gcode part.gcode.3mf --plate 2         # Bambu Studio "Export plate sliced file"
+synthux physical gcode part.gcode --printer bambu_h2d --material "PETG HF" --open
+```
+
+The printer and filament are read from the file when you don't give them. Every move,
+temperature and fan command is measured against the printer profile and the material:
+
+* **plate**: extrusion past the plate edges, above the build height, or into the bed;
+* **printer**: sliced for another printer or nozzle;
+* **layers**: first-layer height and speed, layers too thick for the nozzle;
+* **temperatures**: nozzle and bed against the material's range and the printer's limits,
+  extruding cold, not waiting for the nozzle to heat;
+* **flow**: mm³/s the moves ask for against the hot end (the most common cause of weak,
+  thin lines on fast printers);
+* **extrusion**: line widths that point to the wrong filament diameter or flow;
+* **retraction**: too long for direct drive, and travels across open space without
+  retracting (travels inside infill are left alone, as slicers intend);
+* **cooling**: part fan off for PLA, too much fan for ABS/ASA, layers too quick to cool;
+* **adhesion**: warping materials on open printers, tall narrow parts without a brim;
+* **end**: heaters left on; **consistency**: the moves against the slicer's own header.
+
+The report shows the first layer on the plate (anything off the plate in red), layer
+previews, a side view with thick layers marked, and a flow map. A 50 MB file checks in
+about 5 seconds. `examples/gcode/` has a clean bracket and one with seven planted flaws
+(`python examples/gcode/make_examples.py` regenerates them). `synthux physical check`
+on a `.gcode` file runs this check too.
+
 ## Physical products (prediction, not a test)
 
 ```bash
@@ -462,7 +496,7 @@ use the menu to find information and go back from dead ends. Tasks marked
 config/            settings, models (ids + prices), anchored scales, calibration profiles
 studies/           study files (demo.yaml, pinecone.yaml)
 demo_app/          two demo sites with planted flaws + their ground truth
-examples/          persona sources, real-user results, physical product example, CAD examples
+examples/          persona sources, real-user results, physical product example, CAD and G-code examples
 scripts/           one-step setup for Windows (setup.bat) and macOS/Linux
 src/synthux/
   core/            config, SQLite + migrations, model gateway (cache, cost), similarity, study
@@ -477,7 +511,8 @@ src/synthux/
   report/          HTML report + inline SVG charts
   calibration/     profiles, import, matching, metrics, tuning, compare/history
   physical/        inputs, review taxonomy, evaluation, sensors, guardrails
-    cad/           mesh loading, voxel/print checks, renders, ergonomics, personas, print iteration
+    cad/           mesh loading (incl. 3MF), voxel/print checks, renders, ergonomics, personas, print iteration
+    gcode/         G-code parser (plain and Bambu .gcode.3mf), print checks, layer previews
   data/            anthropometrics, product-knowledge checklists, name lists
   dashboard/       local read-only web dashboard
 tests/             unit, integration (browser), e2e (offline and live)

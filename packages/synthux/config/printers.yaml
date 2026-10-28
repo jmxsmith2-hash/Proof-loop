@@ -5,10 +5,14 @@ default_material: PLA
 
 # Bambu Lab sizes are from their published specs; check yours on the spec sheet if a check looks off.
 # volumetric_speed_mm3_s is the realistic average (travel included) used for time estimates;
-# max_flow_mm3_s is what the hot end can melt, used to check sliced G-code.
+# max_flow_mm3_s is what the hot end can melt, used to check sliced G-code; names are the printer_model
+# the slicer writes into G-code; accel_mm_s2 is used when the file doesn't set one.
 printers:
   bambu_p2s:
     type: fdm
+    names: ["Bambu Lab P2S"]
+    extruder: direct
+    accel_mm_s2: 10000
     build_volume: [256, 256, 256]
     nozzle: 0.4
     layer_height: 0.2
@@ -19,6 +23,9 @@ printers:
     enclosed: true
   bambu_h2d:                         # single-nozzle volume; both nozzles reach a little less in X
     type: fdm
+    names: ["Bambu Lab H2D", "Bambu Lab H2D Pro"]
+    extruder: direct
+    accel_mm_s2: 10000
     build_volume: [350, 320, 325]
     nozzle: 0.4
     layer_height: 0.2
@@ -29,6 +36,9 @@ printers:
     enclosed: true
   bambu_h2s:
     type: fdm
+    names: ["Bambu Lab H2S"]
+    extruder: direct
+    accel_mm_s2: 10000
     build_volume: [340, 320, 340]
     nozzle: 0.4
     layer_height: 0.2
@@ -39,6 +49,9 @@ printers:
     enclosed: true
   generic_fdm_0.4:
     type: fdm
+    names: []
+    extruder: direct
+    accel_mm_s2: 2000
     build_volume: [220, 220, 250]
     nozzle: 0.4
     layer_height: 0.2
@@ -48,6 +61,9 @@ printers:
     max_bed_temp: 100
   bambu_x1:
     type: fdm
+    names: ["Bambu Lab X1 Carbon", "Bambu Lab X1", "Bambu Lab X1E", "Bambu Lab P1S", "Bambu Lab P1P"]
+    extruder: direct
+    accel_mm_s2: 10000
     build_volume: [256, 256, 256]
     nozzle: 0.4
     layer_height: 0.2
@@ -58,6 +74,9 @@ printers:
     enclosed: true
   prusa_mk4:
     type: fdm
+    names: ["Original Prusa MK4", "Original Prusa MK4S", "MK4", "MK4S"]
+    extruder: direct
+    accel_mm_s2: 4000
     build_volume: [250, 210, 220]
     nozzle: 0.4
     layer_height: 0.2
@@ -67,6 +86,9 @@ printers:
     max_bed_temp: 120
   ender3:
     type: fdm
+    names: ["Creality Ender-3", "Creality Ender-3 V2", "Ender-3"]
+    extruder: bowden
+    accel_mm_s2: 500
     build_volume: [220, 220, 250]
     nozzle: 0.4
     layer_height: 0.2
