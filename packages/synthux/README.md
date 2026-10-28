@@ -135,6 +135,10 @@ or just made a click that did nothing. `engine.hybrid.max_calls_per_session` (de
 `engine.hybrid.engine` picks Claude or a free local Ollama model.
 On the demo study the estimate drops from about 900 model calls to about 270.
 
+**Free by default, smart when you want it.** Add `--smart` to `synthux run` or `synthux test` to use
+this cheap paid mode for that one run (hybrid actor, Claude for judging; `run` also batches the judging
+at half price). Without `ANTHROPIC_API_KEY` it says so and runs free.
+
 Other ways the model engines are kept cheap:
 
 * Screenshots are scaled down to `engine.model_image_width` (default 1024 px) before the model sees
@@ -304,7 +308,8 @@ then learns from your real prints so the next check is about *your* printer.
 
 ```bash
 synthux physical check part.stl                         # STL, 3MF, OBJ, PLY, GLB (STEP: pip install ".[step]")
-synthux physical check part.stl --printer bambu_x1 --material PETG --handheld
+synthux physical check part.3mf --material "PETG HF"    # 3MF from Fusion, Tinkercad or Bambu Studio
+synthux physical check part.stl --printer bambu_h2d --handheld
 synthux physical check part_v2.stl --design examples/cad/phone_stand.yaml   # same design name = next version
 synthux physical printed "Phone stand" --measure measured.csv --defect stringing --notes "clip too tight"
 synthux physical history "Phone stand"                  # versions and what changed
@@ -353,8 +358,10 @@ applies them and tells you which ones it used.
 
 `examples/cad/` has a phone stand with planted flaws (v1) and its fixed v2, a
 tool handle with a too-small USB-C opening, and a plain block as a control
-(`python examples/cad/make_examples.py` regenerates them). Add your own printer to
-`config/printers.yaml`.
+(`python examples/cad/make_examples.py` regenerates them). The default printer is the
+Bambu Lab P2S; H2D, H2S, X1, Prusa MK4, Ender 3 and generic FDM and resin profiles are included, and slicer material names
+("PLA Basic", "PETG HF") are understood. Add your own printer to `config/printers.yaml`.
+From Blender, export STL or 3MF; from Fusion, *File > 3D Print* or *Export > 3MF*.
 
 ## Physical products (prediction, not a test)
 

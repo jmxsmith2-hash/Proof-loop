@@ -56,6 +56,10 @@ def _read(path: Path) -> trimesh.Trimesh:
                               "or export STL/3MF/OBJ from your CAD tool") from exc
     elif suffix not in MESH_FORMATS:
         raise ConfigError(f"unsupported CAD file {path.name}; use STL, 3MF, OBJ, PLY, GLB or STEP")
+    if suffix == ".3mf":
+        from synthux.physical.cad.threemf import read_3mf
+
+        return read_3mf(path)
     loaded = trimesh.load(str(path), force="mesh", process=True)
     if isinstance(loaded, trimesh.Scene):  # pragma: no cover (force="mesh" normally merges)
         loaded = loaded.dump(concatenate=True)
@@ -99,6 +103,12 @@ def load_profiles(config_dir: Path, printer: str | None, material: str | None) -
         raise ConfigError(f"missing {Path(config_dir) / 'printers.yaml'}")
     printer = printer or data.get("default_printer")
     material = material or data.get("default_material")
+    # Slicer names ("PLA Basic", "PETG HF") and any capitalisation map to the profile
+    wanted = str(material).strip().lower()
+    for name, spec in data["materials"].items():
+        if wanted == name.lower() or wanted in (a.lower() for a in spec.get("aliases", [])):
+            material = name
+            break
     if printer not in data["printers"]:
         raise ConfigError(f"unknown printer {printer!r}; known: {sorted(data['printers'])}")
     if material not in data["materials"]:

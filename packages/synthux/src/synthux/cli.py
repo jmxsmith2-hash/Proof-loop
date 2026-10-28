@@ -40,6 +40,14 @@ def _settings(config: Optional[Path]) -> Settings:
     return settings
 
 
+def _smart(settings: Settings, wanted: bool, batch: bool = False) -> Settings:
+    if not wanted:
+        return settings
+    settings, note = settings.smart(batch=batch)
+    typer.secho(note, fg="cyan" if "smart mode" in note else "yellow")
+    return settings
+
+
 def _db(settings: Settings) -> Database:
     return Database(settings.db_path)
 
@@ -120,6 +128,8 @@ def run(
     yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask before a paid run."),
     no_verify: bool = typer.Option(False, "--no-verify", help="Skip judge, replay and questionnaires."),
     profile_name: Optional[str] = typer.Option(None, "--profile", help="Calibration profile version to use."),
+    smart: bool = typer.Option(False, "--smart", help="Cheap paid mode for this run if ANTHROPIC_API_KEY is set: "
+                                                      "Claude on hard screens and for judging (batched, half price)."),
     config: Optional[Path] = ConfigOpt,
 ) -> None:
     """Run personas against the study's target (allowlisted URLs only)."""
@@ -129,7 +139,7 @@ def run(
     from synthux.runner.orchestrator import Orchestrator
     from synthux.safety.allowlist import SafetyError
 
-    s = _settings(config)
+    s = _smart(_settings(config), smart, batch=True)
     db = _db(s)
     try:
         st = load_study(study, s)
@@ -267,6 +277,8 @@ def quick_test(
                                                       "(as a real site: payments, emails and deletes stay blocked)."),
     open_report: bool = typer.Option(False, "--open", help="Open the report in the browser when done."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask before a paid run."),
+    smart: bool = typer.Option(False, "--smart", help="Cheap paid mode for this run if ANTHROPIC_API_KEY is set: "
+                                                      "Claude on hard screens and for judging."),
     config: Optional[Path] = ConfigOpt,
 ) -> None:
     """Quick test: personas try one site and you get a report. No study file needed."""
@@ -304,6 +316,7 @@ def quick_test(
         if added:
             typer.echo(f"Added {host} to the allowlist in {path}.")
         s = _settings(config)
+    s = _smart(s, smart)
     parts = urlsplit(url)
     base = f"{parts.scheme}://{parts.netloc}"
     start = parts.path or "/"

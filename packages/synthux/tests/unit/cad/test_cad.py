@@ -194,3 +194,53 @@ def test_sealed_cavity_is_a_resin_trap_only_on_resin_printers(tmp_path, profiles
     sla = run_checks(load_model(tmp_path / "hollow.stl"), resin_printer, resin, slicer)
     trap = [f for f in sla.findings if f.check == "resin_trap"]
     assert len(trap) == 1 and 800 <= trap[0].data["volume_mm3"] <= 1200
+
+
+def _write_3mf(path, mesh, *, unit="millimeter", split=False, item_transform="1 0 0 0 1 0 0 0 1 0 0 0"):
+    import zipfile
+
+    core = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+    prod = "http://schemas.microsoft.com/3dmanufacturing/production/2015/06"
+    v = "".join(f'<vertex x="{x}" y="{y}" z="{z}"/>' for x, y, z in mesh.vertices)
+    t = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in mesh.faces)
+    obj = f'<object id="1" type="model"><mesh><vertices>{v}</vertices><triangles>{t}</triangles></mesh></object>'
+    rels = ('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Target="/3D/3dmodel.model" Id="rel0" '
+            'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/></Relationships>')
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("_rels/.rels", rels)
+        if split:   # Bambu Studio / PrusaSlicer layout: the mesh lives in its own part, referenced with p:path
+            z.writestr("3D/Objects/object_1.model",
+                       f'<?xml version="1.0"?><model unit="{unit}" xmlns="{core}"><resources>{obj}</resources><build/></model>')
+            res = ('<object id="2" type="model"><components><component p:path="/3D/Objects/object_1.model" '
+                   'objectid="1"/></components></object>')
+            item = "2"
+        else:
+            res, item = obj, "1"
+        z.writestr("3D/3dmodel.model",
+                   f'<?xml version="1.0"?><model unit="{unit}" xmlns="{core}" xmlns:p="{prod}"><resources>{res}</resources>'
+                   f'<build><item objectid="{item}" transform="{item_transform}"/>'
+                   f'<item objectid="{item}" printable="0"/></build></model>')
+
+
+def test_3mf_from_fusion_and_bambu_studio_loads_without_extra_packages(tmp_path):
+    from synthux.physical.cad.threemf import read_3mf
+
+    box = trimesh.creation.box((10, 20, 30))
+    _write_3mf(tmp_path / "fusion.3mf", box)
+    m = read_3mf(tmp_path / "fusion.3mf")
+    assert m.is_watertight and m.extents == pytest.approx([10, 20, 30])   # the non-printable copy is skipped
+    _write_3mf(tmp_path / "bambu.3mf", trimesh.creation.box((1, 2, 3)), unit="centimeter", split=True,
+               item_transform="0 1 0 -1 0 0 0 0 1 100 50 0")                 # rotated 90 degrees and moved
+    m = read_3mf(tmp_path / "bambu.3mf")
+    assert m.extents == pytest.approx([20, 10, 30])
+    assert m.centroid[:2] == pytest.approx([100, 50])
+    (tmp_path / "broken.3mf").write_bytes(b"not a zip")
+    with pytest.raises(ConfigError, match="not a valid 3MF"):
+        read_3mf(tmp_path / "broken.3mf")
+
+
+def test_material_names_from_the_slicer_resolve(profiles):
+    assert load_profiles(CFG, None, "PLA Basic")[1]["name"] == "PLA"
+    assert load_profiles(CFG, None, "petg hf")[1]["name"] == "PETG"
+    assert profiles[0]["name"] == "bambu_p2s"                      # the default printer

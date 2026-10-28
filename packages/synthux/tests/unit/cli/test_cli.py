@@ -80,3 +80,19 @@ def test_init_web_and_cad(tmp_path, monkeypatch):
     assert out.exit_code == 0, out.output
     design = (tmp_path / "designs" / "phone_stand.yaml").read_text(encoding="utf-8")
     assert "name: Phone stand" in design and "physical check" in out.output
+
+
+def test_smart_switch_is_free_without_a_key_and_cheap_paid_with_one(tmp_path, monkeypatch):
+    cfg = _config(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+    out = runner.invoke(app, ["run", str(REPO / "studies" / "demo.yaml"), "--dry-run", "--smart", "-c", str(cfg)])
+    assert out.exit_code == 0 and "running free" in out.output and "$0.0000" in out.output
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-used")
+    out = runner.invoke(app, ["run", str(REPO / "studies" / "demo.yaml"), "--dry-run", "--smart", "-c", str(cfg)])
+    assert out.exit_code == 0 and "smart mode" in out.output and "$0.0000" not in out.output
+    from synthux.core.config import load_settings
+
+    smart, _ = load_settings(cfg).smart(batch=True)
+    assert smart.engine.engine_for("actor") == "hybrid" and smart.engine.batch
+    assert smart.model_for("judge")[0] == "anthropic"

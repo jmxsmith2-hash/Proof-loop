@@ -169,6 +169,22 @@ class Settings(StrictModel):
     def db_path(self) -> Path:
         return self.data_dir / "synthux.sqlite"
 
+    def smart(self, *, batch: bool = False) -> tuple[Settings, str]:
+        """The cheap paid mode for one run, if a Claude key is set; otherwise the settings unchanged.
+
+        The free rules still drive the browser; Claude sees only the hard screens (actor: hybrid)
+        and does the judging, questionnaires, grouping and report wording. Returns (settings, note).
+        """
+        if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
+            return self, "--smart needs ANTHROPIC_API_KEY; running free (heuristic) instead"
+        data = self.model_dump()
+        data["engine"]["roles"] = {**data["engine"]["roles"], "actor": "hybrid", "judge": "anthropic",
+                                   "persona": "anthropic", "grouper": "anthropic", "reporter": "anthropic"}
+        data["engine"]["hybrid"]["engine"] = "anthropic"
+        data["engine"]["batch"] = batch or data["engine"]["batch"]
+        note = "smart mode: Claude on hard screens and for judging" + (" (judging batched at half price)" if batch else "")
+        return Settings.model_validate(data), note
+
     def model_for(self, role: str) -> tuple[str, str]:
         """Return (engine, model id) for a role."""
         engine = self.engine.engine_for(role)
