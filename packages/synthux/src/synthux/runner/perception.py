@@ -12,6 +12,7 @@ import re
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 from PIL import Image
@@ -208,10 +209,9 @@ class OcrEngine:
         self._run_lock = threading.Lock()
         self.stats = {"screens": 0, "screen_hits": 0, "lines": 0, "line_hits": 0}
 
-    def save_lines(self, path: "Path | str", keep: int = 50_000) -> int:
+    def save_lines(self, path: Path | str, keep: int = 50_000) -> int:
         """Keep recognised lines on disk so the next run on the same site reads repeated text for free."""
         import json
-        from pathlib import Path
 
         with self._run_lock:
             items = list(self._lines.items())[-keep:]
@@ -221,9 +221,8 @@ class OcrEngine:
         tmp.replace(path)
         return len(items)
 
-    def load_lines(self, path: "Path | str") -> int:
+    def load_lines(self, path: Path | str) -> int:
         import json
-        from pathlib import Path
 
         p = Path(path)
         if not p.is_file():
