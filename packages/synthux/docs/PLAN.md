@@ -1,6 +1,20 @@
 # Synthetic User Testing — Build Plan
 
-Status: **draft, awaiting review**. No code has been written yet.
+Status: **all 8 phases built and tested** (see README.md for usage).
+
+### Changes from the original plan
+
+* **Free by default, no API key.** At your request, the default engine for every role is a
+  built-in rule engine. Personas read screenshots with local OCR (RapidOCR/ONNX), and
+  their traits set what they notice and how they behave. Claude and Ollama remain optional per role
+  or per persona, under the same screenshot-only contract.
+* **Similarity** uses local TF-IDF + trait distance (no embeddings service).
+* **Anonymization** uses patterns, PII column dropping and a first-name list (no Presidio).
+* **Replay of slow loads** re-times the load from the triggering click instead of re-running
+  impatient re-clicks, whose timing is not reproducible.
+* **Stated-only complaints are never promoted**, even when several personas repeat them;
+  they need measured behaviour on the same element.
+* **Perception contrast thresholds** became calibration parameters, so calibration can tune them.
 
 ## 1. Guiding principles
 

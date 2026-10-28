@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>synthux dashboard</title>
+<style>
+:root { color-scheme: light; --bg: #f6f5f2; --card: #fcfcfb; --border: #dedcd5; --text: #0b0b0b; --text-secondary: #52514e;
+  --muted: #6e6d68; --accent: #2a78d6; --warn-bg: #fff4dc; --warn: #eda100; --warn-text: #5c3d00;
+  --series-1: #2a78d6; --series-2: #eb6834; }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) { color-scheme: dark; --bg: #121211; --card: #1a1a19;
+  --border: #383835; --text: #f0efec; --text-secondary: #c3c2b7; --muted: #9a998f; --accent: #5598e7; --warn-bg: #2e2510;
+  --warn: #c98500; --warn-text: #f3d48a; --series-1: #3987e5; --series-2: #d95926; } }
+:root[data-theme="dark"] { color-scheme: dark; --bg: #121211; --card: #1a1a19; --border: #383835; --text: #f0efec;
+  --text-secondary: #c3c2b7; --muted: #9a998f; --accent: #5598e7; --warn-bg: #2e2510; --warn: #c98500; --warn-text: #f3d48a;
+  --series-1: #3987e5; --series-2: #d95926; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 24px; margin: 0; } h2 { font-size: 18px; margin: 32px 0 10px; }
+a { color: var(--accent); }
+.banner { background: var(--warn-bg); border: 1px solid var(--warn); color: var(--warn-text); border-radius: 10px; padding: 10px 14px; margin: 12px 0; font-size: 14px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 8px 14px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); vertical-align: top; white-space: nowrap; }
+td.wrap { white-space: normal; } td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+th { color: var(--text-secondary); font-weight: 600; } .muted { color: var(--muted); font-size: 13px; }
+.chart text { fill: var(--text-secondary); font-size: 12px; } .chart .axis, .chart .grid { stroke: var(--border); }
+.chart .direct-label { fill: var(--text); }
+.legend { display: flex; gap: 14px; font-size: 13px; color: var(--text-secondary); margin: 8px 0; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; } .swatch { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+</style>
+</head>
+<body><main>
+<h1>synthux</h1>
+<p class="muted">Synthetic user testing · local, read-only view of this machine's results</p>
+<div class="banner">{{ disclaimer }}</div>
+
+<h2>Runs</h2>
+<div class="card">{% if runs %}<table>
+<tr><th>Run</th><th>Study</th><th>When</th><th class="num">Sessions</th><th class="num">Completed</th><th class="num">Issues</th><th>Top issue</th><th>Profile</th><th>Status</th></tr>
+{% for r in runs %}<tr>
+  <td><a href="/run/{{ r.id }}">{{ r.id }}</a>{% if not r.has_report %} <span class="muted">(builds on open)</span>{% endif %}</td>
+  <td>{{ r.study }}</td><td>{{ r.created_at[:16].replace('T', ' ') }}</td><td class="num">{{ r.sessions }}</td>
+  <td class="num">{% if r.completion is not none %}{{ '%.0f' % (r.completion * 100) }}%{% else %}–{% endif %}</td>
+  <td class="num">{{ r.promoted }}</td>
+  <td class="wrap">{% if r.top %}{{ r.top.title }} <span class="muted">{{ r.top.screen_id }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+  <td>{{ r.calibration_version }}</td><td>{{ r.status }}</td></tr>{% endfor %}
+</table>{% else %}<p class="muted">No runs yet. Try: synthux demo, then synthux run studies/demo.yaml</p>{% endif %}</div>
+
+<h2>Calibration against real users</h2>
+{% if cal_chart %}<div class="card">{{ cal_chart|safe }}</div>{% endif %}
+<div class="card">{% if calibration %}<table>
+<tr><th>When</th><th>Run</th><th>Real study</th><th>Profile</th><th class="num">Agreement</th><th class="num">F1</th><th class="num">Precision</th><th class="num">Recall</th><th class="num">Completion MAE</th><th>Applied as</th></tr>
+{% for h in calibration %}<tr><td>{{ h.created_at[:16].replace('T', ' ') }}</td><td>{{ h.run_id }}</td><td class="wrap">{{ h.real_study }}</td>
+  <td>{{ h.profile }}</td><td class="num">{{ '%.2f' % h.agreement }}</td><td class="num">{{ '%.2f' % h.f1 }}</td>
+  <td class="num">{{ h.precision if h.precision is not none else '–' }}</td><td class="num">{{ h.recall if h.recall is not none else '–' }}</td>
+  <td class="num">{{ h.completion_mae if h.completion_mae is not none else '–' }}</td><td>{{ h.applied or '–' }}</td></tr>{% endfor %}
+</table>{% else %}<p class="muted">No comparisons yet: synthux calibrate import, then synthux calibrate compare RUN --real ID.</p>{% endif %}</div>
+{% if profiles %}<p class="muted">Profile versions: {% for p in profiles %}{{ p.version }}{% if p.parent %} (from {{ p.parent }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+
+<h2>Physical products <span class="muted">(prediction, not a test)</span></h2>
+<div class="card">{% if physical %}<table><tr><th>Product</th><th>When</th><th class="num">Reviews used</th><th>Report</th></tr>
+{% for p in physical %}<tr><td>{{ p.name }}</td><td>{{ p.created_at[:16].replace('T', ' ') }}</td><td class="num">{{ p.inputs_json.review_count }}</td>
+  <td><a href="/reports/{{ p.id }}/index.html">open</a></td></tr>{% endfor %}</table>
+{% else %}<p class="muted">None yet: synthux physical review examples/physical/trailflask.yaml</p>{% endif %}</div>
+</main></body></html>

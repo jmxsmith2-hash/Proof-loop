@@ -337,6 +337,21 @@ def calibrate_history(config: Optional[Path] = ConfigOpt) -> None:
 
 
 @app.command()
+def dashboard(port: int = typer.Option(8800, help="Port (binds to 127.0.0.1 only)."),
+              config: Optional[Path] = ConfigOpt) -> None:
+    """Local read-only dashboard: runs, reports, calibration history, physical predictions."""
+    from synthux.dashboard.server import serve
+
+    s = _settings(config)
+    server = serve(s, _db(s), port)
+    typer.echo(f"dashboard at http://127.0.0.1:{port} (Ctrl+C to stop)")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        server.shutdown()
+
+
+@app.command()
 def demo(port: int = typer.Option(8765, help="Port for the demo shop.")) -> None:
     """Start the bundled demo shop with planted UX flaws."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
