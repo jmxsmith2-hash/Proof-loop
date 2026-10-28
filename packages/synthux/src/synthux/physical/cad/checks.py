@@ -55,6 +55,7 @@ class Context:
     metrics: dict[str, Any] = field(default_factory=dict)
 
     exterior: np.ndarray | None = None              # faces on the real outer surface (not buried in another body)
+    cache: dict[str, Any] = field(default_factory=dict, repr=False)   # shared intermediate results (distance maps)
 
     @property
     def mesh(self) -> trimesh.Trimesh:
@@ -115,8 +116,8 @@ def exterior_faces(mesh: trimesh.Trimesh, grid: VoxelGrid) -> np.ndarray:
 
 def check_mesh(ctx: Context) -> None:
     mesh = ctx.mesh
-    edges = mesh.edges_sorted
-    _, counts = np.unique(edges, axis=0, return_counts=True)
+    edges = mesh.edges_sorted.astype(np.int64)
+    _, counts = np.unique(edges[:, 0] * (len(mesh.vertices) + 1) + edges[:, 1], return_counts=True)  # one key per edge
     boundary = int((counts == 1).sum())
     nonmanifold = int((counts > 2).sum())
     degenerate = int((mesh.area_faces < 1e-10).sum())
@@ -178,6 +179,27 @@ def overhang_mask(normals: np.ndarray, centroids_z: np.ndarray, min_z: float, ma
     return (down > limit) & off_bed
 
 
+def support_columns(ctx: Context, mask: np.ndarray) -> float:
+    """Volume (mm³) of the support columns under the overhanging faces: from each face down to the bed or to
+    the part below it (measured on the voxel grid)."""
+    grid, mesh = ctx.grid, ctx.mesh
+    if grid is None or not mask.any():
+        return 0.0
+    centres = mesh.triangles_center[mask]
+    areas = mesh.area_faces[mask] * np.abs(mesh.face_normals[mask][:, 2])   # footprint seen from below
+    idx = np.floor((centres - grid.origin) / grid.pitch).astype(int)
+    shape = np.array(grid.solid.shape)
+    idx = np.clip(idx, 0, shape - 1)
+    k_below = np.clip(idx[:, 2] - 2, 0, None)   # start just under the face itself
+    # index of the highest solid voxel at or below each height in every column (-1 = none, i.e. the bed)
+    levels = np.where(grid.solid, np.arange(shape[2], dtype=np.int32)[None, None, :], -1)
+    top = np.maximum.accumulate(levels, axis=2)
+    below = top[idx[:, 0], idx[:, 1], k_below]
+    floor_z = np.where(below >= 0, grid.origin[2] + (below + 1) * grid.pitch, mesh.bounds[0][2])
+    heights = np.clip(centres[:, 2] - floor_z, 0, None)
+    return float((areas * heights).sum())
+
+
 def check_overhangs(ctx: Context) -> None:
     mesh = ctx.mesh
     mat = ctx.material
@@ -187,6 +209,7 @@ def check_overhangs(ctx: Context) -> None:
         mask &= ctx.exterior
     total = float(mesh.area_faces[mask].sum())
     ctx.metrics["overhang_area_mm2"] = round(total, 1)
+    ctx.metrics["support_column_mm3"] = round(support_columns(ctx, mask), 1)
     regions = []
     for faces in _face_components(mesh, mask):
         area = float(mesh.area_faces[faces].sum())
@@ -304,29 +327,81 @@ def check_bed(ctx: Context) -> None:
 # -------------------------------------------------------- thin walls, slender
 
 
-def _thin_components(ctx: Context, limit_mm: float) -> list[dict[str, Any]]:
+def coarse_grid(ctx: Context, pitch_mm: float) -> VoxelGrid:
+    """The solid at a coarser pitch (majority of each block), for checks about features of several mm."""
     grid = ctx.grid
     assert grid is not None
-    edt = ndimage.distance_transform_edt(grid.solid)
+    k = max(1, int(pitch_mm // grid.pitch))
+    if k == 1:
+        return grid
+    key = f"coarse:{k}"
+    if key not in ctx.cache:
+        nx, ny, nz = (int(math.ceil(d / k)) * k for d in grid.solid.shape)
+        padded = np.zeros((nx, ny, nz), dtype=np.float32)
+        padded[tuple(slice(0, d) for d in grid.solid.shape)] = grid.solid
+        blocks = padded.reshape(nx // k, k, ny // k, k, nz // k, k).mean(axis=(1, 3, 5))
+        ctx.cache[key] = VoxelGrid(solid=blocks >= 0.5, origin=grid.origin, pitch=grid.pitch * k)
+    return ctx.cache[key]
+
+
+def _ball(radius: float) -> np.ndarray:
+    r = int(math.ceil(radius))
+    ax = np.arange(-r, r + 1)
+    return (ax[:, None, None] ** 2 + ax[None, :, None] ** 2 + ax[None, None, :] ** 2) <= radius * radius + 1e-9
+
+
+def _capped_distance(solid: np.ndarray, cap: float) -> np.ndarray:
+    """Exact Euclidean distance (in voxels) to the nearest empty voxel, for distances up to `cap`.
+
+    On a voxel grid a distance is always sqrt(integer), so one small erosion per possible value up to the
+    cap gives exact values, far faster than a full distance transform when the cap is a few voxels.
+    """
+    out = np.zeros(solid.shape, dtype=np.float32)
+    out[solid] = 1.0
+    r = int(math.ceil(cap))
+    values = sorted({math.sqrt(i * i + j * j + k * k) for i in range(r + 1) for j in range(r + 1)
+                     for k in range(r + 1)} - {0.0})
+    for v in values[1:]:
+        if v > cap:
+            break
+        inner = ndimage.binary_erosion(solid, _ball(v - 1e-6))   # every voxel closer than v is solid
+        if not inner.any():
+            break
+        out[inner] = v
+    return out
+
+
+def _thin_components(ctx: Context, limit_mm: float, grid: VoxelGrid | None = None) -> list[dict[str, Any]]:
+    """Solid regions thinner than `limit_mm`, found with fast morphology (erosion + dilation).
+
+    The thickness of each region is then measured with an exact distance transform on a small crop.
+    """
+    grid = grid or ctx.grid
+    assert grid is not None
+    # "Deep" voxels are at least half the limit from the surface; anything within a cube of the limit's size
+    # around a deep voxel is part of something thick enough (a cube, not a ball, so outer corners count).
+    deep = ndimage.binary_erosion(grid.solid, _ball(max(0.5, limit_mm / (2 * grid.pitch) - 1e-3)))
     size = max(3, int(math.ceil(limit_mm / grid.pitch)) + 1)
-    local = ndimage.maximum_filter(edt, size=size)
-    thickness = (2 * local - 0.5) * grid.pitch        # estimated full thickness through each voxel (+-1 voxel)
-    thin = grid.solid & (thickness < limit_mm - 0.5 * grid.pitch)
+    covered = ndimage.maximum_filter(deep, size=size)
+    thin = grid.solid & ~covered
     labels, n = ndimage.label(thin, structure=np.ones((3, 3, 3)))
     out = []
     if n == 0:
         return out
-    idx = np.arange(1, n + 1)
-    counts = ndimage.sum_labels(thin, labels, idx)
     slices = ndimage.find_objects(labels)
-    for k, (count, sl) in enumerate(zip(counts, slices), 1):
-        if count < 8 or sl is None:
+    dist = _capped_distance(grid.solid, limit_mm / (2 * grid.pitch) + 1.5)
+    for k, sl in enumerate(slices, 1):   # per-region work on its own crop (scipy's label reductions scan the grid)
+        if sl is None:
             continue
         region = labels[sl] == k
+        count = int(region.sum())
+        if count < 8:
+            continue
+        d = float(dist[sl][region].max())
         coords = np.argwhere(region) + np.array([s.start for s in sl])
         centre = grid.centre(coords.mean(axis=0))
         extent = (np.array([s.stop - s.start for s in sl])) * grid.pitch
-        est = float(((2 * edt[sl][region].max() - 0.5) * grid.pitch))
+        est = float((2 * float(d) - 0.5) * grid.pitch)
         out.append({"centre": centre, "extent": extent, "thickness": max(grid.pitch, est), "voxels": int(count)})
     return sorted(out, key=lambda c: -c["voxels"])
 
@@ -354,7 +429,8 @@ def check_thin(ctx: Context) -> None:
 
 def check_slender(ctx: Context) -> None:
     """Slender features standing upright break along their layer lines."""
-    for comp in _thin_components(ctx, 5.0)[:10]:
+    # Features up to ~6 mm wide don't need the fine grid used for thin walls.
+    for comp in _thin_components(ctx, 5.0, coarse_grid(ctx, 0.8))[:10]:
         ex, ey, ez = comp["extent"]
         if ez >= 3 * max(ex, ey) and ez >= 8 and max(ex, ey) < 6:
             ctx.add(CadFinding("weak_layers", 2, "Upright slender feature is weak across layers",
@@ -568,6 +644,9 @@ def check_stability(ctx: Context) -> None:
 # ------------------------------------------------------------------- estimates
 
 
+SUPPORT_DENSITY = 0.15   # sparse tree/grid support fills about this share of the column it stands in
+
+
 def estimates(ctx: Context) -> dict[str, Any]:
     mesh, mat, sl = ctx.mesh, ctx.material, ctx.slicer
     volume = ctx.grid.volume_mm3 if ctx.grid is not None else abs(float(mesh.volume))
@@ -575,14 +654,17 @@ def estimates(ctx: Context) -> dict[str, Any]:
     shell = min(volume, float(mesh.area) * shell_t)
     infill = sl.get("infill_pct", 15) / 100
     printed = shell + (volume - shell) * infill
-    support = ctx.metrics.get("overhang_area_mm2", 0.0) * 2.0 * 0.15  # sparse support, ~2 mm average height
-    grams = (printed + support) * mat["density_g_cm3"] / 1000
+    support = ctx.metrics.get("support_column_mm3", 0.0) * SUPPORT_DENSITY
+    grams = printed * mat["density_g_cm3"] / 1000                 # the part itself (support is removed)
+    used = (printed + support) * mat["density_g_cm3"] / 1000       # filament used, support included
     fil_d = sl.get("filament_diameter", 1.75)
     metres = (printed + support) / (math.pi * (fil_d / 2) ** 2) / 1000
     hours = (printed + support) / ctx.printer["volumetric_speed_mm3_s"] * 1.35 / 3600
     est = {"solid_volume_cm3": round(volume / 1000, 2), "printed_grams": round(grams, 1),
+           "support_grams": round(support * mat["density_g_cm3"] / 1000, 1),
            "filament_m": round(metres, 2), "print_hours": round(hours, 2),
-           "material_cost": round(grams * mat["price_per_kg"] / 1000, 2),
+           "filament_grams": round(used, 1),
+           "material_cost": round(used * mat["price_per_kg"] / 1000, 2),
            "assumptions": f"{sl.get('perimeters', 2)} perimeters, {sl.get('infill_pct', 15)}% infill, "
                           f"{ctx.printer['volumetric_speed_mm3_s']} mm³/s"}
     ctx.metrics["estimates"] = est

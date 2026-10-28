@@ -53,7 +53,7 @@ td.n { text-align: right; font-variant-numeric: tabular-nums; }
   <div class="stat"><b class="{{ 'bad' if s4 else 'ok' }}">{{ s4|length }}</b><span>will fail</span></div>
   <div class="stat"><b>{{ s3|length }}</b><span>major problems</span></div>
   <div class="stat"><b>{{ r.findings|length }}</b><span>findings in total</span></div>
-  <div class="stat"><b>{{ r.metrics.estimates.printed_grams }} g</b><span>estimated printed mass</span></div>
+  <div class="stat"><b>{{ r.metrics.estimates.printed_grams }} g</b><span>estimated mass of the part{% if r.metrics.estimates.support_grams %} (+ {{ r.metrics.estimates.support_grams }} g support){% endif %}</span></div>
   <div class="stat"><b>{{ r.metrics.estimates.print_hours }} h</b><span>estimated print time</span></div>
   <div class="stat"><b>{{ r.metrics.estimates.material_cost }}</b><span>material cost (at {{ r.material.price_per_kg }} per kg)</span></div>
   {% if r.metrics.tip_angle_deg is not none %}<div class="stat">{% if r.metrics.tip_angle_deg < 0 %}<b class="bad">falls over</b><span>as used</span>{% else %}<b>{{ r.metrics.tip_angle_deg }}°</b><span>tilt before it tips</span>{% endif %}</div>{% endif %}

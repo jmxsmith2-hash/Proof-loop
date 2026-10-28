@@ -33,7 +33,10 @@ class Model:
         return self.mesh.extents
 
     def shells(self) -> list[trimesh.Trimesh]:
-        return [s for s in self.mesh.split(only_watertight=False) if len(s.faces) >= 4]
+        """Separate bodies (computed once; splitting a dense mesh is slow)."""
+        if "_shells" not in self.mesh.metadata:
+            self.mesh.metadata["_shells"] = [s for s in self.mesh.split(only_watertight=False) if len(s.faces) >= 4]
+        return self.mesh.metadata["_shells"]
 
 
 def _sha(path: Path) -> str:

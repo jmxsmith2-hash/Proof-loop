@@ -464,7 +464,8 @@ def physical_check(
     if not result["findings"]:
         typer.secho("  no problems found by the geometry checks", fg="green")
     est = result["metrics"]["estimates"]
-    typer.echo(f"  about {est['printed_grams']} g, {est['print_hours']} h, material {est['material_cost']}")
+    support = f" + {est['support_grams']} g support" if est.get("support_grams") else ""
+    typer.echo(f"  about {est['printed_grams']} g{support}, {est['print_hours']} h, material {est['material_cost']}")
     c = result["comparison"]
     if c:
         typer.echo(f"  since v{c['previous_version']}: {len(c['fixed'])} fixed, {len(c['persisting'])} still there, "

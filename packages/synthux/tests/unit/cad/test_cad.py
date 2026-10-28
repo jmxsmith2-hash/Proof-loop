@@ -127,3 +127,21 @@ def test_wearable_fit():
     types = product_types(["wearable"], {"wearable": "wrist"})
     assert react(big, facts, types)[0].pattern == "doesnt_fit"
     assert not any(r.pattern == "doesnt_fit" for r in react(small, facts, types))
+
+
+def test_support_is_measured_down_to_the_bed_or_the_part_below(tmp_path, profiles):
+    printer, material, slicer = profiles
+    post = trimesh.creation.box((10, 10, 40))
+    post.apply_translation((0, 0, 20))
+    high = trimesh.creation.box((30, 10, 4))          # a 30 x 10 mm ledge beside the post, 36 mm above the bed
+    high.apply_translation((20, 0, 38))
+    trimesh.util.concatenate([post, high]).export(tmp_path / "ledge.stl")
+    ctx = run_checks(load_model(tmp_path / "ledge.stl"), printer, material, slicer)
+    column = ctx.metrics["support_column_mm3"]
+    assert 0.9 * (30 * 10 * 36) <= column <= 1.1 * (30 * 10 * 36)
+    est = ctx.metrics["estimates"]
+    assert est["support_grams"] > 0 and est["filament_grams"] > est["printed_grams"]   # support costs, not weighs
+    low = high.copy()
+    low.apply_translation((0, 0, -30))                 # the same ledge only 6 mm up needs a much shorter column
+    trimesh.util.concatenate([post, low]).export(tmp_path / "low.stl")
+    assert run_checks(load_model(tmp_path / "low.stl"), printer, material, slicer).metrics["support_column_mm3"] < column / 4
