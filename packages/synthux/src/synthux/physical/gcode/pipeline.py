@@ -32,9 +32,20 @@ def _hours(seconds: float | None) -> str | None:
     return f"{h} h {m:02d} min" if h else f"{m} min"
 
 
-def check_gcode(config_dir: Path, path: Path, *, printer: str | None = None, material: str | None = None,
-                plate: int | None = None, out: Path | None = None) -> dict[str, Any]:
+def profiles_dir(config_dir: Path | str | None) -> Path:
+    """The config folder with printers.yaml, or the copy shipped inside the package (for other tools)."""
+    if config_dir and (Path(config_dir) / "printers.yaml").is_file():
+        return Path(config_dir)
+    return Path(__file__).resolve().parents[2] / "data"
+
+
+def check_gcode(config_dir: Path | str | None, path: Path | str, *, printer: str | None = None,
+                material: str | None = None, plate: int | None = None, out: Path | None = None,
+                write_report: bool = True) -> dict[str, Any]:
+    """Check one sliced file. With write_report=False nothing is written (for tools that show results)."""
     started = time.perf_counter()
+    config_dir = profiles_dir(config_dir)
+    path = Path(path)
     trace = read_gcode(path, plate)
     notes = slicer_notes(trace.header, trace.plate_info)
     detected = printer_from_header(config_dir, notes.get("printer"))
@@ -47,15 +58,19 @@ def check_gcode(config_dir: Path, path: Path, *, printer: str | None = None, mat
     ctx = GcodeContext(trace=trace, printer=pr, material=mat, nozzle=nozzle,
                        filament_diameter=float(pr.get("filament_diameter", slicer.get("filament_diameter", 1.75))))
     run_gcode_checks(ctx, notes)
-    out = Path(out) if out else Path("reports") / "gcode" / Path(path).name.split(".")[0]
-    out.mkdir(parents=True, exist_ok=True)
-    images = render_all(ctx, out)
+    images: dict[str, str] = {}
+    if write_report:
+        out = Path(out) if out else Path("reports") / "gcode" / Path(path).name.split(".")[0]
+        out.mkdir(parents=True, exist_ok=True)
+        images = render_all(ctx, out)
     m = ctx.metrics
     findings = []
     for n, f in enumerate(ctx.findings, 1):
         findings.append({"n": n, "check": f.check, "severity": f.severity, "severity_name": f.severity_name,
                          "title": f.title, "detail": f.detail, "fix": f.fix, "location": f.location,
-                         "layer": f.data.get("layer"), "image": images.get(f.data.get("image_key") or "")})
+                         "layer": f.data.get("layer"), "loop_no": f.data.get("loop_no"),
+                         "layer_in_loop": f.data.get("layer_in_loop"),
+                         "image": images.get(f.data.get("image_key") or "")})
     result = {
         "file": trace.source, "printer": pr, "material": mat, "nozzle": nozzle,
         "printer_source": "chosen" if printer else ("from the file" if detected else "default"),
@@ -68,7 +83,8 @@ def check_gcode(config_dir: Path, path: Path, *, printer: str | None = None, mat
         "seconds": round(time.perf_counter() - started, 1),
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
     }
-    from synthux.physical.cad.report import write_report
+    if write_report:
+        from synthux.physical.cad.report import write_report
 
-    result["report"] = str(write_report("gcode.html.j2", result, out))
+        result["report"] = str(write_report("gcode.html.j2", result, out))
     return result

@@ -124,3 +124,56 @@ def test_cli_gcode_and_check_routes_gcode(tmp_path):
     out = runner.invoke(app, ["physical", "check", str(EX / "bracket_good.gcode"), "-o", str(tmp_path / "h"),
                               "-c", str(CFG)])
     assert out.exit_code == 0 and "checking it as G-code" in out.output and "no problems" in out.output
+
+
+@pytest.fixture()
+def without_clearloop(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "clearloop", None)      # import clearloop -> ImportError
+
+
+def test_plain_bambu_plate_is_clean_and_not_a_loop_file(tmp_path):
+    r = check_gcode(CFG, EX / "bracket_plate.gcode.3mf", out=tmp_path / "p")
+    assert not _checks(r) and "loop_file" not in r["metrics"]
+    assert r["metrics"]["layers"] == 120
+
+
+def test_clearloop_loop_file_checks_each_loops_print_not_the_sweep(tmp_path, without_clearloop):
+    r = check_gcode(CFG, EX / "FL_S2_bracket_plate.gcode.3mf", out=tmp_path / "l")
+    assert not _checks(r)                       # no sweep 'stringing', no header mismatch, no 0 mm layers
+    lf = r["metrics"]["loop_file"]
+    assert lf["loops"] == 3 and lf["made_by"] == "ClearLoop" and lf["plate_check_pauses"] == 2
+    assert r["metrics"]["layers"] == 120 and r["metrics"]["layers_total"] == 360
+    assert r["metrics"]["filament_g_per_loop"] == pytest.approx(r["metrics"]["filament_g"] / 3, abs=0.1)
+    assert [f["title"] for f in r["findings"]] == ["Install ClearLoop to check the ejection cycle"]
+
+
+def test_farmloop_app_cooldown_bug_is_caught_without_clearloop(tmp_path, without_clearloop):
+    r = check_gcode(CFG, EX / "FL_S2_farmloop_app.gcode.3mf", out=tmp_path / "f")
+    top = r["findings"][0]
+    assert top["severity"] == 4 and "wait before printing, heaters on" in top["title"]
+    assert r["metrics"]["loop_file"]["made_by"] == "the FarmLoop app"
+
+
+def test_clearloop_checks_run_when_clearloop_is_installed(tmp_path):
+    pytest.importorskip("clearloop")
+    good = check_gcode(CFG, EX / "FL_S2_bracket_plate.gcode.3mf", out=tmp_path / "g")
+    assert not _checks(good)
+    assert {c["level"] for c in good["metrics"]["loop_file"]["clearloop_checks"]} == {"ok"}
+    bad = check_gcode(CFG, EX / "FL_S2_farmloop_app.gcode.3mf", out=tmp_path / "b")
+    titles = [f["title"] for f in bad["findings"] if f["severity"] == 4]
+    assert "ClearLoop: Parts the sweep passes over" in titles
+    assert any("natural cooldown placed before the print" in t for t in titles)
+
+
+def test_other_tools_can_check_a_file_without_a_config_folder(tmp_path, monkeypatch):
+    from synthux.physical.gcode import check_file
+
+    monkeypatch.chdir(tmp_path)                                    # no config/ here
+    r = check_file(EX / "bracket_flawed.gcode", write_report=False)
+    assert "report" not in r and r["findings"][0]["title"] == "Prints outside the build plate"
+    assert not list(tmp_path.iterdir())                            # nothing written
+    pkg = Path(__import__("synthux").__file__).parent / "data"
+    for name in ("printers.yaml", "processes.yaml"):               # the shipped copies stay in step
+        assert (pkg / name).read_text(encoding="utf-8") == (CFG / name).read_text(encoding="utf-8")

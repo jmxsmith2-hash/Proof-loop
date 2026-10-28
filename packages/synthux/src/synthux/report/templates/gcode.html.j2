@@ -25,6 +25,17 @@
   {% if r.metrics.peak_flow_mm3_s %}<div class="stat"><b>{{ r.metrics.peak_flow_mm3_s }}</b><span>peak flow mm³/s (hot end {{ r.printer.max_flow_mm3_s }})</span></div>{% endif %}
 </div>
 
+{% if r.metrics.loop_file %}{% set lf = r.metrics.loop_file %}
+<h2>Loop file</h2>
+<div class="card small">
+  <p><b>{{ lf.loops }} loops</b> made by {{ lf.made_by }}{% if lf.plates > 1 %}, {{ lf.plates }} different plates{% endif %}:
+    {{ r.metrics.filament_g_per_loop }} g and {{ r.metrics.layers }} layers per loop{% if lf.plate_check_pauses %};
+    the printer waits for ClearLoop Monitor's plate check {{ lf.plate_check_pauses }} time(s){% endif %}.
+    The checks below look at each loop's print; the cooldown, door, bend and sweep after it are
+    {% if lf.clearloop_checks is not none %}checked by ClearLoop:{% else %}not checked here (install ClearLoop).{% endif %}</p>
+  {% if lf.clearloop_checks %}<table>{% for c in lf.clearloop_checks %}<tr><td class="{{ 'ok' if c.level == 'ok' else 'bad' if c.level == 'danger' else '' }}">{{ {'ok': 'OK', 'danger': 'danger', 'warning': 'warning', 'info': 'note'}[c.level] }}</td><td><b>{{ c.title }}</b><br>{{ c.detail }}</td></tr>{% endfor %}</table>{% endif %}
+</div>{% endif %}
+
 <h2>Preview</h2>
 <div class="views">{% for name, src in r.images.items() if name not in ('flow', 'travel') %}<figure><img src="{{ src }}" alt="{{ name }}"><figcaption>{{ {'plate': 'first layer on the plate', 'side': 'side view (red: layers too thick)'}.get(name, name|replace('layer', 'layer ')) }}</figcaption></figure>{% endfor %}</div>
 
@@ -35,7 +46,7 @@
   <div>
     <h3><span class="num sev{{ f.severity }}">{{ f.n }}</span>{{ f.title }}</h3>
     <span class="chip">{{ f.severity_name }}</span><span class="chip">{{ f.check|replace('_', ' ') }}</span>
-    {% if f.layer %}<span class="chip">layer {{ f.layer }}</span>{% endif %}
+    {% if f.loop_no %}<span class="chip">loop {{ f.loop_no }}, layer {{ f.layer_in_loop }}</span>{% elif f.layer %}<span class="chip">layer {{ f.layer }}</span>{% endif %}
     {% if f.location %}<span class="chip">at x {{ f.location.x }}, y {{ f.location.y }}, z {{ f.location.z }} mm</span>{% endif %}
     <p>{{ f.detail }}</p>
     {% if f.fix %}<div class="fix"><b>Fix:</b> {{ f.fix }}</div>{% endif %}
@@ -53,7 +64,7 @@
 <tr><td>Part fan</td><td>{% if r.metrics.fan_pct %}{{ r.metrics.fan_pct|join('-') }}% after layer 3{% else %}not used{% endif %}</td></tr>
 <tr><td>Flow</td><td>typical {{ r.metrics.typical_flow_mm3_s }} mm³/s, peak {{ r.metrics.peak_flow_mm3_s }} mm³/s; line width about {{ r.metrics.median_line_width_mm }} mm</td></tr>
 <tr><td>Retraction</td><td>{{ r.metrics.retractions or 0 }} retractions{% if r.metrics.retraction_mm %}, about {{ r.metrics.retraction_mm }} mm each{% endif %}; {{ r.metrics.travel_m }} m of travel</td></tr>
-<tr><td>Time</td><td>{% if r.time.slicer %}slicer {{ r.time.slicer }}; {% endif %}replayed from the moves about {{ r.time.replay }} (rough: heating and homing not counted)</td></tr>
+<tr><td>Time</td><td>{% if r.time.slicer %}slicer {{ r.time.slicer }}; {% endif %}replayed from the moves about {{ r.time.replay }} (rough: heating and homing not counted{% if r.metrics.loop_file %}; printing only, without each loop's cooldown and sweep{% endif %})</td></tr>
 {% if r.metrics.minutes_by_feature %}<tr><td>Printing time by feature</td><td>{% for k, v in r.metrics.minutes_by_feature.items() %}{{ k }} {{ v }} min{% if not loop.last %} · {% endif %}{% endfor %}</td></tr>{% endif %}
 {% if r.metrics.tool_changes %}<tr><td>Filament changes</td><td>{{ r.metrics.tool_changes }}</td></tr>{% endif %}
 <tr><td>File</td><td>{{ r.lines }} lines, {{ r.moves }} moves, checked in {{ r.seconds }} s</td></tr>

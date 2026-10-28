@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 import re
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -53,6 +54,7 @@ class GcodeContext:
     time: np.ndarray = field(default=None, repr=False)
     layer_z: np.ndarray = field(default=None, repr=False)
     layer_h: np.ndarray = field(default=None, repr=False)
+    layer_loop: np.ndarray = field(default=None, repr=False)
     move_h: np.ndarray = field(default=None, repr=False)
     flow: np.ndarray = field(default=None, repr=False)
     width: np.ndarray = field(default=None, repr=False)
@@ -71,7 +73,13 @@ class GcodeContext:
             at: tuple[float, float, float] | None = None, image: str | None = None, **data: Any) -> None:
         loc = {"x": round(at[0], 1), "y": round(at[1], 1), "z": round(at[2], 2)} if at else None
         if layer is not None:
-            data["layer"] = int(layer) + 1
+            data["layer"] = int(layer) + 1                       # across the whole file (pictures use it)
+            if self.metrics.get("loops", 1) > 1 and self.layer_loop is not None and 0 <= layer < len(self.layer_loop):
+                lp = self.layer_loop[layer]
+                order = sorted(set(self.layer_loop[~np.isnan(self.layer_h)].tolist()))
+                firsts = np.flatnonzero((self.layer_loop == lp) & ~np.isnan(self.layer_h))
+                data["loop_no"] = order.index(int(lp)) + 1 if int(lp) in order else None
+                data["layer_in_loop"] = int(layer - firsts[0]) + 1 if len(firsts) else None
         if image:
             data["image_key"] = image
         self.findings.append(CadFinding(check, severity, title, detail, fix, loc, data, fingerprint=check))
@@ -84,22 +92,36 @@ def prepare(ctx: GcodeContext) -> None:
     ctx.xy = np.hypot(t.x1 - t.x0, t.y1 - t.y0)
     ctx.extrude = (t.de > 1e-7) & (ctx.xy > 1e-6)
     ctx.travel = (t.de <= 1e-7) & (ctx.xy > 1e-6)
+    # Bambu files mark where the print starts and ends: start code (purge) and end code (park, a loop
+    # file's ejection sweep) are left out of the print checks.
+    printing = (t.phase == 1) if (t.phase is not None and t.phase_marked) else None
     if t.layer_markers:
         ctx.model = t.layer >= 0
+        if printing is not None:
+            ctx.model &= printing
         layer = t.layer.copy()
-    else:   # no markers: every change of extrusion height is a new layer
-        ctx.model = np.ones(len(t), bool)
+    else:   # no markers: every rise in extrusion height is a new layer; each loop starts on the bed again
+        ctx.model = printing if printing is not None else np.ones(len(t), bool)
         zs = np.round(t.z, 3)
-        ez = np.where(ctx.extrude, zs, np.nan)
-        cur = np.fmax.accumulate(np.nan_to_num(ez, nan=-1.0))
-        uniq = np.unique(cur[ctx.extrude]) if ctx.extrude.any() else np.zeros(0)
-        layer = np.searchsorted(uniq, cur).astype(np.int32)
+        layer = np.zeros(len(t), np.int32)
+        base = 0
+        loops = t.loop if t.loop is not None else np.zeros(len(t), np.int32)
+        for lp in np.unique(loops):
+            idx = np.flatnonzero(loops == lp)
+            ext = ctx.extrude[idx] & ctx.model[idx]
+            cur = np.fmax.accumulate(np.where(ext, zs[idx], -1.0))
+            uniq = np.unique(cur[ext]) if ext.any() else np.zeros(0)
+            layer[idx] = np.searchsorted(uniq, cur) + base
+            base += len(uniq)
         t.layer = layer
     n_layers = int(layer.max()) + 1 if len(layer) and layer.max() >= 0 else 0
     sel = ctx.extrude & ctx.model
     lz = np.full(n_layers, np.nan)
+    layer_loop = np.zeros(n_layers, np.int32)
     if sel.any():
         idx = layer[sel]
+        if t.loop is not None:
+            layer_loop[idx] = t.loop[sel]
         order = np.argsort(idx, kind="stable")
         zs, idx = t.z[sel][order], idx[order]
         starts = np.searchsorted(idx, np.arange(n_layers))
@@ -109,12 +131,16 @@ def prepare(ctx: GcodeContext) -> None:
                 lz[i] = float(np.median(zs[starts[i]:ends[i]]))
     keep = ~np.isnan(lz)
     ctx.layer_z = lz
+    ctx.layer_loop = layer_loop
     heights = np.full(n_layers, np.nan)
-    prev = 0.0
+    prev, prev_loop = 0.0, None
     for i in np.flatnonzero(keep):
+        if layer_loop[i] != prev_loop:          # a new loop prints its first layer on the bed again
+            prev, prev_loop = 0.0, layer_loop[i]
         heights[i] = lz[i] - prev
         prev = lz[i]
     ctx.layer_h = heights
+    ctx.metrics["loops"] = max(1, len(np.unique(layer_loop[keep]))) if keep.any() else 1
     li = np.clip(layer, 0, max(0, n_layers - 1))
     ctx.move_h = heights[li] if n_layers else np.full(len(t), 0.2)
     ctx.move_h = np.where(np.isnan(ctx.move_h) | (ctx.move_h <= 0), ctx.nozzle / 2, ctx.move_h)
@@ -234,7 +260,10 @@ def check_layers(ctx: GcodeContext) -> None:
             ctx.add("layer_height", 1, "Extremely thin layers",
                     f"{len(thin)} layers are under 0.04 mm; they add a lot of time for little visible gain.",
                     "Check the layer height (or variable layer height) settings.", layer=int(thin[0]))
-    ctx.metrics["layers"] = int(len(valid))
+    loops = ctx.metrics.get("loops", 1)
+    ctx.metrics["layers_total"] = int(len(valid))
+    ctx.metrics["layers"] = int((ctx.layer_loop[valid] == ctx.layer_loop[valid[0]]).sum()) if loops > 1 \
+        else int(len(valid))                                     # layers of one loop (the first plate)
     ctx.metrics["layer_heights_mm"] = [float(v) for v in np.unique(np.round(h[valid], 2))[:8]]
 
 
@@ -554,10 +583,18 @@ def check_end(ctx: GcodeContext) -> None:
 
 
 def check_consistency(ctx: GcodeContext, slicer_mm: float | None, slicer_g: float | None, density: float) -> None:
-    used = float(ctx.trace.de.sum())
+    t = ctx.trace
+    used = float(t.de.sum())
     grams = used * ctx.fil_area / 1000 * density
     ctx.metrics["filament_m"] = round(used / 1000, 2)
     ctx.metrics["filament_g"] = round(grams, 1)
+    loops = ctx.metrics.get("loops", 1)
+    if loops > 1:
+        # a loop file carries one slicer header per loop; compare the whole file with all of them
+        ctx.metrics["filament_g_per_loop"] = round(grams / loops, 1)
+        slicer_mm = _sum_header(t.header_all, ("total filament length [mm]", "filament used [mm]"), loops) or slicer_mm
+        slicer_g = _sum_header(t.header_all, ("total filament weight [g]", "filament used [g]"), loops) or (
+            slicer_g * loops if slicer_g else None)
     for label, theirs, ours, unit in (("filament length", slicer_mm, used, "mm"), ("weight", slicer_g, grams, "g")):
         if theirs and ours > 0 and abs(theirs - ours) / max(theirs, ours) > 0.15:
             ctx.add("consistency", 2, "The file doesn't match its own header",
@@ -565,6 +602,16 @@ def check_consistency(ctx: GcodeContext, slicer_mm: float | None, slicer_g: floa
                     "The file may have been edited after slicing, cut short, or the header belongs to another plate.",
                     "Re-slice and export again if you didn't edit it on purpose.")
             return
+
+
+def _sum_header(values: dict[str, list[str]], keys: tuple[str, ...], loops: int) -> float | None:
+    for key in keys:
+        found = [v for v in values.get(key, []) if re.search(r"\d", v)]
+        if not found:
+            continue
+        nums = [float(re.search(r"-?\d+(\.\d+)?", v.split(",")[0]).group()) for v in found]
+        return sum(nums) if len(nums) == loops else nums[0] * loops
+    return None
 
 
 # ----------------------------------------------------------------------------------------- slicer notes
@@ -622,6 +669,92 @@ def slicer_notes(header: dict[str, str], plate_info: dict[str, Any]) -> dict[str
     }
 
 
+CLEARLOOP_LEVELS = {"danger": 4, "warning": 3, "info": 1}
+
+
+def is_loop_file(trace: Any, loops: int) -> bool:
+    name = Path(trace.source or trace.path or "").name
+    return (loops > 1 or trace.marks.get("clearloop_blocks", 0) > 0 or trace.marks.get("farmloop_sections", 0) > 0
+            or name.startswith(("FL_S1_", "FL_S2_")))
+
+
+def check_loop_file(ctx: GcodeContext) -> None:
+    """Loop files (FarmLoop / ClearLoop auto-eject): what the file does, plus ClearLoop's own checks.
+
+    The print checks above already look at each loop's print only; the ejection cycle after it
+    (cooldown, door, bend, sweep, plate-check pause) is ClearLoop's to check, so its checker is run
+    on the file when ClearLoop is installed.
+    """
+    t = ctx.trace
+    loops = ctx.metrics.get("loops", 1)
+    if not is_loop_file(t, loops):
+        return
+    plates = {(a, b) for a, b in zip(t.header_all.get("model label id", []) or [""] * loops,
+                                    t.header_all.get("total layer number", []) or [""] * loops)}
+    made_by = ("ClearLoop" if t.marks.get("clearloop_blocks") else
+               "the FarmLoop app" if t.marks.get("farmloop_sections") else "another loop tool")
+    info: dict[str, Any] = {"loops": loops, "plates": max(1, len(plates)), "made_by": made_by,
+                            "plate_check_pauses": t.marks.get("loop_pauses", 0), "clearloop_checks": None}
+    ctx.metrics["loop_file"] = info
+    path = t.path or ""
+    if not path.lower().endswith(".3mf"):
+        return
+    try:
+        from clearloop import threemf as cl_threemf
+        from clearloop.lint import lint as cl_lint
+    except ImportError:
+        heated_waits_before_print(ctx)
+        ctx.add("loop_file", 1, "Install ClearLoop to check the ejection cycle",
+                f"This is a {loops}-loop file made by {made_by}. The print in each loop was checked; the cooldown, "
+                "door, bend and sweep after it were not.",
+                'pip install "synthux[clearloop]" (or install ClearLoop) and check the file again.')
+        return
+    try:
+        found = cl_lint(cl_threemf.load(path, t.plate))
+    except Exception as exc:  # noqa: BLE001 - a ClearLoop failure must not hide the print checks
+        ctx.add("loop_file", 1, "ClearLoop couldn't read this file", str(exc))
+        return
+    info["clearloop_checks"] = [{"level": f.level, "title": f.title, "detail": f.detail} for f in found]
+    for f in found:
+        if f.level in CLEARLOOP_LEVELS:
+            ctx.add("loop_file", CLEARLOOP_LEVELS[f.level], f"ClearLoop: {f.title}", f.detail,
+                    "Make the loop file again with ClearLoop (clearloop make), which fixes the known problems.")
+
+
+def heated_waits_before_print(ctx: GcodeContext) -> None:
+    """A long wait in the start code with a heater on (FarmLoop app 2.72's 'natural cooldown' bug)."""
+    t = ctx.trace
+    if t.phase is None or not t.dwell_events:
+        return
+    n = len(t)
+    noz = _at_moves([(i, v) for i, v, _ in t.nozzle_events], n + 1, default=0.0)
+    bed = _at_moves(t.bed_events, n + 1, default=0.0)
+    phase = np.append(t.phase, t.phase[-1] if n else 1)
+    loop = np.append(t.loop, t.loop[-1] if n else 0)
+    waits: dict[int, float] = {}
+    for i, sec in t.dwell_events:
+        i = min(i, n)
+        if phase[i] == 0 and (noz[i] > 5 or bed[i] > 5):    # 1-5 °C are FarmBoard signals, not heat
+            waits[int(loop[i])] = waits.get(int(loop[i]), 0.0) + sec
+    worst = max(waits.values(), default=0.0)
+    if worst >= 600:
+        ctx.add("loop_file", 4, f"{worst / 60:.0f} min wait before printing, heaters on",
+                "The start code waits with the nozzle or bed heating before the print begins: the printer looks "
+                "frozen and stays hot (the FarmLoop app 2.72 'natural cooldown' placement bug).",
+                "Don't run this file. Make it again with the cooldown after the print (ClearLoop does this).")
+
+
+def loop_times(header_all: dict[str, list[str]]) -> list[float]:
+    """Slicer time of each loop's print, from each loop's own header."""
+    out = []
+    for v in header_all.get("model printing time", []):
+        tail = v.split("total estimated time", 1)
+        sec = parse_duration(tail[1] if len(tail) > 1 else v)
+        if sec:
+            out.append(sec)
+    return out
+
+
 def run_gcode_checks(ctx: GcodeContext, notes: dict[str, Any]) -> GcodeContext:
     prepare(ctx)
     check_bounds(ctx)
@@ -636,9 +769,16 @@ def run_gcode_checks(ctx: GcodeContext, notes: dict[str, Any]) -> GcodeContext:
     check_end(ctx)
     check_consistency(ctx, notes.get("filament_mm"), notes.get("filament_g"),
                       float(ctx.material.get("density_g_cm3", 1.24)))
-    replay = float(ctx.time.sum()) + ctx.trace.dwell_s
+    check_loop_file(ctx)
+    replay = float(ctx.time[ctx.model].sum())                    # the prints themselves
     ctx.metrics["replay_time_s"] = round(replay)
     ctx.metrics["slicer_time_s"] = round(notes["time_s"]) if notes.get("time_s") else None
+    loops = ctx.metrics.get("loops", 1)
+    if loops > 1:
+        per_loop = loop_times(ctx.trace.header_all)
+        if per_loop:
+            ctx.metrics["slicer_time_s"] = round(sum(per_loop) if len(per_loop) == loops else per_loop[0] * loops)
+        ctx.metrics["dwell_s"] = round(ctx.trace.dwell_s)
     ctx.metrics["travel_m"] = round(float(ctx.xy[ctx.travel].sum()) / 1000, 1)
     ctx.metrics["tool_changes"] = ctx.trace.tool_changes
     feats = {}

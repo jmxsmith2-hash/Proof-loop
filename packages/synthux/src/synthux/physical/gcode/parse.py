@@ -25,6 +25,12 @@ import numpy as np
 from synthux.core.config import ConfigError
 
 LAYER_MARKERS = ("; CHANGE_LAYER", ";LAYER_CHANGE", ";LAYER:")
+# Bambu Studio's file layout. A loop file (FarmLoop / ClearLoop) repeats the executable block once per
+# loop; between the start code's end and the end code's start is the print itself.
+EXEC_START = "; EXECUTABLE_BLOCK_START"
+START_END = "; MACHINE_START_GCODE_END"
+END_START = "; MACHINE_END_GCODE_START"
+PHASES = ("start", "print", "end")
 FEATURE_PREFIXES = ("; FEATURE:", ";TYPE:")
 ARC_SEGMENT_DEG = 10.0
 _KV = re.compile(r"^;\s*([A-Za-z_][\w \[\]^/().-]*?)\s*[=:]\s*(.*?)\s*$")
@@ -46,6 +52,14 @@ class GcodeTrace:
     feature: np.ndarray      # index into `features`
     features: list[str]
     header: dict[str, str]
+    loop: np.ndarray | None = None      # loop number per move (0 = before the first executable block)
+    phase: np.ndarray | None = None     # index into PHASES per move, when the file marks them
+    loops: int = 0                      # executable blocks (1 for a normal Bambu file)
+    phase_marked: bool = False
+    header_all: dict[str, list[str]] = field(default_factory=dict)   # every occurrence (one per loop)
+    marks: dict[str, int] = field(default_factory=dict)              # ClearLoop / FarmLoop blocks, pauses
+    dwell_events: list[tuple[int, float]] = field(default_factory=list)   # (move index, seconds)
+    path: str = ""
     nozzle_events: list[tuple[int, float, bool]] = field(default_factory=list)   # (move index, target C, waits)
     bed_events: list[tuple[int, float]] = field(default_factory=list)
     fan_events: list[tuple[int, float]] = field(default_factory=list)            # part fan 0..1
@@ -77,6 +91,12 @@ def parse_stream(stream: IO[str], source: str = "") -> GcodeTrace:
     xs, ys, zs, des, feeds = array("d"), array("d"), array("d"), array("d"), array("d")
     ax, ay, az, ade, afeed = xs.append, ys.append, zs.append, des.append, feeds.append
     layer_ev: list[tuple[int, int]] = []
+    loop_ev: list[tuple[int, int]] = []
+    phase_ev: list[tuple[int, int]] = []
+    header_all: dict[str, list[str]] = {}
+    marks = {"clearloop_blocks": 0, "farmloop_sections": 0, "loop_pauses": 0}
+    dwell_ev: list[tuple[int, float]] = []
+    loop = 0
     feat_ev: list[tuple[int, int]] = []
     accel_ev: list[tuple[int, float]] = []
     reset_ev: list[tuple[int, float, float, float]] = []   # the move at this index starts from (x, y, z)
@@ -110,6 +130,23 @@ def parse_stream(stream: IO[str], source: str = "") -> GcodeTrace:
                 first_layer_seen = True
                 layer_ev.append((len(xs), layer))
                 continue
+            if line.startswith(EXEC_START):
+                loop += 1
+                loop_ev.append((len(xs), loop))
+                phase_ev.append((len(xs), 0))
+                continue
+            if line.startswith(START_END):
+                phase_ev.append((len(xs), 1))
+                continue
+            if line.startswith(END_START):
+                phase_ev.append((len(xs), 2))
+                continue
+            if line.startswith("; >>> CLEARLOOP"):
+                marks["clearloop_blocks"] += 1
+                continue
+            if line.startswith("; @fl:section:start"):
+                marks["farmloop_sections"] += 1
+                continue
             if line.startswith(FEATURE_PREFIXES):
                 name = line.split(":", 1)[1].strip().lower()
                 if name not in feature_ids:
@@ -119,7 +156,9 @@ def parse_stream(stream: IO[str], source: str = "") -> GcodeTrace:
                 continue
             m = _KV.match(line)
             if m and len(m.group(2)) < 300:
-                header.setdefault(m.group(1).strip().lower(), m.group(2))
+                key = m.group(1).strip().lower()
+                header.setdefault(key, m.group(2))
+                header_all.setdefault(key, []).append(m.group(2))
             continue
         cut = line.find(";")
         if cut >= 0:
@@ -211,9 +250,17 @@ def parse_stream(stream: IO[str], source: str = "") -> GcodeTrace:
             val = _param(parts, "S") or _param(parts, "P")
             if val:
                 accel_ev.append((len(xs), val))
+        elif cmd == "M400" and len(parts) > 1 and parts[1] == "U1":
+            marks["loop_pauses"] += 1              # Bambu's pause: a loop file waiting for its plate check
+        elif cmd == "M400" and len(parts) > 1 and parts[1].startswith("S"):
+            wait = _num(parts[1][1:]) or 0.0       # Bambu's dwell in seconds
+            dwell += wait
+            dwell_ev.append((len(xs), wait))
         elif cmd == "G4":
             p, sec = _param(parts, "P"), _param(parts, "S")
-            dwell += (p or 0.0) / 1000.0 + (sec or 0.0)
+            wait = (p or 0.0) / 1000.0 + (sec or 0.0)
+            dwell += wait
+            dwell_ev.append((len(xs), wait))
         elif cmd == "G28":
             if not first_layer_seen:
                 homed = True
@@ -238,7 +285,11 @@ def parse_stream(stream: IO[str], source: str = "") -> GcodeTrace:
                       feature=_spread(feat_ev, n, 0).astype(np.int32), features=features, header=header,
                       nozzle_events=nozzle_ev, bed_events=bed_ev, fan_events=fan_ev, firmware_retracts=fw_retracts,
                       dwell_s=dwell, tool_changes=tool_changes, homed_before_print=homed, layer_markers=markers,
-                      lines=n_lines, source=source)
+                      lines=n_lines, source=source,
+                      loop=_spread(loop_ev, n, 0).astype(np.int32),
+                      phase=_spread(phase_ev, n, 1).astype(np.int8) if phase_ev else None,
+                      loops=loop, phase_marked=any(p == 1 for _, p in phase_ev), header_all=header_all, marks=marks,
+                      dwell_events=dwell_ev)
 
 
 def _spread(events: list[tuple], n: int, default: float) -> np.ndarray:
@@ -296,9 +347,12 @@ def read_gcode(path: Path | str, plate: int | None = None) -> GcodeTrace:
     if not path.is_file():
         raise ConfigError(f"no such file: {path}")
     if zipfile.is_zipfile(path):
-        return _read_3mf_plate(path, plate)
-    with open(path, encoding="utf-8", errors="replace") as f:
-        return parse_stream(f, source=path.name)
+        trace = _read_3mf_plate(path, plate)
+    else:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            trace = parse_stream(f, source=path.name)
+    trace.path = str(path)
+    return trace
 
 
 def _read_3mf_plate(path: Path, plate: int | None) -> GcodeTrace:

@@ -133,13 +133,16 @@ def render_all(ctx: GcodeContext, out_dir: Path) -> dict[str, str]:
     valid = np.flatnonzero(~np.isnan(ctx.layer_h))
     if not len(valid):
         return {}
+    if ctx.layer_loop is not None:
+        valid = valid[ctx.layer_loop[valid] == ctx.layer_loop[valid[0]]]   # a loop file: its first loop
     images: dict[str, str] = {}
     first = int(valid[0])
     images["plate"] = plate(ctx, out_dir / "plate.png", first).name
     images["layer1"] = layer_view(ctx, first, out_dir / "layer_1.png").name
     for frac in (0.5, 1.0):
-        li = int(valid[min(len(valid) - 1, int(round(frac * (len(valid) - 1))))])
-        images[f"layer{li + 1}"] = layer_view(ctx, li, out_dir / f"layer_{li + 1}.png").name
+        pos = min(len(valid) - 1, int(round(frac * (len(valid) - 1))))
+        li = int(valid[pos])
+        images[f"layer{pos + 1}"] = layer_view(ctx, li, out_dir / f"layer_{pos + 1}.png").name
     images["side"] = side_view(ctx, out_dir / "side.png").name
     for f in ctx.findings:
         key, layer = f.data.get("image_key"), f.data.get("layer")

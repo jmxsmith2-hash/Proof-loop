@@ -417,6 +417,27 @@ about 5 seconds. `examples/gcode/` has a clean bracket and one with seven plante
 (`python examples/gcode/make_examples.py` regenerates them). `synthux physical check`
 on a `.gcode` file runs this check too.
 
+### Loop files (FarmLoop and ClearLoop)
+
+Auto-eject loop files (`FL_S1_` / `FL_S2_`, from [ClearLoop](https://github.com/jmxsmith2-hash/Something-B)
+or the FarmLoop app) repeat the plate once per loop, with a cooldown and sweep after each print.
+`synthux physical gcode` recognises them:
+
+* each loop's print is checked like a normal plate (layers counted per loop, the first layer of
+  every loop measured from the bed), and the cooldown, bend and sweep moves after it are not
+  mistaken for stringing or bad travel;
+* filament and time are compared with each loop's own slicer header;
+* the report has a **Loop file** section: how many loops and plates, grams per loop, and how often
+  the printer waits for ClearLoop Monitor's plate check;
+* with ClearLoop installed (`pip install "synthux[clearloop]"`) ClearLoop's own checks run too:
+  a long heated wait before the print (the FarmLoop app 2.72 cooldown bug), `M190 R`, parts no sweep
+  pass reaches, code the printer ignores, moves after the steppers are off, a bad checksum.
+  Without ClearLoop, the heated wait before printing is still caught.
+
+`examples/gcode/` has a 3-loop ClearLoop file of a clean two-part plate and a FarmLoop-app-style
+file with both documented problems. ClearLoop's own *Check a file* can call these print checks
+through `synthux.physical.gcode.check_file`.
+
 ## Moulded and machined products
 
 The same CAD check works for parts that will be injection moulded or CNC machined:

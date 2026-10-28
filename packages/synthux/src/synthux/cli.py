@@ -516,7 +516,14 @@ def physical_gcode(
         typer.secho("  no problems found in the G-code", fg="green")
     m = r["metrics"]
     when = r["time"]["slicer"] or f"about {r['time']['replay']}"
-    typer.echo(f"  {m.get('layers', 0)} layers, {m.get('filament_g', 0)} g, {when}")
+    lf = m.get("loop_file")
+    if lf:
+        pauses = f", waits for the plate check {lf['plate_check_pauses']}x" if lf["plate_check_pauses"] else ""
+        typer.echo(f"  loop file by {lf['made_by']}: {lf['loops']} loops x {m.get('layers', 0)} layers, "
+                   f"{m.get('filament_g_per_loop', 0)} g per loop ({m.get('filament_g', 0)} g in all), printing {when} "
+                   f"plus cooldown and sweep{pauses}")
+    else:
+        typer.echo(f"  {m.get('layers', 0)} layers, {m.get('filament_g', 0)} g, {when}")
     typer.secho(f"report: {r['report']}", fg="green")
     if open_report:
         webbrowser.open(Path(r["report"]).resolve().as_uri())

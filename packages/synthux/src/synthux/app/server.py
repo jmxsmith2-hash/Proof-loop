@@ -190,8 +190,16 @@ class App:
         job.report = result["report"]
         self._summarise(job, result["findings"])
         when = result["time"]["slicer"] or result["time"]["replay"]
-        job.summary.append(f"{result['printer']['label']}, {result['material']['name']}: "
-                           f"{result['metrics'].get('filament_g', 0)} g, {when}")
+        m = result["metrics"]
+        if m.get("loop_file"):
+            lf = m["loop_file"]
+            job.summary.append(f"loop file by {lf['made_by']}: {lf['loops']} loops, {m.get('filament_g_per_loop', 0)} g "
+                               f"per loop, printing {when}"
+                               + ("" if lf["clearloop_checks"] is not None else " (ejection cycle not checked: "
+                                                                               "install ClearLoop)"))
+        else:
+            job.summary.append(f"{result['printer']['label']}, {result['material']['name']}: "
+                               f"{m.get('filament_g', 0)} g, {when}")
 
     @staticmethod
     def _summarise(job: Job, findings: list[dict[str, Any]]) -> None:
