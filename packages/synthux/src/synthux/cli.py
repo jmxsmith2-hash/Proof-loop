@@ -222,6 +222,36 @@ def personas_regenerate(persona_id: str = typer.Argument(..., help="Persona to r
     typer.echo(f"{persona_id} retired; new persona {new.id}: {new.label}")
 
 
+# -------------------------------------------------------------- physical
+
+
+@physical_app.command("review")
+def physical_review(
+    product: Path = typer.Argument(..., help="Product YAML (spec, photos, CAD, reviews of similar products, sensors)."),
+    count: int = typer.Option(5, "--personas", "-n", help="Number of personas to generate if none are given."),
+    persona: list[str] = typer.Option([], "--persona", "-p", help="Use stored personas."),
+    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Output folder for the report."),
+    config: Optional[Path] = ConfigOpt,
+) -> None:
+    """Predict complaints for a physical product (prediction, not a test)."""
+    from synthux.core.llm import LLMGateway
+    from synthux.personas.generate import PersonaGenerator, load_personas
+    from synthux.physical import review_product, write_report
+    from synthux.physical.guardrails import LABEL
+    from synthux.physical.inputs import load_product
+
+    s = _settings(config)
+    db = _db(s)
+    spec = load_product(product)
+    people = load_personas(db, ids=persona) if persona else asyncio.run(PersonaGenerator().generate(count))
+    result = asyncio.run(review_product(db, spec, people, LLMGateway(s, db)))
+    path = write_report(result, Path(out or s.data_dir / "reports" / result["product_id"]), people)
+    typer.secho(f"{LABEL.upper()}.", fg="yellow")
+    for row in result["summary"]:
+        typer.echo(f"  {row['risk_label']:6} {row['category']:12} {row['title']}")
+    typer.secho(f"report: {path}", fg="green")
+
+
 # ------------------------------------------------------------- calibrate
 
 

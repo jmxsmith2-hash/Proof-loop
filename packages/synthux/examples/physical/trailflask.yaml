@@ -1,0 +1,20 @@
+# Physical product review input. Everything produced from this is a PREDICTION, NOT A TEST.
+name: TrailFlask 750 (prototype)
+category: insulated water bottle
+spec:
+  capacity_ml: 750
+  weight_g: 540
+  price_usd: 42
+  insulation_hours: 14
+  warranty_years: 2
+  materials: [stainless steel, polypropylene lid, silicone seal]
+  dishwasher_safe: false
+photos: [trailflask_front.jpg]
+cad: [trailflask.stl, dimensions.csv]          # STL bounding box + measured values
+reviews: [reviews_similar.csv]                  # real reviews of SIMILAR products
+similar_products:
+  - {name: HydroMax 32, spec: {weight_g: 600, price_usd: 45, insulation_hours: 24, dimensions_mm: {diameter: 95, height: 280}}}
+  - {name: PeakFlask 24, spec: {weight_g: 340, price_usd: 35, insulation_hours: 10, dimensions_mm: {diameter: 73, height: 250}}}
+  - {name: TrekBottle 750, spec: {weight_g: 390, price_usd: 25, insulation_hours: 12, dimensions_mm: {diameter: 74, height: 260}}}
+  - {name: SummitSteel 1L, spec: {weight_g: 680, price_usd: 55, insulation_hours: 18, dimensions_mm: {diameter: 98, height: 300}}}
+sensors: [sensor_log.csv]

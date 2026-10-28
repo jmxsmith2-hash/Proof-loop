@@ -1,0 +1,86 @@
+solid trailflask
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 0
+      vertex 92.0 0 0
+      vertex 92.0 92.0 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 0
+      vertex 92.0 92.0 0
+      vertex 0 92.0 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 290.0
+      vertex 92.0 0 290.0
+      vertex 92.0 92.0 290.0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 290.0
+      vertex 92.0 92.0 290.0
+      vertex 0 92.0 290.0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 0
+      vertex 92.0 0 0
+      vertex 92.0 0 290.0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 0 0
+      vertex 92.0 0 290.0
+      vertex 0 0 290.0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 92.0 0 0
+      vertex 92.0 92.0 0
+      vertex 92.0 92.0 290.0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 92.0 0 0
+      vertex 92.0 92.0 290.0
+      vertex 92.0 0 290.0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 92.0 92.0 0
+      vertex 0 92.0 0
+      vertex 0 92.0 290.0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 92.0 92.0 0
+      vertex 0 92.0 290.0
+      vertex 92.0 92.0 290.0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 92.0 0
+      vertex 0 0 0
+      vertex 0 0 290.0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 92.0 0
+      vertex 0 0 290.0
+      vertex 0 92.0 290.0
+    endloop
+  endfacet
+endsolid trailflask
