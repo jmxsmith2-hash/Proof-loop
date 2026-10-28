@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Synthetic usability report</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f6f5f2; --surface-1: #fcfcfb; --surface-2: #efeee9; --border: #dedcd5;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #6e6d68;
+  --accent: #2a78d6; --warn-bg: #fff4dc; --warn-border: #eda100; --warn-text: #5c3d00;
+  --crit: #d03b3b; --good: #0a7d0a; --chip-bg: #e9e8e3;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #242422; --border: #383835;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
+    --accent: #5598e7; --warn-bg: #2e2510; --warn-border: #c98500; --warn-text: #f3d48a;
+    --crit: #e66767; --good: #3fbf3f; --chip-bg: #2c2c2a;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+    --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #242422; --border: #383835;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #9a998f;
+  --accent: #5598e7; --warn-bg: #2e2510; --warn-border: #c98500; --warn-text: #f3d48a;
+  --crit: #e66767; --good: #3fbf3f; --chip-bg: #2c2c2a;
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+main { max-width: 1060px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 26px; margin: 0 0 4px; } h2 { font-size: 20px; margin: 40px 0 12px; }
+h3 { font-size: 16px; margin: 0 0 6px; }
+p { margin: 6px 0; } a { color: var(--accent); }
+.muted { color: var(--text-muted); } .secondary { color: var(--text-secondary); }
+.banner { background: var(--warn-bg); border: 2px solid var(--warn-border); color: var(--warn-text);
+  border-radius: 10px; padding: 14px 18px; margin: 16px 0 8px; font-weight: 600; }
+.banner small { display: block; font-weight: 400; margin-top: 4px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin: 12px 0; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.stat { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.stat b { display: block; font-size: 24px; } .stat span { color: var(--text-secondary); font-size: 13px; }
+.issue { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 340px); gap: 18px; }
+@media (max-width: 760px) { .issue { grid-template-columns: 1fr; } }
+.issue img { width: 100%; max-height: 380px; object-fit: cover; object-position: top; border-radius: 8px; border: 1px solid var(--border); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.chip { background: var(--chip-bg); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; color: var(--text-secondary); }
+.chip.high { color: var(--good); font-weight: 600; } .chip.low { color: var(--crit); font-weight: 600; }
+.chip.blocker, .chip.major { color: var(--crit); font-weight: 600; }
+.rank { color: var(--text-muted); font-weight: 700; margin-right: 6px; }
+ol.steps { margin: 4px 0; padding-left: 20px; font-size: 13.5px; color: var(--text-secondary); }
+blockquote { margin: 8px 0; padding: 8px 12px; border-left: 3px solid var(--border); background: var(--surface-2);
+  border-radius: 0 8px 8px 0; font-size: 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--text-secondary); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+details { margin: 8px 0; } summary { cursor: pointer; color: var(--text-secondary); }
+.chart text { fill: var(--text-secondary); font-size: 12px; }
+.chart .value-label { fill: var(--text-primary); font-weight: 600; }
+.chart .direct-label { fill: var(--text-primary); font-size: 12px; }
+.chart .axis { stroke: var(--border); stroke-width: 1; } .chart .grid { stroke: var(--border); stroke-width: 1; opacity: .6; }
+.chart .mark:hover .dot { r: 4; } .chart .mark:hover rect[rx] { opacity: .85; }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 13px; color: var(--text-secondary); margin: 6px 0; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.swatch { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+@media (max-width: 520px) { .grid2 { grid-template-columns: 1fr; } }
+.small { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Synthetic usability report</h1>
+  <p class="secondary">Study <b>{{ run.study }}</b> · target {{ run.target_url }} · run {{ run.id }} · {{ run.created_at }}</p>
+  <div class="banner" role="note">{{ disclaimer }}
+    <small>Every finding below carries a confidence level. Personas with disability, age or cultural traits are flagged
+    low confidence. This report never predicts sales or demand.</small></div>
+  <p class="muted small">Engines: actor {{ config.engines.roles.get('actor', config.engines.default) }},
+    judge {{ config.engines.roles.get('judge', config.engines.default) }} · calibration profile
+    <b>{{ run.calibration_version }}</b> · {{ config.repeats }} repeats per persona and task · framing {{ config.framing }}
+    · estimated cost ${{ '%.2f' % (run.cost_estimate_usd or 0) }}, actual ${{ '%.2f' % (run.cost_actual_usd or 0) }}
+    · synthux {{ version }}</p>
+</header>
+
+<section>
+  <div class="stats">
+    <div class="stat"><b>{{ counts.sessions }}</b><span>sessions ({{ counts.personas }} personas)</span></div>
+    <div class="stat"><b>{{ counts.completed }}</b><span>completed the task</span></div>
+    <div class="stat"><b>{{ counts.quit }}</b><span>gave up (a valid outcome)</span></div>
+    <div class="stat"><b>{{ counts.promoted }}</b><span>issues promoted</span></div>
+    <div class="stat"><b>{{ counts.agent_failures }}</b><span>agent limitations (not UX)</span></div>
+  </div>
+  <p class="card">{{ summary_text }}</p>
+</section>
+
+<section>
+  <h2>Top {{ top|length }} issues</h2>
+  <p class="muted small">Ranked by severity × frequency × personas affected, weighted by behaviour (quits, retries,
+    lost data) over stated opinion. Each issue recurred across repeated runs, passed the judge and was replayed.</p>
+  {% if not top %}<p class="card">No issue met the bar.</p>{% endif %}
+  {% for t in top %}
+  <article class="card issue">
+    <div>
+      <h3><span class="rank">#{{ t.rank }}</span>{{ t.title }}</h3>
+      <div class="chips">
+        <span class="chip {{ t.severity_name }}">{{ t.severity_name }}</span>
+        <span class="chip {{ t.confidence }}">{{ t.confidence }} confidence</span>
+        <span class="chip">screen {{ t.screen }}</span>
+        <span class="chip">{{ t.sessions_with }}/{{ t.sessions_total }} sessions</span>
+        <span class="chip">{{ t.personas_affected }} persona{{ 's' if t.personas_affected != 1 }}</span>
+        <span class="chip">replay: {{ t.replay|lower|replace('_', ' ') }}</span>
+        {% if t.quits %}<span class="chip">{{ t.quits }} quit here</span>{% endif %}
+        {% if t.only_low_confidence %}<span class="chip low">low confidence personas only: verify with real users</span>{% endif %}
+      </div>
+      <p>{{ t.description }}</p>
+      <blockquote>“{{ t.think.get('sees', '') }} {{ t.think.get('does', '') }} {{ t.think.get('feels', '') }}”</blockquote>
+      <details><summary>Evidence: step sequence and judge notes</summary>
+        <ol class="steps">{% for s in t.steps %}<li>{{ s }}</li>{% endfor %}</ol>
+        <p class="small secondary">Judge: {{ t.judge|join('; ') }}</p>
+        <p class="small secondary">Recurrence per persona/task: {% for k, v in t.recurrence.per_pair.items() %}{{ v }} runs{% if not loop.last %}, {% endif %}{% endfor %}</p>
+        <p class="small secondary">Affected: {{ t.persona_labels|join(', ') }}</p>
+      </details>
+    </div>
+    <div>{% if t.image %}<a href="{{ t.image.full }}"><img src="{{ t.image.zoom }}" alt="Screenshot of {{ t.screen }} with the problem area outlined"></a>
+      <p class="small muted">Outlined: where it happened. Click for the full screenshot.</p>{% endif %}</div>
+  </article>
+  {% endfor %}
+  {% if more %}
+  <details class="card"><summary>{{ more|length }} more promoted issues</summary>
+    <table><tr><th>Issue</th><th>Screen</th><th>Severity</th><th class="num">Sessions</th><th>Confidence</th></tr>
+    {% for c in more %}<tr><td>{{ c.title }}</td><td>{{ c.screen }}</td><td>{{ c.severity_name }}</td>
+      <td class="num">{{ c.sessions_with }}/{{ c.sessions_total }}</td><td>{{ c.confidence }}</td></tr>{% endfor %}</table>
+  </details>{% endif %}
+</section>
+
+<section>
+  <h2>Task completion by persona type</h2>
+  <div class="card">{{ completion.chart|safe }}
+    <details><summary>Table view</summary>
+      <table><tr><th>Persona type</th>{% for t in completion.tasks %}<th class="num">{{ t }}</th>{% endfor %}</tr>
+      {% for row in completion.grid %}<tr><td>{{ row.type }}</td>{% for c in row.cells %}
+        <td class="num">{% if c.n %}{{ c.done }}/{{ c.n }}{% else %}–{% endif %}</td>{% endfor %}</tr>{% endfor %}</table>
+    </details>
+  </div>
+</section>
+
+<section>
+  <h2>Where and why personas quit</h2>
+  <div class="grid2">
+  {% for q in quits %}
+  <div class="card">
+    <h3>{{ q.task }}</h3>
+    <p class="small secondary">{{ q.started }} sessions · {{ q.completed }} completed · {{ q.quit }} gave up</p>
+    {% if q.where %}{{ q.chart|safe }}
+      {% for w in q.where %}<p class="small"><b>{{ w.screen }}</b> ({{ w.count }})</p>
+        <ul class="small secondary">{% for r in w.reasons %}<li>{{ r }}</li>{% endfor %}</ul>{% endfor %}
+    {% else %}<p class="small muted">Nobody gave up on this task.</p>{% endif %}
+  </div>
+  {% endfor %}
+  </div>
+</section>
+
+<section>
+  <h2>Frustration timelines</h2>
+  <p class="muted small">Average frustration per step across repeats (first visits). Dashed lines mark where each persona
+    would quit. Hover a point for its value.</p>
+  <div class="grid2">
+  {% for tl in timelines %}
+  <div class="card"><h3>{{ tl.task }}</h3>{{ tl.legend|safe }}{{ tl.chart|safe }}
+    <details><summary>Table view</summary>
+      <table><tr><th>Persona</th><th>Outcomes</th><th>Frustration by step</th></tr>
+      {% for s in tl.series %}<tr><td>{{ s.name }}</td><td class="small">{% for k, v in s.outcomes.items() %}{{ k }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</td>
+        <td class="small">{{ s['values']|join(' → ') }}</td></tr>{% endfor %}</table>
+    </details></div>
+  {% endfor %}
+  </div>
+</section>
+
+{% if learnability %}
+<section>
+  <h2>Return visits (learnability)</h2>
+  <table class="card"><tr><th>Persona</th><th>Task</th><th class="num">Steps, first visit</th><th class="num">Steps, last visit</th>
+    <th class="num">Frustration first</th><th class="num">Frustration last</th></tr>
+  {% for l in learnability %}<tr><td>{{ l.persona }}</td><td>{{ l.task }}</td><td class="num">{{ l.steps_first }}</td>
+    <td class="num">{{ l.steps_later }}</td><td class="num">{{ l.frustration_first }}</td><td class="num">{{ l.frustration_later }}</td></tr>{% endfor %}
+  </table>
+</section>{% endif %}
+
+{% if prices %}
+<section>
+  <h2>Where price became an objection</h2>
+  <p class="muted small">Forced-choice answers at fixed prices, shown only as objections. Synthetic personas cannot
+    predict how many people would buy.</p>
+  <div class="card"><table><tr><th>Task</th><th class="num">Price</th><th>Objections raised</th></tr>
+  {% for p in prices %}<tr><td>{{ p.task }}</td><td class="num">${{ '%.0f' % p.price }}</td>
+    <td class="small">{{ p.objections|join('; ') }}</td></tr>{% endfor %}</table></div>
+</section>{% endif %}
+
+{% if novelty %}
+<section>
+  <h2>Unfamiliar, not necessarily hard</h2>
+  <p class="muted small">These mostly affected personas new to this kind of product, who then got past them.
+    Ranked lower so new designs are not penalised just for being new.</p>
+  <div class="card"><table><tr><th>Issue</th><th>Screen</th><th>Why it looks like novelty</th></tr>
+  {% for c in novelty %}<tr><td>{{ c.title }}</td><td>{{ c.screen }}</td><td class="small">{{ c.novelty_reason }}</td></tr>{% endfor %}</table></div>
+</section>{% endif %}
+
+<section>
+  <h2>How findings were filtered</h2>
+  <div class="card">
+    <p>{{ judge_stats.reported }} UX issues were reported ({{ judge_stats.stated }} stated in questionnaires).
+      The judge accepted {{ judge_stats.accepted }} and rejected {{ judge_stats.rejected }}.</p>
+    {% if judge_stats.reject_reasons %}<p class="small secondary">Rejected as: {% for r, n in judge_stats.reject_reasons %}{{ r }} ({{ n }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+    <p class="small secondary">Replay of accepted issues: {% for k, n in judge_stats.replay %}{{ k|lower|replace('_', ' ') }} {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+    {% if unpromoted %}
+    <details><summary>{{ unpromoted|length }} issue groups not promoted (unconfirmed or not recurring)</summary>
+      <table><tr><th>Issue</th><th>Screen</th><th class="num">Sessions</th><th>Replay</th><th>Why not promoted</th></tr>
+      {% for c in unpromoted %}<tr><td>{{ c.title }}</td><td>{{ c.screen }}</td><td class="num">{{ c.sessions_with }}/{{ c.sessions_total }}</td>
+        <td>{{ c.replay|lower|replace('_', ' ') }}</td><td class="small">{{ c.why_not_promoted }}</td></tr>{% endfor %}</table>
+    </details>{% endif %}
+    {% if rejected_examples %}
+    <details><summary>Examples of rejected reports</summary>
+      <table><tr><th>Report</th><th>Judge</th></tr>
+      {% for r in rejected_examples %}<tr><td class="small">{{ r.description }}</td>
+        <td class="small">{{ (r.judge_json or {}).get('reasons', [])|join('; ') }}</td></tr>{% endfor %}</table>
+    </details>{% endif %}
+  </div>
+</section>
+
+<section>
+  <h2>Agent limitations (kept out of the findings)</h2>
+  <div class="card">{% if limitations_found %}
+    <table><tr><th>Type</th><th>What happened</th><th class="num">Times</th></tr>
+    {% for l in limitations_found %}<tr><td>{{ l.class }} · {{ l.category }}</td><td class="small">{{ l.detail }}</td><td class="num">{{ l.count }}</td></tr>{% endfor %}</table>
+  {% else %}<p class="small muted">None: no CAPTCHA, technical error, unsupported interaction or safety block.</p>{% endif %}</div>
+</section>
+
+<section>
+  <h2>Personas</h2>
+  {% if diversity %}<p class="banner small">Some personas gave near-identical feedback:
+    {% for d in diversity %}{{ d.a }} and {{ d.b }} ({{ '%.2f' % d.score }}){% if not loop.last %}; {% endif %}{% endfor %}.
+    Regenerate one of each pair before the next run (synthux personas regenerate ID).</p>{% endif %}
+  <div class="card"><table><tr><th>Persona</th><th>Traits</th><th class="num">Sessions</th></tr>
+  {% for p in roster %}<tr><td><b>{{ p.label }}</b><br><span class="small muted">{{ p.id }} · {{ p.engine }}</span>
+      {% if p.low_confidence %}<br><span class="chip low">{{ p.note }}</span>{% endif %}</td>
+    <td class="small">skill {{ p.traits.tech_skill }}/5 · patience {{ p.traits.patience }}/5 · familiarity {{ p.traits.familiarity }}/5 ·
+      {{ p.traits.device }} · age {{ p.traits.age_range }} · eyesight {{ p.traits.eyesight }} · motor {{ p.traits.motor }} ·
+      {{ p.traits.mood }}{% if p.traits.time_pressure %} · time pressure{% endif %} · budget {{ p.traits.budget }}<br>
+      <span class="muted">{{ p.narrative }}</span></td><td class="num">{{ p.sessions }}</td></tr>{% endfor %}</table></div>
+</section>
+
+<section>
+  <h2>Limitations of this method</h2>
+  <ul class="card">{% for l in limitations %}<li>{{ l }}</li>{% endfor %}</ul>
+  <p class="muted small">Generated {{ generated }}.</p>
+</section>
+</main>
+</body>
+</html>

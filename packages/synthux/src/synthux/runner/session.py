@@ -214,13 +214,17 @@ class SessionRunner:
             else:
                 pending_wait, pending_trigger = 0.0, ""
             frustration.update(signals)
+            after_path = ""
+            if signals.error_seen or signals.slow_load or signals.data_lost:
+                after_path = str(shot_path.with_name(f"{idx:03d}_after.jpg"))
+                _save_jpeg(new_screen.png, Path(after_path))
             typing = len(intended.text or "") * 0.18 * skill_pace if intended.kind == "fill" else 0.0
             state.sim_seconds += self.settings.run.seconds_per_step * skill_pace + timing.settled_s + typing
             step = StepRecord(idx=idx, screenshot_path=str(shot_path), screen_hash=screen.dhash,
                               screen_id=screen_id(url), url=url, think=decision.think, intended=intended,
                               executed=executed, signals=signals, frustration=frustration.score,
                               sim_seconds=round(state.sim_seconds, 1), observations=decision.observations,
-                              screen_id_after=screen_id(browser.url))
+                              screen_id_after=screen_id(browser.url), after_screenshot=after_path)
             state.steps.append(step)
             state.issues.extend(issues_from_step(step, decision, slow_threshold_s=self.settings.browser.slow_load_seconds,
                                                  history=state.steps[:-1]))

@@ -135,9 +135,12 @@ def issues_from_step(step: StepRecord, decision: Decision, *, slow_threshold_s: 
     trail = [h.intended.describe() for h in history] + [step.intended.describe()]
 
     def add(category: str, description: str, severity: int, region: dict | None, extra: dict | None = None,
-            screen: str | None = None) -> None:
+            screen: str | None = None, after: bool = False) -> None:
         if category in found and found[category].severity >= severity:
             return
+        if after and step.after_screenshot:  # the screen *after* the action shows the problem
+            extra = {**(extra or {}), "screenshot": step.after_screenshot, "think_step": step.idx + 1,
+                     "before_screenshot": step.screenshot_path}
         found[category] = IssueCandidate(
             category=category, title=TITLES.get(category, category.replace("_", " ").capitalize()),
             description=description, severity=severity, step_idx=step.idx, screen_id=screen or step.screen_id,
@@ -157,17 +160,17 @@ def issues_from_step(step: StepRecord, decision: Decision, *, slow_threshold_s: 
     sig = step.signals
     if sig.unexplained_error and "unexplained_error" not in found:
         add("unexplained_error", f"Error '{sig.error_text}' appears without a cause or a next step", 3,
-            sig.error_region)
+            sig.error_region, after=True)
     if sig.slow_load:
         sev = 3 if sig.load_seconds > 2 * slow_threshold_s else 2
         trigger = sig.load_trigger or step.intended.target or step.intended.kind
         after = step.screen_id_after or step.screen_id
         add("slow_response", f"The page took {sig.load_seconds:.1f}s to appear after clicking '{trigger}'", sev, None,
-            {"load_seconds": sig.load_seconds, "from_screen": step.screen_id}, screen=after)
+            {"load_seconds": sig.load_seconds, "from_screen": step.screen_id}, screen=after, after=True)
         if sig.no_loading_feedback:
             add("no_loading_feedback", f"Nothing on the page showed progress during the {sig.load_seconds:.1f}s wait "
                                        f"after clicking '{trigger}'", 2, None,
-                {"load_seconds": sig.load_seconds, "from_screen": step.screen_id}, screen=after)
+                {"load_seconds": sig.load_seconds, "from_screen": step.screen_id}, screen=after, after=True)
     if (sig.no_change and step.intended.kind == "click" and step.intended.target
             and not sig.slow_load and not sig.loading):
         add("dead_click", f"Clicking '{step.intended.target}' did nothing visible", 2,

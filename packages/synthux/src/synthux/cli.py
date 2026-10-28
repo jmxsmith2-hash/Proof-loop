@@ -171,6 +171,55 @@ def run(
 
 
 @app.command()
+def report(run_id: str = typer.Argument(..., help="Run id (see `synthux runs`)."),
+           out: Optional[Path] = typer.Option(None, "--out", "-o", help="Output folder (default data/reports/RUN)."),
+           config: Optional[Path] = ConfigOpt) -> None:
+    """Build the static HTML report for a run."""
+    from synthux.core.llm import LLMGateway
+    from synthux.report.build import ReportBuilder
+
+    s = _settings(config)
+    db = _db(s)
+    path = asyncio.run(ReportBuilder(s, db, LLMGateway(s, db, run_id=run_id)).build(run_id, out))
+    typer.echo(SYNTHETIC_DISCLAIMER)
+    rows = db.all("SELECT title, screen_id, confidence, score FROM issue_clusters WHERE run_id = ? AND promoted = 1 "
+                  "ORDER BY score DESC LIMIT 10", [run_id])
+    for n, r in enumerate(rows, 1):
+        typer.echo(f"{n:2}. {r['title']} ({r['screen_id']}, {r['confidence']} confidence)")
+    typer.secho(f"report: {path}", fg="green")
+
+
+@app.command()
+def runs(limit: int = typer.Option(20, help="How many runs to list."), config: Optional[Path] = ConfigOpt) -> None:
+    """List recent runs."""
+    db = _db(_settings(config))
+    for r in db.all("SELECT * FROM runs ORDER BY created_at DESC LIMIT ?", [limit]):
+        n = db.one("SELECT COUNT(*) AS n FROM sessions WHERE run_id = ?", [r["id"]])["n"]
+        typer.echo(f"{r['id']}  {r['created_at']}  {r['study']:16} {r['status']:16} {n} sessions  "
+                   f"profile {r['calibration_version']}")
+
+
+@personas_app.command("regenerate")
+def personas_regenerate(persona_id: str = typer.Argument(..., help="Persona to replace with a more distinct one."),
+                        config: Optional[Path] = ConfigOpt) -> None:
+    """Replace a persona that is too similar to others (diversity check on feedback)."""
+    from synthux.personas.design import replacement_traits
+    from synthux.personas.generate import PersonaGenerator, load_personas, save_personas
+
+    s = _settings(config)
+    db = _db(s)
+    target = load_personas(db, ids=[persona_id])[0]
+    study = db.one("SELECT study FROM personas WHERE id = ?", [persona_id])["study"]
+    others = [p.traits for p in load_personas(db, study=study) if p.id != persona_id]
+    traits = replacement_traits(others, seed=hash(persona_id) % 10_000)
+    traits.goal = target.traits.goal
+    new = asyncio.run(PersonaGenerator()._build(traits, [], 0, generation=target.generation + 1))
+    db.execute("UPDATE personas SET study = ? WHERE id = ?", [f"{study}:retired", persona_id])
+    save_personas(db, [new], study=study)
+    typer.echo(f"{persona_id} retired; new persona {new.id}: {new.label}")
+
+
+@app.command()
 def demo(port: int = typer.Option(8765, help="Port for the demo shop.")) -> None:
     """Start the bundled demo shop with planted UX flaws."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))

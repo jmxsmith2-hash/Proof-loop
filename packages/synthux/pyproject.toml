@@ -37,4 +37,5 @@ testpaths = ["tests"]
 markers = [
   "browser: needs Chromium (Playwright)",
   "live: calls a paid model API; skipped unless SYNTHUX_LIVE=1",
+  "e2e: full end-to-end run on the demo app (several minutes)",
 ]

@@ -122,6 +122,7 @@ class StepRecord:
     sim_seconds: float
     observations: list[Observation] = field(default_factory=list)
     screen_id_after: str = ""         # page shown after the action settled
+    after_screenshot: str = ""        # saved when the result of the action is itself the evidence
 
 
 @dataclass

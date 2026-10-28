@@ -1,0 +1,27 @@
+# Ground truth for the end-to-end test. A promoted finding "matches" a flaw when its
+# task, category and screen are all listed for that flaw.
+flaws:
+  - id: hidden_button
+    description: 'The "Continue" button is light grey on white, far below the fold, and does not look like a button'
+    task: choose_plan
+    screens: ["/plans"]
+    categories: [hidden_control]
+  - id: confusing_form
+    description: 'Ambiguous "ID" label, date format never shown, vague "Invalid input." error, all fields cleared'
+    task: signup
+    screens: ["/signup"]
+    categories: [ambiguous_label, unclear_input_format, data_lost_on_error, unexplained_error]
+  - id: slow_page
+    description: the shipping page takes 6 seconds and nothing shows progress
+    task: shipping
+    screens: ["/shipping", "/cart"]
+    categories: [slow_response, no_loading_feedback]
+  - id: unexplained_error
+    description: 'The first "Place order" fails with only "Error 0x3F"'
+    task: place_order
+    screens: ["/checkout"]
+    categories: [unexplained_error]
+controls:
+  description: clean flows; any promoted finding here is a false positive
+  tasks: [login, contact]
+  screens: ["/login", "/account", "/", "/contact"]
