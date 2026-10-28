@@ -120,13 +120,13 @@ class SettingsStore:
     def load(self) -> Settings:
         if not self.path.exists():
             return Settings()
-        return Settings.model_validate(json.loads(self.path.read_text()))
+        return Settings.model_validate(json.loads(self.path.read_text(encoding="utf-8")))
 
     def save(self, settings: Settings) -> None:
         with self._lock:
             self.dir.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(settings.model_dump_json(indent=2))
+            tmp.write_text(settings.model_dump_json(indent=2), encoding="utf-8")
             os.replace(tmp, self.path)
             try:
                 os.chmod(self.path, 0o600)  # holds printer access codes

@@ -114,7 +114,7 @@ class ProfileStore:
     def all(self) -> list[HardwareProfile]:
         profiles = []
         for path, _builtin in self._files():
-            profiles.append(HardwareProfile.from_dict(json.loads(path.read_text())))
+            profiles.append(HardwareProfile.from_dict(json.loads(path.read_text(encoding="utf-8"))))
         return profiles
 
     def get(self, profile_id: str) -> HardwareProfile:
@@ -133,7 +133,7 @@ class ProfileStore:
             raise ValueError(f"{profile.id!r} is a built-in profile name; choose another")
         self.user_dir.mkdir(parents=True, exist_ok=True)
         path = self.user_dir / f"{profile.id}.json"
-        path.write_text(profile.to_json())
+        path.write_text(profile.to_json(), encoding="utf-8")
         return path
 
     def delete(self, profile_id: str) -> None:

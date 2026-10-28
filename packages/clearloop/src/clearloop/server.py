@@ -113,7 +113,7 @@ def create_app(app: App) -> FastAPI:
 
     @api.get("/", response_class=HTMLResponse)
     def index():
-        return (STATIC / "index.html").read_text()
+        return (STATIC / "index.html").read_text(encoding="utf-8")
 
     def monitor_card(w) -> dict:
         d = w.as_dict()
