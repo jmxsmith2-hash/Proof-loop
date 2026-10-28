@@ -30,8 +30,8 @@ def test_contrast_is_measured_against_wcag_aa():
 
 def test_small_tap_targets_only_count_on_touch_screens():
     def draw(d):
-        d.rectangle([20, 20, 110, 38], fill="#1f5fbf")         # an 18 px tall button
-        d.text((28, 22), "Buy now", fill="white", font=font(12))
+        d.rectangle([20, 16, 140, 38], fill="#1f5fbf")         # a 22 px tall button (label size varies by font)
+        d.text((28, 19), "Buy now", fill="white", font=font(14))
         d.rectangle([20, 80, 200, 128], fill="#1f5fbf")        # a 48 px tall button
         d.text((40, 94), "Add to cart", fill="white", font=font(16))
     screen = perceive(_png(draw))

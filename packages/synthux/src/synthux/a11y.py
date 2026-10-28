@@ -96,10 +96,12 @@ def check_screen(screen: Screen, *, screen_id: str, screenshot: str, device: str
         if t.height < SMALL_TEXT_PX * scale:
             out.append(A11yFinding("small_text", screen_id, t.text, t.height / scale, 12, 2, t.region(6),
                                    screenshot, [device]))
-        if touch and _looks_tappable(t) and t.height / scale < MIN_TARGET_CSS_PX - 4:
-            out.append(A11yFinding("tap_target", screen_id, t.text, _target_height(t, screen) / scale,
-                                   MIN_TARGET_CSS_PX, 2, t.region(6), screenshot, [device]))
-    return [f for f in out if f.check != "tap_target" or f.measured < MIN_TARGET_CSS_PX]
+        if touch and _looks_tappable(t):
+            target = _target_height(t, screen) / scale   # the button around the label, not the label itself
+            if target < MIN_TARGET_CSS_PX:
+                out.append(A11yFinding("tap_target", screen_id, t.text, target, MIN_TARGET_CSS_PX, 2, t.region(6),
+                                       screenshot, [device]))
+    return out
 
 
 def _looks_tappable(t: TextBox) -> bool:
