@@ -36,7 +36,7 @@ def test_small_tap_targets_only_count_on_touch_screens():
         d.text((40, 94), "Add to cart", fill="white", font=font(16))
     screen = perceive(_png(draw))
     touch = check_screen(screen, screen_id="/", screenshot="", device="mobile", touch=True)
-    assert [f.text for f in touch if f.check == "tap_target"] == ["Buy now"]
+    assert [f.text.replace(" ", "") for f in touch if f.check == "tap_target"] == ["Buynow"]   # OCR may drop spaces
     desk = check_screen(screen, screen_id="/", screenshot="", device="desktop", touch=False)
     assert not [f for f in desk if f.check == "tap_target"]
 
