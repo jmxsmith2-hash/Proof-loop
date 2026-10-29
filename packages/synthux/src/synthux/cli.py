@@ -907,6 +907,12 @@ def demo(port: int = typer.Option(8765, help="Port for the demo shop.")) -> None
 
 
 def main() -> None:  # pragma: no cover
+    # Windows consoles and pipes often use cp1252, which has no › or °: write UTF-8, never crash on a character.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):  # None under pythonw, or not a text stream
+            pass
     app()
 
 
