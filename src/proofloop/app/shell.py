@@ -119,6 +119,13 @@ class Shell:
             window_only(request)  # it holds the phone pairing code
             return self.status()
 
+        @api.get("/proofloop/guide")
+        def guide(request: Request):
+            from proofloop.app import guide
+
+            window_only(request)
+            return guide.summary(self)
+
         @api.get("/proofloop/doctor", response_class=HTMLResponse)
         def doctor_page():
             from proofloop.app.doctor import checks, html_page

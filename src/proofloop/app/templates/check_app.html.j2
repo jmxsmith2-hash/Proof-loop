@@ -181,7 +181,7 @@ document.getElementById("jobs").addEventListener("input", (e) => {
   if (e.target.id && e.target.id.startsWith("loops-")) LOOPS[e.target.id.slice(6)] = +e.target.value; });
 // Inside the window (same origin): plates go to Loop files, and the window says when a check is done.
 const SHELL = window.parent !== window ? location.origin : null;
-if (SHELL) document.getElementById("brand").hidden = true;
+if (SHELL) document.getElementById("brand").classList.add("hidden");
 if (SHELL) window.addEventListener("message", (e) => {
   if (e.origin === SHELL && e.source === window.parent && e.data && e.data.proofloop === "refresh")
     refresh().then(() => document.getElementById("jobs").scrollIntoView({block: "start"})); });

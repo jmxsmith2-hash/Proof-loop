@@ -11,6 +11,7 @@ header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px
 .bar{max-width:1180px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .in-proofloop .brand,.in-proofloop #ver,.in-proofloop nav .group{display:none}
 .in-proofloop header{position:static}
+.flash{outline:3px solid var(--accent);outline-offset:4px;border-radius:var(--radius);transition:outline-color .3s}
 .navgroup{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
 nav .group{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--muted);padding-right:4px}
 @media (max-width:700px){nav{flex-direction:column;align-items:flex-start;gap:2px}.bar{gap:8px}}
@@ -613,7 +614,15 @@ if (IN_PROOFLOOP) {
   document.documentElement.classList.add('in-proofloop');
   window.addEventListener('message', async (e) => {
     if (e.origin !== location.origin || e.source !== window.parent || !e.data) return;
-    if (e.data.proofloop === 'part' && PARTS[e.data.part]) { setPart(e.data.part, e.data.tab); return; }
+    if (e.data.proofloop === 'part' && PARTS[e.data.part]) {
+      setPart(e.data.part, e.data.tab);
+      const el = typeof e.data.anchor === 'string' && document.getElementById(e.data.anchor);
+      if (el) {  // the first-run guide points at the exact spot
+        el.scrollIntoView({block: 'center', behavior: 'smooth'});
+        el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1800);
+      }
+      return;
+    }
     if (e.data.proofloop !== 'open-plate') return;
     show('make'); $('#makeError').classList.add('hidden'); $('#noProfile').classList.add('hidden');
     try { showOpened(await send(`/api/plates/${encodeURIComponent(e.data.token)}/open`, {})); toast('Opened ' + (PLATE ? PLATE.file : 'the plate') + ' from Check'); }
