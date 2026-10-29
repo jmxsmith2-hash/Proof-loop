@@ -1,4 +1,4 @@
--- synthux schema v1
+-- results.db schema v1
 
 CREATE TABLE personas (
     id TEXT PRIMARY KEY,

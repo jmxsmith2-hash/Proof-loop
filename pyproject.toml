@@ -11,7 +11,7 @@ license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "ProofLoop contributors" }]
-keywords = ["3d-printing", "bambu-lab", "p2s", "farmloop", "print-farm", "auto-eject", "cad", "g-code", "usability-testing"]
+keywords = ["3d-printing", "bambu-lab", "p2s", "farmloop", "print-farm", "auto-eject", "cad", "g-code"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -35,11 +35,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Website tests: a real browser and on-screen text recognition (Chromium downloads itself on first use)
-web = ["playwright>=1.40", "rapidocr-onnxruntime>=1.2"]
 step = ["cascadio>=0.0.13"]  # read STEP files directly (otherwise export STL/3MF/OBJ from your CAD tool)
-anthropic = ["anthropic>=0.40"]  # optional: Claude for richer personas and judging
-all = ["proofloop[web,step]"]
+anthropic = ["anthropic>=0.40"]  # optional: Claude for personas and product predictions
+all = ["proofloop[step]"]
 dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.4"]
 
 [project.scripts]
@@ -50,20 +48,17 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 proofloop = [
-    "data/*", "data/calibration/*",
+    "data/*",
     "core/migrations/*.sql", "core/theme.css",
     "app/static/*", "app/templates/*",
     "check/templates/*",
     "loopfiles/profile_data/*.json",
-    "web/prompts/*.md", "web/report/templates/*", "web/dashboard/templates/*", "web/demo/*.yaml",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "browser: needs Chromium (Playwright)",
-    "live: calls a paid model API; skipped unless PROOFLOOP_LIVE=1",
-    "e2e: full end-to-end run on the demo site (several minutes)",
+    "e2e: the CAD examples end to end (slower)",
 ]
 
 [tool.ruff]

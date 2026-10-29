@@ -46,15 +46,15 @@ def test_one_window_with_every_part(shell):
     c = client(shell)
     r = c.get("/")
     assert r.status_code == 200 and r.headers["x-frame-options"] == "DENY"
-    assert f'"check": "{shell.checks_url}?view=print"' in r.text and '"loop": "/loop?proofloop=1"' in r.text
-    assert f'"web": "{shell.checks_url}?view=web"' in r.text
-    for tab in (">Check<", ">Loop files<", ">Printers<", "Website tests"):
+    assert '"check": "/check"' in r.text and '"loop": "/loop?proofloop=1"' in r.text
+    for tab in (">Check<", ">Loop files<", ">Printers<", "Setup check"):
         assert tab in r.text
+    assert "Website tests" not in r.text
+    assert "Drop a CAD file here" in c.get("/check").text  # Check, served by the same window
     page = c.get("/loop?proofloop=1")
     assert page.status_code == 200 and "Make a loop file" in page.text and "toCheck" in page.text
     assert c.get("/api/state").json()["version"]  # the Loop files & Printers API, served by the same window
     assert c.get("/proofloop/ping").json() == {"proofloop": __version__, "background": False}
-    assert shell.checks.shell == ORIGIN  # the check page lets only this window frame it
 
 
 def test_only_the_window_may_hand_plates_over(shell):

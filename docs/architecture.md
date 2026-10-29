@@ -1,27 +1,28 @@
 # Architecture
 
-ProofLoop is one Python package, `proofloop`, in `src/proofloop`. Its parts match the window's tabs:
+ProofLoop is one Python package, `proofloop`, in `src/proofloop`, served by one web server. Its
+parts match the window's tabs:
 
 ```
-                      ┌──────────────────────── proofloop.app ────────────────────────┐
-                      │ shell.py: the window (127.0.0.1:8600)   service.py: background │
-                      │ tray.py, autostart.py, phone.py (:8601), doctor.py, update.py  │
-                      └───────┬─────────────────────────────┬─────────────────────────┘
-          check_server.py: Check + Website tests      loop_server.py + loop_routes.py:
-          (a private port, framed by the window)      Loop files + Printers (mounted at /)
-                      │                                     │
-   ┌──────────────────┼──────────────────┐        ┌─────────┴──────────┐
-proofloop.check   proofloop.web     proofloop.personas   proofloop.loopfiles   proofloop.monitor
-CAD, G-code,      website tests     (shared by check    make + check loop     printers, plate check,
-slicing, learning                   and web)            files                 history, filament, costs
-   └──────────────────┴────────── proofloop.core ──────────┴──────────────────────┘
+                  ┌──────────────────────────── proofloop.app ─────────────────────────────┐
+                  │ shell.py: the window's server (127.0.0.1:8600)   service.py: background │
+                  │ tray.py, autostart.py, phone.py (:8601), doctor.py, update.py, window.py│
+                  └──────────┬──────────────────────────────────┬──────────────────────────┘
+             checks.py: Check (/check)           loop_server.py + loop_routes.py:
+                             │                   Loop files + Printers (/loop, API at /)
+             ┌───────────────┴───────────┐              ┌─────┴──────────────┐
+      proofloop.check            proofloop.personas   proofloop.loopfiles   proofloop.monitor
+      CAD, G-code, slicing,      (who holds the part, make + check loop     printers, plate check,
+      learning, predictions      product predictions) files                 history, filament, costs
+             └──────────────────────── proofloop.core ──────────┴────────────────────┘
           paths (~/.proofloop), config (YAML), settings (settings.json), db, llm, notify, theme
 ```
 
 - **Plates move between tabs** through the window: `/proofloop/to-loop` (a checked plate opened in
   *Make a loop file*) and `/proofloop/to-check` (a plate from *Make a loop file* given the full
-  print check). Only the window may call them (`X-ProofLoop` header and its own origin), and host
-  names other than `127.0.0.1` and `localhost` are refused, which stops DNS-rebinding attacks.
+  print check). Only the window may call them, or upload to Check (`X-ProofLoop` header and its own
+  origin), and host names other than `127.0.0.1` and `localhost` are refused, which stops
+  DNS-rebinding attacks. Every tab is on the same origin, so the window frames them all.
 - **Loop files and Printers are one page** (`app/static/loop.html`); the window tells it which tab
   is showing (`postMessage {proofloop: "part"}`), and a link to a section of the other tab asks the
   window to switch.
@@ -36,14 +37,13 @@ slicing, learning                   and web)            files                 hi
 
 | Package | Job |
 |---|---|
-| `core/` | `paths.py` (`~/.proofloop`, `PROOFLOOP_HOME`), `config.py` (built-in YAML in `data/` with yours in `config/` over it), `settings.py` (`settings.json`: printers, notifications, loop-file defaults, costs, filament), `db.py` + `migrations/` (`results.db`), `llm.py` + `cost.py` (model gateway, cache, prices), `notify.py` (ntfy, Discord, webhooks), `printers.py` (Bambu model ids), `theme.py`, `commands.py` (shared by the `check` and `web` commands). |
+| `core/` | `paths.py` (`~/.proofloop`, `PROOFLOOP_HOME`), `config.py` (built-in YAML in `data/` with yours in `config/` over it), `settings.py` (`settings.json`: printers, notifications, loop-file defaults, costs, filament), `db.py` + `migrations/` (`results.db`), `llm.py` + `cost.py` (optional model engine for personas and predictions), `notify.py` (ntfy, Discord, webhooks), `printers.py` (Bambu model ids), `theme.py`, `commands.py` (shared by the `check` commands). |
 | `check/` | `cad/` (mesh loading incl. 3MF, voxel/print checks, fine detail, auto-eject, moulding and CNC, renders, ergonomics, personas, print iteration), `gcode/` (parser for plain and Bambu `.gcode.3mf`, checks, layer previews, slicer-setting fixes), `slicer.py` + `prepare.py` (headless slicing and the print-ready verdict), `learn.py` (from the print journal), `feedback.py` (false alarms), product predictions (`inputs.py`, `reviews.py`, `evaluate.py`, `sensors.py`, `guardrails.py`), `templates/` (reports). |
 | `loopfiles/` | See below. |
 | `monitor/` | See below. |
-| `web/` | `runner/` (browser, pixels only; perception by OCR; behaviour: patience, frustration, noise; session loop; orchestrator), `engines/` (heuristic persona, model persona), `judge/` (review, replay, repetition, novelty), `aggregate/`, `elicitation/`, `calibration/`, `safety/` (allowlist, network policy, action guard, credentials), `report/`, `dashboard/`, `study.py`, `quick.py`, `demo/` (two demo sites with planted flaws). |
-| `personas/` | ingest, anonymize, traits, deliberate design, generation, diversity. |
-| `app/` | the window, background service, tray, start at login, phone access, setup check, updates, the two page servers and their pages. |
-| `data/` | built-in YAML (settings, models, printers, processes, scales, calibration) and reference data. |
+| `personas/` | people who differ in hand size, grip, body size, motor control and eyesight: traits, deliberate design, generation, diversity (used by the design check and product predictions). |
+| `app/` | the window's server (`shell.py`) with Check (`checks.py`) and Loop files & Printers (`loop_server.py`, `loop_routes.py`) on it; background service, tray, start at login, phone access, setup check, updates; the pages (`static/`, `templates/`). |
+| `data/` | built-in YAML (settings, models, printers, processes) and reference data (body sizes, product checklists). |
 
 ## Loop files
 
@@ -107,8 +107,8 @@ wait, doing nothing is always the safe outcome.
 ## The background service
 
 `proofloop service` (what the shortcut and login start) runs one process holding everything: the
-window's server, the monitor, the check and website-test server on a private port, and phone access
-when it's on. The window is only a view: closing it leaves the service running. The service writes
+window's server (with Check, Loop files and Printers on it), the monitor, and phone access when
+it's on. The window is only a view: closing it leaves the service running. The service writes
 a heartbeat to `~/.proofloop/running.json` every minute; if that file is still there at the next
 start, the last run ended unexpectedly, and the service says for how long the printers went
 unwatched. It sends a notice when it stops (waiting for the notice to be delivered before the

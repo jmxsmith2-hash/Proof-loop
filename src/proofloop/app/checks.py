@@ -1,9 +1,9 @@
-"""The app window: one local page to drop a CAD or G-code file, or paste a website and a task.
+"""The Check tab: drop a CAD file or sliced G-code, and the check runs in the background.
 
-Jobs run in the background and the page shows them as they progress; each finished job links
-to its report. The server binds to localhost only, accepts requests only for its own address
-(no DNS rebinding) and only POSTs that carry its own header (other web pages cannot drive it).
-Adding a site to the allowlist happens only when the user ticks the box for that site.
+Jobs show their progress on the page; each finished job links to its report. The page and its
+API are served by the window's own server under ``/check`` (see ``register``), so only the window,
+on this computer, can use them: the window refuses other host names, and every request that changes
+something must carry the window's header and come from its own origin.
 """
 
 from __future__ import annotations
@@ -11,25 +11,23 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
-import os
 import re
 import shutil
-import subprocess
-import sys
 import threading
 import time
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlsplit
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from proofloop.check.feedback import path as feedback_path
 from proofloop.core import theme
-from proofloop.core.config import ConfigError, Settings, load_settings, load_yaml_file
+from proofloop.core.config import ConfigError, Settings, load_yaml_file
 from proofloop.core.db import Database
 from proofloop.core.logging import get_logger
 from proofloop.core.paths import config_file
@@ -39,7 +37,7 @@ log = get_logger(__name__)
 MAX_UPLOAD = 1024 * 1024 * 1024          # 1 GB: large Bambu project files
 CAD_SUFFIXES = (".stl", ".3mf", ".obj", ".ply", ".glb", ".gltf", ".off", ".step", ".stp")
 GCODE_SUFFIXES = (".gcode", ".gcode.3mf", ".gco", ".bgcode")
-HEADER = "X-ProofLoop"
+PREFIX = "/check"
 
 
 NOTIFY_AFTER_S = 30  # only jobs that take this long are worth a phone alert
@@ -48,7 +46,7 @@ NOTIFY_AFTER_S = 30  # only jobs that take this long are worth a phone alert
 @dataclass
 class Job:
     id: str
-    kind: str                      # cad | gcode | web
+    kind: str                      # cad | gcode
     title: str
     status: str = "queued"         # queued | running | done | failed
     stage: str = "waiting"
@@ -74,9 +72,9 @@ class Job:
         data = asdict(self)
         data.pop("report")
         data.pop("source")
-        data["report_url"] = f"/job/{self.id}/" if self.report else None
+        data["report_url"] = f"{PREFIX}/job/{self.id}/" if self.report else None
         data["can_loop"] = bool(self.source)
-        data["download"] = f"/job/{self.id}/download/{Path(self.download).name}" if self.download else None
+        data["download"] = f"{PREFIX}/job/{self.id}/download/{Path(self.download).name}" if self.download else None
         return data
 
 
@@ -95,24 +93,16 @@ def file_kind(name: str) -> str | None:
     return None
 
 
-LOCAL_ORIGIN = re.compile(r"http://(127\.0\.0\.1|localhost|\[::1\]):\d{1,5}")
-
-
-class App:
-    def __init__(self, settings: Settings, db: Database, port: int, shell: str | None = None):
-        if shell is not None and not LOCAL_ORIGIN.fullmatch(shell):
-            raise ValueError("the app can only be shown inside a page on this computer")
+class Checks:
+    def __init__(self, settings: Settings, db: Database):
         self.settings = settings
         self.db = db
-        self.port = port
-        self.shell = shell  # origin of the ProofLoop window that shows this app in a frame, if any
         self.root = (settings.data_dir / "checks").resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.feedback_file = feedback_path()
         self.jobs: dict[str, Job] = {}
         self.lock = threading.Lock()
         self.checks = ThreadPoolExecutor(max_workers=2, thread_name_prefix="proofloop-check")
-        self.browser = ThreadPoolExecutor(max_workers=1, thread_name_prefix="proofloop-web")  # one site test at a time
         self.env = theme.environment("proofloop.app", "templates")
         self._load_jobs()
 
@@ -134,7 +124,7 @@ class App:
                 continue
         for job in sorted(saved, key=lambda j: -j.created)[:keep]:
             if job.status in ("queued", "running"):
-                job.status, job.error = "failed", "the app was closed before this finished; run it again"
+                job.status, job.error = "failed", "ProofLoop was closed before this finished; run it again"
             self.jobs[job.id] = job
 
     def remove(self, job_id: str) -> None:
@@ -149,7 +139,6 @@ class App:
 
     def close(self) -> None:
         self.checks.shutdown(wait=False, cancel_futures=True)
-        self.browser.shutdown(wait=False, cancel_futures=True)
 
     # ------------------------------------------------------------------ your verdicts
     def feedback(self, job_id: str, check: str, verdict: str) -> dict[str, Any]:
@@ -167,7 +156,7 @@ class App:
         return counts
 
     # ------------------------------------------------------------------ page
-    def page(self, view: str = "") -> str:
+    def page(self) -> str:
         from proofloop.check.my_printers import farm_printers
 
         data = load_yaml_file(config_file(self.settings.config_dir, "printers.yaml")) or {}
@@ -177,9 +166,6 @@ class App:
         materials = list((data.get("materials") or {}).keys())
         procs = load_yaml_file(config_file(self.settings.config_dir, "processes.yaml")) or {}
         process_materials = {"print": materials, **{k: list((v or {}).get("materials", {})) for k, v in procs.items()}}
-        hosts = sorted({f"{a.host}" + (f":{','.join(map(str, a.ports))}" if a.ports else "")
-                        for a in self.settings.safety.allowlist})
-        smart = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
         try:
             from proofloop.check.slicer import find_slicer
 
@@ -189,10 +175,8 @@ class App:
             slicer = None
         return self.env.get_template("check_app.html.j2").render(
             printers=printers, materials=materials, default_printer=data.get("default_printer"),
-            process_materials=process_materials, slicer=slicer,
-            default_material=data.get("default_material"), hosts=hosts, smart=smart, header=HEADER,
-            devices=sorted(self.settings.devices), shell=self.shell, farm=farm,
-            default_farm=farm[0]["id"] if farm else None, view=view if view in ("print", "web") else "")
+            process_materials=process_materials, slicer=slicer, default_material=data.get("default_material"),
+            prefix=PREFIX, farm=farm, default_farm=farm[0]["id"] if farm else None)
 
     def list_jobs(self) -> list[dict[str, Any]]:
         with self.lock:
@@ -215,7 +199,7 @@ class App:
         except (ConfigError, ValueError, PermissionError) as exc:
             job.status, job.error = "failed", str(exc)
         except Exception as exc:  # noqa: BLE001 - report any failure in the window, keep the server up
-            log.exception("app job %s failed", job.id)
+            log.exception("check %s failed", job.id)
             job.status, job.error = "failed", f"{type(exc).__name__}: {exc}"
         finally:
             job.finished = time.time()
@@ -373,65 +357,6 @@ class App:
         if not findings:
             job.summary = ["no problems found"]
 
-    def submit_test(self, form: dict[str, Any]) -> Job:
-        from proofloop.web.quick import build_study
-        from proofloop.web.safety.allow_edit import add_to_allowlist, host_entry
-        from proofloop.web.safety.allowlist import SafetyError, check_url
-
-        url = str(form.get("url", "")).strip()
-        tasks = [str(t).strip() for t in form.get("tasks", []) if str(t).strip()]
-        successes = [str(t).strip() for t in form.get("successes", []) if str(t).strip()]
-        personas = max(1, min(20, int(form.get("personas") or 5)))
-        repeats = max(1, min(5, int(form.get("repeats") or 2)))
-        host, _ = host_entry(url)
-        settings = self.settings
-        try:
-            check_url(url, settings.safety.allowlist)
-        except SafetyError:
-            if not form.get("allow"):
-                raise PermissionError(f"{host} is not on the safety allowlist. If it is your own test site, tick "
-                                      "'This is my own site' to add it (payments, emails and deletes stay blocked).") from None
-            add_to_allowlist(settings.config_dir, url, note="added in the ProofLoop window")
-            self.settings = settings = load_settings(settings.config_dir)
-        if form.get("smart"):
-            settings, _ = settings.smart()
-        study, raw = build_study(settings, url, tasks, successes, find=bool(form.get("find")), personas=personas,
-                                  repeats=repeats, device=form.get("device") or None)
-        job = self._new("web", f"{host}: {tasks[0][:60]}")
-        total = personas * len(study.tasks) * repeats * study.visits
-        work = lambda j: self._web_work(j, settings, study, raw, personas, repeats, total)  # noqa: E731
-        self.browser.submit(self._run, job, work)
-        return job
-
-    def _web_work(self, job: Job, settings: Settings, study: Any, raw: dict[str, Any], personas: int, repeats: int,
-                  total: int) -> None:
-        from proofloop.web.quick import run_quick_test, save_study
-
-        done = {"n": 0, "ok": 0}
-
-        def on_session(result: Any) -> None:
-            done["n"] += 1
-            done["ok"] += result.outcome == "completed"
-            job.progress = min(1.0, done["n"] / max(total, 1))
-            job.stage = f"personas are using the site ({done['n']} of {total} sessions)"
-
-        def on_stage(msg: str) -> None:
-            if not msg.startswith("personas"):
-                job.stage = msg
-
-        from proofloop.web.runner.browser import ensure_chromium
-
-        ensure_chromium(settings, lambda msg: setattr(job, "stage", msg))
-        save_study(settings, study, raw)
-        run_id, report, _est = asyncio.run(run_quick_test(settings, self.db, study, personas=personas, repeats=repeats,
-                                                          approve=lambda _e: True, on_session=on_session,
-                                                          on_stage=on_stage))
-        job.report = str(report)
-        promoted = self.db.all("SELECT title FROM issue_clusters WHERE run_id = ? AND promoted = 1 ORDER BY score DESC",
-                               [run_id])
-        job.counts = {"total": len(promoted), "completed": done["ok"], "sessions": done["n"]}
-        job.summary = [f"{done['ok']} of {done['n']} sessions finished the task"] + [p["title"] for p in promoted[:4]]
-
     # ------------------------------------------------------------------ files
     def job_source(self, job_id: str) -> tuple[bytes, str]:
         """The plate a finished check was run on, to open in Make a loop file."""
@@ -465,166 +390,101 @@ class App:
         return target / "index.html" if target.is_dir() else target
 
 
-def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
-    allowed_hosts = {f"127.0.0.1:{app.port}", f"localhost:{app.port}", f"[::1]:{app.port}"}
+def register(api: FastAPI, checks: Checks, window_only: Callable[[Request], None]) -> None:
+    """The Check page and its API on the window's server. Everything that changes something is
+    ``window_only`` (the window's header and origin)."""
 
-    class Handler(BaseHTTPRequestHandler):
-        server_version = "proofloop"
+    def fail(exc: Exception) -> JSONResponse:
+        status = 404 if isinstance(exc, FileNotFoundError) else 400
+        return JSONResponse({"error": "no such job" if status == 404 else str(exc)}, status)
 
-        def log_message(self, fmt: str, *args: Any) -> None:
-            log.debug("app: " + fmt, *args)
-
-        def _send(self, body: bytes, ctype: str = "text/html; charset=utf-8", status: int = 200,
-                  attachment: str | None = None) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", ctype)
-            if attachment:
-                self.send_header("Content-Disposition", f'attachment; filename="{safe_name(attachment)}"')
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            if app.shell:  # shown inside the ProofLoop window, and nowhere else
-                self.send_header("Content-Security-Policy", f"frame-ancestors {app.shell}")
-            else:
-                self.send_header("X-Frame-Options", "DENY")
-            self.end_headers()
-            self.wfile.write(body)
-
-        def _json(self, data: Any, status: int = 200) -> None:
-            self._send(json.dumps(data).encode("utf-8"), "application/json", status)
-
-        def _host_ok(self) -> bool:
-            return self.headers.get("Host", "") in allowed_hosts
-
-        def do_GET(self) -> None:  # noqa: N802
-            if not self._host_ok():
-                return self._send(b"wrong host", "text/plain", 403)
-            path = unquote(urlsplit(self.path).path)
-            try:
-                if path in ("/", "/index.html"):
-                    view = (parse_qs(urlsplit(self.path).query).get("view") or [""])[0]
-                    return self._send(app.page(view).encode("utf-8"))
-                if path == "/api/jobs":
-                    return self._json(app.list_jobs())
-                if path.startswith("/job/"):
-                    parts = path.split("/", 3)
-                    file = app.job_file(parts[2], parts[3] if len(parts) > 3 else "")
-                    if not file.is_file():
-                        return self._send(b"not found", "text/plain", 404)
-                    if "/download/" in path:
-                        return self._send(file.read_bytes(), "application/octet-stream", attachment=file.name)
-                    return self._send(file.read_bytes(), mimetypes.guess_type(file.name)[0] or "application/octet-stream")
-                return self._send(b"not found", "text/plain", 404)
-            except PermissionError:
-                return self._send(b"forbidden", "text/plain", 403)
-            except FileNotFoundError:
-                return self._send(b"no such job", "text/plain", 404)
-
-        def do_POST(self) -> None:  # noqa: N802
-            origin = self.headers.get("Origin")
-            if not self._host_ok() or self.headers.get(HEADER) != "1" or \
-                    (origin and urlsplit(origin).netloc not in allowed_hosts):
-                return self._json({"error": "requests must come from the app window"}, 403)
-            url = urlsplit(self.path)
-            try:
-                length = int(self.headers.get("Content-Length") or 0)
-            except ValueError:
-                length = -1
-            if length < 0 or length > MAX_UPLOAD:
-                return self._json({"error": "file too large (1 GB at most)"}, 413)
-            try:
-                if url.path == "/api/check":
-                    opts = {k: v[0] for k, v in parse_qs(url.query).items()}
-                    job = app.submit_file(opts.pop("name", "upload"), lambda dest: self._save_body(dest, length), opts)
-                    return self._json(job.public(), 201)
-                if url.path == "/api/loop":
-                    form = json.loads(self.rfile.read(length) or b"{}")
-                    return self._json(app.submit_loop(str(form.get("job", "")), int(form.get("loops") or 0)).public(), 201)
-                if url.path in ("/api/feedback", "/api/remove"):
-                    form = json.loads(self.rfile.read(length) or b"{}")
-                    if url.path == "/api/remove":
-                        app.remove(str(form.get("job", "")))
-                        return self._json({"removed": True})
-                    return self._json(app.feedback(str(form.get("job", "")), str(form.get("check", "")),
-                                                   str(form.get("verdict", ""))))
-                if url.path == "/api/test":
-                    form = json.loads(self.rfile.read(length) or b"{}")
-                    return self._json(app.submit_test(form).public(), 201)
-                return self._json({"error": "not found"}, 404)
-            except PermissionError as exc:
-                return self._json({"error": str(exc), "needs_allow": True}, 400)
-            except (ConfigError, ValueError) as exc:
-                return self._json({"error": str(exc)}, 400)
-            except FileNotFoundError:
-                return self._json({"error": "no such job"}, 404)
-            except Exception as exc:  # noqa: BLE001
-                from proofloop.web.safety.allowlist import SafetyError
-
-                if isinstance(exc, SafetyError):
-                    return self._json({"error": str(exc)}, 400)
-                log.exception("app request failed")
-                return self._json({"error": f"{type(exc).__name__}: {exc}"}, 500)
-
-        def _save_body(self, dest: Path, length: int) -> int:
-            left = length
-            with open(dest, "wb") as f:
-                while left > 0:
-                    chunk = self.rfile.read(min(left, 1 << 20))
-                    if not chunk:
-                        raise ValueError("the upload was cut off")
-                    f.write(chunk)
-                    left -= len(chunk)
-            if length == 0:
-                raise ValueError("the file is empty")
-            return length
-
-    return Handler
-
-
-def serve(settings: Settings, db: Database, port: int = 8700, host: str = "127.0.0.1",
-          shell: str | None = None) -> tuple[ThreadingHTTPServer, App]:
-    """``shell`` is the origin of a ProofLoop window allowed to show the app in a frame."""
-    if host not in ("127.0.0.1", "localhost", "::1"):
-        raise ValueError("the app only binds to localhost")
-    app = App(settings, db, port, shell)
-    server = ThreadingHTTPServer((host, port), make_handler(app))
-    app.port = server.server_address[1]          # port 0 = any free port (tests)
-    server.RequestHandlerClass = make_handler(app)
-    return server, app
-
-
-def app_browser() -> str | None:
-    """Chrome or Edge, which can show a page as its own window (--app) without tabs or an address bar."""
-    candidates: list[str] = []
-    if sys.platform == "win32":
-        for base in filter(None, (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles"),
-                                  os.environ.get("LOCALAPPDATA"))):
-            candidates += [str(Path(base) / "Microsoft/Edge/Application/msedge.exe"),
-                           str(Path(base) / "Google/Chrome/Application/chrome.exe")]
-    elif sys.platform == "darwin":
-        candidates += ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-                       "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"]
-    for exe in candidates:
-        if Path(exe).is_file():
-            return exe
-    for name in ("google-chrome", "chromium", "chromium-browser", "microsoft-edge"):
-        found = shutil.which(name)
-        if found:
-            return found
-    return None
-
-
-def open_window(url: str, profile_dir: Path) -> bool:
-    """Open the app in its own window; falls back to a normal browser tab."""
-    exe = app_browser()
-    if exe:
+    async def body_json(request: Request) -> dict[str, Any]:
+        window_only(request)
         try:
-            subprocess.Popen([exe, f"--app={url}", "--window-size=1120,880", f"--user-data-dir={profile_dir}",
-                              "--no-first-run", "--no-default-browser-check"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        except OSError:
-            pass
-    import webbrowser
+            data = json.loads(await request.body() or b"{}")
+        except ValueError as e:
+            raise HTTPException(400, "send JSON") from e
+        if not isinstance(data, dict):
+            raise HTTPException(400, "send a JSON object")
+        return data
 
-    return webbrowser.open(url)
+    @api.get(PREFIX, response_class=HTMLResponse)
+    def page():
+        # Shown in the window's frame; never inside another site's page.
+        return HTMLResponse(checks.page(), headers={"X-Frame-Options": "SAMEORIGIN", "Cache-Control": "no-store"})
+
+    @api.get(f"{PREFIX}/api/jobs")
+    def jobs():
+        return checks.list_jobs()
+
+    @api.get(PREFIX + "/job/{job_id}/{rel:path}")
+    def job_file(job_id: str, rel: str = ""):
+        try:
+            file = checks.job_file(job_id, rel)
+        except PermissionError as e:
+            raise HTTPException(403, "forbidden") from e
+        except FileNotFoundError as e:
+            raise HTTPException(404, "no such job") from e
+        if not file.is_file():
+            raise HTTPException(404, "not found")
+        headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+        if rel.startswith("download/"):
+            return FileResponse(file, media_type="application/octet-stream", filename=safe_name(file.name),
+                                headers=headers)
+        return FileResponse(file, media_type=mimetypes.guess_type(file.name)[0] or "application/octet-stream",
+                            headers=headers)
+
+    @api.post(f"{PREFIX}/api/check", status_code=201)
+    async def check(request: Request):
+        window_only(request)
+        opts = dict(request.query_params)
+        if int(request.headers.get("content-length") or 0) > MAX_UPLOAD:
+            return JSONResponse({"error": "file too large (1 GB at most)"}, 413)
+        incoming = checks.root / "incoming"
+        incoming.mkdir(exist_ok=True)
+        tmp = incoming / uuid.uuid4().hex
+        size = 0
+        try:
+            with open(tmp, "wb") as out:  # streamed to disk: project files can be large
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > MAX_UPLOAD:
+                        return JSONResponse({"error": "file too large (1 GB at most)"}, 413)
+                    out.write(chunk)
+
+            def move(dest: Path) -> int:
+                if not size:
+                    raise ValueError("the file is empty")
+                shutil.move(tmp, dest)
+                return size
+
+            return checks.submit_file(opts.pop("name", "upload"), move, opts).public()
+        except (ConfigError, ValueError) as e:
+            return fail(e)
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    @api.post(f"{PREFIX}/api/loop", status_code=201)
+    async def loop(request: Request):
+        form = await body_json(request)
+        try:
+            return checks.submit_loop(str(form.get("job", "")), int(form.get("loops") or 0)).public()
+        except (ConfigError, ValueError) as e:
+            return fail(e)
+
+    @api.post(f"{PREFIX}/api/feedback")
+    async def feedback(request: Request):
+        form = await body_json(request)
+        try:
+            return checks.feedback(str(form.get("job", "")), str(form.get("check", "")), str(form.get("verdict", "")))
+        except ValueError as e:
+            return fail(e)
+
+    @api.post(f"{PREFIX}/api/remove")
+    async def remove(request: Request):
+        form = await body_json(request)
+        try:
+            checks.remove(str(form.get("job", "")))
+        except (FileNotFoundError, ValueError) as e:
+            return fail(e)
+        return {"removed": True}

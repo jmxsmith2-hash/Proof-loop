@@ -28,7 +28,7 @@ low and anything waiting for you.
   the printer paused and its heaters off.
 - **Notifications.** ntfy, Discord or any JSON webhook, each with its lowest level. When parts are
   left behind, the camera picture arrives with the ntfy or Discord notification. These same
-  targets get a notice when a long check under *Check* or a website test has finished, and when
+  targets get a notice when a long check under *Check* has finished, and when
   ProofLoop stops or restarts.
 
 ### Print history

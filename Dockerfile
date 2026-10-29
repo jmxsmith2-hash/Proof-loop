@@ -1,5 +1,5 @@
 # Loop files & Printers on an always-on machine (a NAS, a mini PC): the printer monitor, plate checks,
-# filament and costs, and making loop files, at http://<host>:8484. Website tests aren't included.
+# filament and costs, and making loop files, at http://<host>:8484.
 FROM python:3.12-slim
 # ffmpeg reads the camera on X1, X2D, H2 and P2S printers (RTSPS).
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*

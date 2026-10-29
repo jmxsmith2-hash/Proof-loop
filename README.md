@@ -12,9 +12,7 @@ ProofLoop opens as one window with three tabs:
 | **Loop files** | Makes loop files for FarmLoop auto-eject hardware: a push height for each part, a cooldown that's safe, a first-sweep safety pause. Checks any loop file, costs a plate, and makes calibration prints. [More](docs/loop-files.md) |
 | **Printers** | Watches your printers: live status, a camera check that the plate is empty before the next loop, print history, filament and spools. [More](docs/printers.md) |
 
-Under **More** there are **Website tests** (personas use your website from screenshots, like
-people do, and you get a report with replays; [more](docs/website-tests.md)), **Phone** and
-**Setup check**.
+Under **More** there are **Phone** and **Setup check**.
 
 ## How the tabs work together
 
@@ -55,8 +53,8 @@ setup* and *Quit*.
 
 *More › Phone* shows *Loop files* and *Printers* on your phone over your own Wi-Fi: printer status,
 plate checks, filament and costs. Scan the QR code, or type the six-digit code. Nothing goes through
-the internet, only paired phones can see it, and *Check*, *Website tests* and the window's settings
-are never shown on the phone. *Forget phones* unpairs them all. Windows may ask whether Python can
+the internet, only paired phones can see it, and *Check* and the window's settings are never shown
+on the phone. *Forget phones* unpairs them all. Windows may ask whether Python can
 use the network: choose *Private networks*.
 
 ## Install
@@ -66,10 +64,8 @@ use the network: choose *Private networks*.
   (installed for your user only, no admin rights) and a Python 3.12 just for this folder.
 - It installs ProofLoop into `.venv` here, then puts a **ProofLoop** shortcut on the desktop, sets
   ProofLoop to start in the background when you log in, and runs the setup check.
-- Chromium for website tests isn't downloaded during setup. It downloads by itself, once (about
-  150 MB), the first time you test a website.
-- Options for `scripts\setup_windows.ps1`: `-NoShortcuts`, `-NoAutostart`, `-WithBrowser`
-  (download Chromium now), `-ForceUv` (use uv even when Python is installed).
+- Options for `scripts\setup_windows.ps1`: `-NoShortcuts`, `-NoAutostart`, `-ForceUv` (use uv even
+  when Python is installed).
 - Windows SmartScreen or Defender may ask about the setup script, or about uv when it downloads.
   Both are run from this folder and are expected.
 
@@ -77,7 +73,7 @@ use the network: choose *Private networks*.
 `.venv/bin/proofloop`.
 
 **By hand**, into any environment: `pip install -e ".[all]"`, then `proofloop`. Without `[all]`
-you get everything except website tests and reading STEP files directly.
+you get everything except reading STEP files directly.
 
 **Docker**, for an always-on machine that watches the printers: `docker compose up -d` serves
 *Loop files* and *Printers* at `http://<host>:8484`, with your data in `./proofloop-data`. Run only
@@ -97,7 +93,6 @@ proofloop check prepare part.stl --loops 5   # design check, slice, G-code check
 proofloop loop plate.gcode.3mf --loops 5     # make a loop file (--first-pause on|off|auto)
 proofloop loop check FL_S2_plate.gcode.3mf   # check any loop file
 proofloop printers history                   # how recent prints ended
-proofloop web test https://staging.example.com/ -t "Find the returns policy" -s "30 days" --allow
 proofloop doctor [--slice-test --send-test]  # check the setup
 proofloop stop | status                      # quit ProofLoop / is it running?
 proofloop autostart on|off                   # start in the background when you log in
@@ -106,8 +101,7 @@ proofloop update [--check]                   # get the newest ProofLoop
 proofloop app                                # run in this terminal instead of the background, until Ctrl+C
 ```
 
-Each part has more: `proofloop check --help`, `proofloop loop --help`, `proofloop printers --help`,
-`proofloop web --help`.
+Each part has more: `proofloop check --help`, `proofloop loop --help`, `proofloop printers --help`.
 
 ## Where things are kept
 
@@ -117,7 +111,7 @@ Everything is in one folder, `~/.proofloop` (`PROOFLOOP_HOME` moves it):
 - `config/`: optional YAML for advanced options. A file here replaces the built-in one of the same
   name (see `src/proofloop/data`), and `settings.yaml` is merged over the built-in settings, so it
   only needs what you change;
-- `printers.db` and `results.db`: print history and events; checks, website tests and personas;
+- `printers.db` and `results.db`: print history and events; design checks and what was learned;
 - `reports/`, `profiles/`, `files/`: reports, imported hardware profiles, the loop files ProofLoop made;
 - `proofloop.log`: the background service's log.
 
@@ -126,7 +120,6 @@ Everything is in one folder, `~/.proofloop` (`PROOFLOOP_HOME` moves it):
 - [Check](docs/check.md): CAD, the print-ready verdict, G-code, moulding and machining, product predictions
 - [Loop files](docs/loop-files.md): what goes in a loop file, checking, costs, calibration, hardware profiles
 - [Printers](docs/printers.md): the plate check, print history, filament, notifications, Docker
-- [Website tests](docs/website-tests.md): personas, engines and cost, studies, reports, calibration, safety
 - [Printer setup](docs/bambu-setup.md), [where every printer and kit value comes from](docs/sources.md)
 - [Architecture](docs/architecture.md) and [development](docs/development.md)
 

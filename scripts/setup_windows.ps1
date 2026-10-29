@@ -9,8 +9,7 @@
 param(
     [switch]$ForceUv,        # use uv even if Python is installed (CI uses this to test that path)
     [switch]$NoShortcuts,    # don't add desktop shortcuts
-    [switch]$NoAutostart,    # don't start ProofLoop in the background when you log in
-    [switch]$WithBrowser     # download Chromium now (otherwise on the first website test)
+    [switch]$NoAutostart     # don't start ProofLoop in the background when you log in
 )
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
@@ -72,8 +71,6 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 $venvPy = (Resolve-Path ".\.venv\Scripts\python.exe").Path
 & $venvPy -m pip install --upgrade pip; Step "Updating pip"
 & $venvPy -m pip install -e ".[all]"; Step "Installing ProofLoop"
-if ($WithBrowser) { & $venvPy -m playwright install chromium; Step "Downloading Chromium" }
-else { Write-Host "(Chromium for website tests downloads by itself the first time you test a website.)" }
 
 # Shortcuts start ProofLoop with pythonw.exe: no console window, and closing ProofLoop's window
 # leaves it running in the background (icon next to the clock) so the printers stay watched.

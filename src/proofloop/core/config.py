@@ -1,7 +1,7 @@
 """Settings loading: YAML files plus environment variables.
 
-Secrets are never stored in YAML. A value such as ``${DEMO_PASSWORD}`` or
-``${DEMO_PASSWORD:-fallback}`` is resolved from the environment (or a local
+Secrets are never stored in YAML. A value such as ``${API_KEY}`` or
+``${API_KEY:-fallback}`` is resolved from the environment (or a local
 ``.env`` file) when the settings are loaded.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
@@ -21,9 +21,8 @@ from proofloop.core.logging import get_logger
 log = get_logger(__name__)
 
 ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
-ROLES = ("actor", "persona", "judge", "grouper", "reporter")
-ENGINES = ("heuristic", "ollama", "anthropic", "fake", "hybrid")
-MODEL_ENGINES = ("ollama", "anthropic", "fake")
+ROLES = ("persona",)  # persona writing and product predictions
+ENGINES = ("heuristic", "ollama", "anthropic", "fake")
 
 
 class ConfigError(ValueError):
@@ -34,48 +33,17 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class AllowedHost(StrictModel):
-    host: str
-    ports: list[int] = Field(default_factory=list)  # empty = any port
-    sandbox: bool = False
-    note: str = ""
-
-
-class SafetyConfig(StrictModel):
-    allowlist: list[AllowedHost] = Field(default_factory=list)
-    blocked_request_patterns: list[str] = Field(default_factory=list)
-    payment_patterns: list[str] = Field(default_factory=list)
-    email_patterns: list[str] = Field(default_factory=list)
-    destructive_patterns: list[str] = Field(default_factory=list)
-
-
-class HybridConfig(StrictModel):
-    """`actor: hybrid`: the free rule engine acts, and a model is asked only on hard screens."""
-    engine: str = "anthropic"                     # model engine for the hard screens (anthropic or ollama)
-    max_calls_per_session: int = Field(6, ge=0, le=100)
-
-    @field_validator("engine")
-    @classmethod
-    def _model_engine(cls, value: str) -> str:
-        if value not in MODEL_ENGINES:
-            raise ValueError(f"hybrid.engine must be one of {MODEL_ENGINES}")
-        return value
-
-
 class EngineConfig(StrictModel):
     default: str = "heuristic"
     roles: dict[str, str] = Field(default_factory=dict)
-    hybrid: HybridConfig = Field(default_factory=HybridConfig)
-    model_image_width: int = Field(1024, ge=320, le=2000)  # screenshots wider than this are scaled down for models
     batch: bool = False          # Claude via the Batches API for the roles below: half price, answers in minutes
-    batch_roles: list[str] = Field(default_factory=lambda: ["judge", "persona", "grouper"])
+    batch_roles: list[str] = Field(default_factory=list)
 
     @field_validator("default")
     @classmethod
     def _known_engine(cls, value: str) -> str:
-        if value not in ENGINES or value == "hybrid":
-            raise ValueError(f"unknown default engine {value!r}; choose one of "
-                             f"{[e for e in ENGINES if e != 'hybrid']} (hybrid is for the actor role only)")
+        if value not in ENGINES:
+            raise ValueError(f"unknown default engine {value!r}; choose one of {list(ENGINES)}")
         return value
 
     @field_validator("roles")
@@ -86,63 +54,10 @@ class EngineConfig(StrictModel):
                 raise ValueError(f"unknown role {role!r}; roles are {ROLES}")
             if engine not in ENGINES:
                 raise ValueError(f"unknown engine {engine!r} for role {role!r}")
-            if engine == "hybrid" and role != "actor":
-                raise ValueError("hybrid is only for the actor role (the per-step browser behaviour)")
-        return value
-
-    @field_validator("batch_roles")
-    @classmethod
-    def _no_batch_actor(cls, value: list[str]) -> list[str]:
-        if "actor" in value:
-            raise ValueError("the actor (per-step persona) cannot use batches: each step waits for its answer")
         return value
 
     def engine_for(self, role: str) -> str:
         return self.roles.get(role, self.default)
-
-
-class RunConfig(StrictModel):
-    repeats: int = Field(3, ge=1, le=20)
-    promote_min: int = Field(2, ge=1)
-    concurrency: int | Literal["auto"] = "auto"  # "auto" = 2 per CPU core, 2..8
-
-    @field_validator("concurrency")
-    @classmethod
-    def _workers(cls, v: int | str) -> int:
-        if v == "auto":
-            return max(2, min(8, 2 * (os.cpu_count() or 1)))
-        if not 1 <= int(v) <= 32:
-            raise ValueError("concurrency must be 1..32 or 'auto'")
-        return int(v)
-    max_cost_usd: float = Field(5.0, ge=0)
-    seconds_per_step: float = Field(6.0, gt=0)
-
-
-class NoiseConfig(StrictModel):
-    enabled: bool = True
-    misclick_rate_by_skill: dict[int, float] = Field(default_factory=dict)
-    typo_rate_by_skill: dict[int, float] = Field(default_factory=dict)
-    misclick_sigma_px: float = 18.0
-
-
-class BrowserConfig(StrictModel):
-    headless: bool = True
-    executable_path: str | None = None
-    slow_load_seconds: float = 3.0
-    quiet_exit_seconds: float = 1.5   # stop waiting this long after a no-effect action once nothing loads (0 = off)
-
-
-class DeviceConfig(StrictModel):
-    width: int
-    height: int
-    mobile: bool = False
-    scale: float = 1.0
-
-
-class NetworkConfig(StrictModel):
-    latency_ms: int = 0
-    download_kbps: int = 0  # 0 = unthrottled
-    upload_kbps: int = 0
 
 
 class ModelProvider(StrictModel):
@@ -156,13 +71,6 @@ class Settings(StrictModel):
     data_dir: Path | None = None  # default: ProofLoop's folder, ~/.proofloop
     log_level: str = "INFO"
     engine: EngineConfig = Field(default_factory=EngineConfig)
-    safety: SafetyConfig = Field(default_factory=SafetyConfig)
-    run: RunConfig = Field(default_factory=RunConfig)
-    noise: NoiseConfig = Field(default_factory=NoiseConfig)
-    browser: BrowserConfig = Field(default_factory=BrowserConfig)
-    devices: dict[str, DeviceConfig] = Field(default_factory=dict)
-    networks: dict[str, NetworkConfig] = Field(default_factory=dict)
-    calibration_profile: str = "default"
     models: dict[str, ModelProvider] = Field(default_factory=dict)
     config_dir: Path = Path("config")
 
@@ -170,40 +78,12 @@ class Settings(StrictModel):
     def db_path(self) -> Path:
         return self.data_dir / paths.RESULTS_DB
 
-    def smart(self, *, batch: bool = False) -> tuple[Settings, str]:
-        """The cheap paid mode for one run, if a Claude key is set; otherwise the settings unchanged.
-
-        The free rules still drive the browser; Claude sees only the hard screens (actor: hybrid)
-        and does the judging, questionnaires, grouping and report wording. Returns (settings, note).
-        """
-        if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
-            return self, "--smart needs ANTHROPIC_API_KEY; running free (heuristic) instead"
-        data = self.model_dump()
-        data["engine"]["roles"] = {**data["engine"]["roles"], "actor": "hybrid", "judge": "anthropic",
-                                   "persona": "anthropic", "grouper": "anthropic", "reporter": "anthropic"}
-        data["engine"]["hybrid"]["engine"] = "anthropic"
-        data["engine"]["batch"] = batch or data["engine"]["batch"]
-        note = "smart mode: Claude on hard screens and for judging" + (" (judging batched at half price)" if batch else "")
-        return Settings.model_validate(data), note
-
     def model_for(self, role: str) -> tuple[str, str]:
         """Return (engine, model id) for a role."""
         engine = self.engine.engine_for(role)
-        if engine == "hybrid":
-            engine = self.engine.hybrid.engine
         provider = self.models.get(engine)
         model = provider.roles.get(role, "") if provider else ""
         return engine, model or engine
-
-    def device(self, name: str) -> DeviceConfig:
-        if name not in self.devices:
-            raise ConfigError(f"unknown device {name!r}; known: {sorted(self.devices)}")
-        return self.devices[name]
-
-    def network(self, name: str) -> NetworkConfig:
-        if name not in self.networks:
-            raise ConfigError(f"unknown network {name!r}; known: {sorted(self.networks)}")
-        return self.networks[name]
 
 
 # --------------------------------------------------------------------------- env
@@ -299,8 +179,6 @@ def load_settings(config_dir: Path | None = None, overrides: dict[str, Any] | No
         settings.data_dir = paths.home()
     elif not settings.data_dir.is_absolute():
         settings.data_dir = (config_dir.parent / settings.data_dir).resolve()
-    if settings.run.promote_min > settings.run.repeats:
-        raise ConfigError("run.promote_min cannot be larger than run.repeats")
     log.debug("settings loaded from %s", settings_file)
     return settings
 

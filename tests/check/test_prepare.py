@@ -142,39 +142,32 @@ def test_cli_without_a_slicer_says_how_to_get_one(tmp_path, monkeypatch):
     assert out.exit_code == 2 and "no Bambu Studio or OrcaSlicer found" in out.output
 
 
-def test_app_window_slices_when_asked(profiles, tmp_path):
-    import http.client
-    import threading
+def test_the_check_tab_slices_when_asked(profiles, tmp_path, monkeypatch):
     import time
 
-    from proofloop.app.check_server import serve
+    from fastapi.testclient import TestClient
 
-    settings = load_settings(CFG).model_copy(update={"data_dir": tmp_path / "data"})
-    db = Database(settings.db_path)
-    server, the_app = serve(settings, db, port=0)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    from proofloop.app.shell import Shell
+
+    monkeypatch.setenv("PROOFLOOP_HOME", str(tmp_path / "home"))
+    shell = Shell(8600, config=CFG, connect=False)
     try:
-        def req(method, path, body=None):
-            c = http.client.HTTPConnection("127.0.0.1", the_app.port, timeout=60)
-            c.request(method, path, body=body, headers={"Host": f"127.0.0.1:{the_app.port}", "X-ProofLoop": "1"})
-            r = c.getresponse()
-            return r.status, r.read()
-
-        assert b"Slice it with Bambu Studio too" in req("GET", "/")[1]
+        c = TestClient(shell.api, base_url="http://127.0.0.1:8600")
+        window = {"X-ProofLoop": "1", "Origin": "http://127.0.0.1:8600"}
+        assert "Slice it with Bambu Studio too" in c.get("/check").text
         body = (REPO / "examples" / "cad" / "block_control.stl").read_bytes()
-        status, data = req("POST", "/api/check?name=block.stl&slice=1", body)
-        assert status == 201
-        jid = json.loads(data)["id"]
+        r = c.post("/check/api/check?name=block.stl&slice=1", content=body, headers=window)
+        assert r.status_code == 201
+        jid = r.json()["id"]
         for _ in range(300):
-            job = next(j for j in json.loads(req("GET", "/api/jobs")[1]) if j["id"] == jid)
+            job = next(j for j in c.get("/check/api/jobs").json() if j["id"] == jid)
             if job["status"] in ("done", "failed"):
                 break
             time.sleep(0.2)
         assert job["status"] == "done", job.get("error")
         assert job["title"] == "block.stl: ready to print" and job["summary"][0].startswith("Ready to print")
     finally:
-        server.shutdown()
-        db.close()
+        shell.close()
 
 
 def test_fix_applies_the_settings_and_slices_again(profiles, setup, tmp_path):

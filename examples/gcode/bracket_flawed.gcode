@@ -1,5 +1,5 @@
 ; HEADER_BLOCK_START
-; BambuStudio 02.02.00.00 (synthux example)
+; BambuStudio 02.02.00.00 (ProofLoop example)
 ; model printing time: 7m 20s; total estimated time: 10m 5s
 ; total layer number: 56
 ; total filament length [mm] : 2724.93

@@ -5,8 +5,8 @@
     config/          optional YAML for advanced options; a file here replaces the built-in one of
                      the same name (see src/proofloop/data), and settings.yaml is merged over it
     printers.db      print history and events from the printer monitor
-    results.db       design checks, website tests and personas
-    profiles/ ...    hardware profiles, loop files, reports, website-test runs
+    results.db       design checks and what your prints taught
+    profiles/ ...    hardware profiles, loop files, reports, check jobs
     proofloop.log    the background service's log
 """
 

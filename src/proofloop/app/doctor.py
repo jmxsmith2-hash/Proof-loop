@@ -103,14 +103,6 @@ def _check_checks(add, slice_test: bool) -> None:
             add(BAD, "The slicer has no presets for your printer", str(e))
         if slice_test:
             _slice_test(add, load_settings(cfg))
-    try:
-        from proofloop.web.runner.browser import _fallback_chromium
-
-        chromium = _fallback_chromium()
-    except Exception:  # noqa: BLE001
-        chromium = None
-    add(OK if chromium else INFO, "Browser for website tests: " + ("installed" if chromium else "not yet"),
-        chromium or "It downloads by itself (about 150 MB) the first time you test a website.")
 
 
 def _slice_test(add, settings) -> None:

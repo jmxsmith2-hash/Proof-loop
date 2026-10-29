@@ -1,9 +1,9 @@
 """Phone access: Loop files & Printers (printer status, loop files, filament, costs) on your phone.
 
 A second listener on your local network serves the Loop files & Printers page and API only: never
-Check or Website tests, never the window's handoffs or settings. It shares the one running printer
-monitor, so the printers are still watched once. A phone pairs once, by scanning the QR code in the ProofLoop window (a link holding a
-long secret) or by typing the six-digit code, and then carries a cookie. "Forget phones" makes new
+Check, never the window's handoffs or settings. It shares the one running printer monitor, so the
+printers are still watched once. A phone pairs once, by scanning the QR code in the ProofLoop window
+(a link holding a long secret) or by typing the six-digit code, and then carries a cookie. "Forget phones" makes new
 secrets, which unpairs every phone.
 """
 

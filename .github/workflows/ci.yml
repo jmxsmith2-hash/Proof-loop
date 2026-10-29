@@ -6,10 +6,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  light:
-    # The light install (no website tests): what Docker runs. Check, Loop files and Printers must
-    # work without Playwright or the on-screen text reader.
-    name: light install / py${{ matrix.python }}
+  python-versions:
+    # The plain install (what Docker runs) on every supported Python.
+    name: tests / py${{ matrix.python }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -23,7 +22,7 @@ jobs:
           cache: pip
       - run: python -m pip install -e ".[dev]"
       - run: ruff check src tests tools examples
-      - run: python -m pytest -q tests/core tests/check tests/loopfiles tests/monitor tests/app
+      - run: python -m pytest -q
 
   evidence:
     # Re-check the built-in P2S profile against the public FarmLoop files it was learned from.
@@ -40,7 +39,7 @@ jobs:
       - run: PROOFLOOP_EVIDENCE=/tmp/playbook/evidence python -m pytest -q tests/loopfiles/test_evidence.py
 
   everything:
-    # ProofLoop as setup.bat installs it, every test including the browser and end-to-end ones.
+    # ProofLoop as setup.bat installs it, on Windows and Linux.
     name: everything / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -58,13 +57,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[all,anthropic,dev]"
-          python -m playwright install chromium
       - run: ruff check src tests tools examples
-      - name: Tests (the window, Check, Loop files, Printers, website tests, end to end)
+      - name: Tests (the window, Check, Loop files, Printers, end to end)
         run: python -m pytest -q
       - name: Text files are read and written as UTF-8 (Windows defaults to another encoding)
         if: runner.os == 'Linux'
-        run: python -X warn_default_encoding -m pytest -q --ignore=tests/browser --ignore=tests/e2e -W "error::EncodingWarning:proofloop" -W "error::EncodingWarning:tests"
+        run: python -X warn_default_encoding -m pytest -q --ignore=tests/e2e -W "error::EncodingWarning:proofloop" -W "error::EncodingWarning:tests"
       - name: The command line, from the repository root
         run: |
           proofloop --help
@@ -73,8 +71,6 @@ jobs:
           proofloop loop profiles
           proofloop loop check examples/gcode/FL_S2_bracket_plate.gcode.3mf
           proofloop printers history
-          proofloop web settings
-          proofloop web run examples/studies/demo.yaml --dry-run
 
   windows-setup-script:
     name: windows / setup.bat

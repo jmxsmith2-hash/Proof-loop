@@ -22,7 +22,6 @@ from proofloop.check.reviews import Complaint
 from proofloop.core.llm import LLMGateway, LLMRequest
 from proofloop.core.logging import get_logger
 from proofloop.personas.models import Persona
-from proofloop.web.calibration.metrics import spearman
 
 log = get_logger(__name__)
 
@@ -217,3 +216,28 @@ def label_findings(findings: list[PhysicalFinding]) -> list[PhysicalFinding]:
         if not f.detail.startswith(LABEL):
             f.detail = f"{LABEL}. {f.detail}"
     return findings
+
+
+def _ranks(values: list[float]) -> list[float]:
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    ranks = [0.0] * len(values)
+    i = 0
+    while i < len(order):
+        j = i
+        while j + 1 < len(order) and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        for k in range(i, j + 1):
+            ranks[order[k]] = (i + j) / 2 + 1
+        i = j + 1
+    return ranks
+
+
+def spearman(a: list[float], b: list[float]) -> float | None:
+    """Rank correlation of two lists, or None when there is too little to rank."""
+    if len(a) < 3 or len(set(a)) < 2 or len(set(b)) < 2:
+        return None
+    ra, rb = _ranks(a), _ranks(b)
+    ma, mb = sum(ra) / len(ra), sum(rb) / len(rb)
+    num = sum((x - ma) * (y - mb) for x, y in zip(ra, rb, strict=False))
+    den = (sum((x - ma) ** 2 for x in ra) * sum((y - mb) ** 2 for y in rb)) ** 0.5
+    return round(num / den, 3) if den else None

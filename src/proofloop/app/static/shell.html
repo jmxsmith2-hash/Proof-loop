@@ -44,9 +44,8 @@ dialog p { margin: 6px 0; }
     <button role="tab" id="tab-printers" data-tab="printers" aria-controls="loop" title="Your printers: status, plate checks, print history, filament">Printers</button>
   </nav>
   <div class="more">
-    <button type="button" id="moreBtn" aria-haspopup="true" aria-expanded="false"><span id="moreLabel">More</span> ▾<span class="badge hidden"></span></button>
+    <button type="button" id="moreBtn" aria-haspopup="true" aria-expanded="false">More ▾</button>
     <div class="menu hidden" id="moreMenu" role="menu">
-      <button type="button" role="menuitem" data-tab="web"><span><b>Website tests</b><small>Personas try your website, like people do</small></span></button>
       <button type="button" role="menuitem" id="phoneBtn" class="hidden"><span><b>Phone</b><small>See your printers on your phone, over your Wi-Fi</small></span></button>
       <button type="button" role="menuitem" id="doctorBtn"><span><b>Setup check</b><small>Is everything ProofLoop needs working?</small></span></button>
     </div>
@@ -65,7 +64,6 @@ dialog p { margin: 6px 0; }
 </div>
 <iframe id="check" role="tabpanel" aria-labelledby="tab-check" title="Check" class="hidden"></iframe>
 <iframe id="loop" role="tabpanel" title="Loop files and Printers" class="hidden"></iframe>
-<iframe id="web" role="tabpanel" title="Website tests" class="hidden"></iframe>
 
 <dialog id="phoneDlg" aria-labelledby="phoneTitle">
   <h2 id="phoneTitle">Your printers on your phone</h2>
@@ -90,22 +88,19 @@ dialog p { margin: 6px 0; }
 
 <script>
 const CFG = __PROOFLOOP_CONFIG__;
-const CHECK_ORIGIN = new URL(CFG.check).origin;  // Check and Website tests: a page on a private port
 const $ = (id) => document.getElementById(id);
-const frames = {check: $("check"), loop: $("loop"), web: $("web")};
-const FRAME = {check: "check", loopfiles: "loop", printers: "loop", web: "web"};  // tab -> frame
-const NAMES = {check: "Check", loopfiles: "Loop files", printers: "Printers", web: "Website tests"};
+const frames = {check: $("check"), loop: $("loop")};
+const FRAME = {check: "check", loopfiles: "loop", printers: "loop"};  // tab -> frame
 const tabs = [...document.querySelectorAll("nav [role=tab]")];
 const store = {get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }};
 let current = null, loopReady = false, loopWant = null;
 $("ver").textContent = "v" + CFG.version;
 frames.check.src = CFG.check;
-frames.web.src = CFG.web;
 frames.loop.src = CFG.loop;
 frames.loop.addEventListener("load", () => { loopReady = true; if (loopWant) frames.loop.contentWindow.postMessage(loopWant, location.origin); });
 
 function badge(tab, on) {
-  const el = tab === "web" ? document.querySelector(".more .badge") : document.querySelector(`#tab-${tab} .badge`);
+  const el = document.querySelector(`#tab-${tab} .badge`);
   if (el) el.classList.toggle("hidden", !on);
 }
 
@@ -116,11 +111,9 @@ function show(tab, sub) {
   for (const t of tabs) {
     const on = t.dataset.tab === tab;
     t.setAttribute("aria-selected", on);
-    t.tabIndex = on || (tab === "web" && t === tabs[0]) ? 0 : -1;
+    t.tabIndex = on ? 0 : -1;
   }
   frames.loop.setAttribute("aria-labelledby", tab === "printers" ? "tab-printers" : "tab-loopfiles");
-  $("moreBtn").classList.toggle("on", tab === "web");
-  $("moreLabel").textContent = tab === "web" ? NAMES.web : "More";
   if (FRAME[tab] === "loop") {  // one page for both: it shows the sections of the tab you chose
     loopWant = {proofloop: "part", part: tab, tab: sub || null};
     if (loopReady) frames.loop.contentWindow.postMessage(loopWant, location.origin);
@@ -139,7 +132,7 @@ for (const t of tabs) {
 const saved = store.get("proofloop-tab");
 show(FRAME[saved] ? saved : "check");
 
-// ---- More: Website tests, phone access, setup check
+// ---- More: phone access, setup check
 function menu(open) {
   $("moreMenu").classList.toggle("hidden", !open);
   $("moreBtn").setAttribute("aria-expanded", open);
@@ -152,7 +145,6 @@ $("moreMenu").addEventListener("keydown", (e) => {
   if (e.key === "Escape") { menu(false); $("moreBtn").focus(); }
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus(); }
 });
-$("moreMenu").querySelector('[data-tab="web"]').onclick = () => { menu(false); show("web"); };
 $("doctorBtn").onclick = () => { menu(false); window.open("/proofloop/doctor", "_blank", "noopener"); };
 
 function toast(msg, action, onAction) {
@@ -225,8 +217,9 @@ window.addEventListener("message", async (e) => {
   const d = e.data;
   if (!d || typeof d !== "object" || typeof d.proofloop !== "string") return;
   try {
-    const from = ["check", "web"].find(n => e.origin === CHECK_ORIGIN && e.source === frames[n].contentWindow);
-    if (from) {
+    if (e.origin !== location.origin) return;
+    if (e.source === frames.check.contentWindow) {
+      const from = "check";
       if (d.proofloop === "open-in-loop-files") {
         const r = await call("/proofloop/to-loop", {job: d.job});
         show("loopfiles", "make");
@@ -240,11 +233,11 @@ window.addEventListener("message", async (e) => {
           toast(String(d.title), "Show", () => show(from));
         }
       }
-    } else if (e.origin === location.origin && e.source === frames.loop.contentWindow) {
+    } else if (e.source === frames.loop.contentWindow) {
       if (d.proofloop === "check-plate") {
         const r = await call("/proofloop/to-check", {token: d.token});
         show("check");
-        frames.check.contentWindow.postMessage({proofloop: "refresh"}, CHECK_ORIGIN);
+        frames.check.contentWindow.postMessage({proofloop: "refresh"}, location.origin);
         toast("Checking " + r.title);
       } else if (d.proofloop === "show" && (d.part === "loopfiles" || d.part === "printers")) {
         show(d.part, typeof d.tab === "string" ? d.tab : null);  // a link to a section of the other tab
