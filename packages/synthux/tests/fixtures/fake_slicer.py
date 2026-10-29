@@ -117,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
     tail = ["; MACHINE_END_GCODE_START", *end, "; EXECUTABLE_BLOCK_END", ""]
     data = "\n".join(head + body + tail).encode()
     info = ('<?xml version="1.0" encoding="UTF-8"?><config><plate><metadata key="index" value="1"/>'
-            '<metadata key="printer_model_id" value="N7"/><metadata key="prediction" value="1980"/>'
+            '<metadata key="prediction" value="1980"/>'  # like the real command line: no printer_model_id
             f'<metadata key="weight" value="{grams:.2f}"/><object identify_id="1" name="{Path(a.model).stem}" />'
             f'<filament id="1" type="{first(filament.get("filament_type"), "PLA")}" color="#FFFFFF" used_m="1" '
             f'used_g="{grams:.2f}"/></plate></config>')

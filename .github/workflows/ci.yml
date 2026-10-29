@@ -239,7 +239,7 @@ jobs:
           }
           $out = "$env:RUNNER_TEMP\slice-debug"; New-Item -ItemType Directory -Force $out | Out-Null
           $m = Join-Path $presets.FullName "machine.json"; $p = Join-Path $presets.FullName "process.json"; $f = Join-Path $presets.FullName "filament.json"
-          & $env:SYNTHUX_SLICER --debug 4 --slice 0 --export-3mf "$out\t.gcode.3mf" --load-settings "$m;$p" --load-filaments $f --arrange 1 --outputdir $out packages\synthux\examples\cad\block_control.stl 2>&1 | Select-Object -Last 80
+          & $env:SYNTHUX_SLICER --debug 4 --slice 0 --export-3mf t.gcode.3mf --load-settings "$m;$p" --load-filaments $f --arrange 1 --outputdir $out packages\synthux\examples\cad\block_control.stl 2>&1 | Select-Object -Last 80
           Write-Host "exit: $LASTEXITCODE"
           if (Test-Path "$out\result.json") { Get-Content "$out\result.json" }
           exit 0

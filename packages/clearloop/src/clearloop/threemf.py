@@ -17,6 +17,8 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import printers
+
 _PLATE_RE = re.compile(r"^Metadata/plate_(\d+)\.gcode$")
 _HEADER_KV = re.compile(r"^;\s*([^:=]+?)\s*:\s*(.*?)\s*$")
 _CONFIG_KV = re.compile(r"^;\s*([a-z0-9_]+)\s*=\s*(.*?)\s*$")
@@ -201,6 +203,10 @@ def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
             pass
     info.filaments = sorted(set(used or cfg_filaments))
     info.presets = _presets(config, info.filament_slots, idx_by_slot)
+    if not info.printer_model_id and info.printer_model:
+        # The slicers' command line (and OrcaSlicer) leave printer_model_id out of slice_info; the
+        # project settings still name the printer the way Bambu Studio lists it ("Bambu Lab P2S").
+        info.printer_model_id = printers.model_id_for(info.printer_model)
     return info
 
 

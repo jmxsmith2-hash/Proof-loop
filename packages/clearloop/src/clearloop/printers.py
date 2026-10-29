@@ -31,3 +31,14 @@ P2S = "N7"
 
 def model_name(model_id: str) -> str:
     return MODEL_IDS.get(model_id, f"unknown printer ({model_id or 'no id in file'})")
+
+
+def model_id_for(printer_model: str) -> str:
+    """The model id for a printer as Bambu Studio and Orca name it ("Bambu Lab P2S"), or ""."""
+    name = (printer_model or "").strip()
+    if name.lower().startswith("bambu lab "):
+        name = name[len("bambu lab "):]
+    for model_id, model in MODEL_IDS.items():
+        if model.lower() == name.lower():
+            return model_id
+    return ""

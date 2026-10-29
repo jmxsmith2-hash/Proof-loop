@@ -225,3 +225,12 @@ def test_safety_pause_is_automatic_until_a_loop_has_swept(tmp_path):
     Store(tmp_path / "clearloop.db").add_production("p2s", "FL_S2_small", 1, 2, 10.0)
     _, _, st = make_loop_file(plain(SMALL), "small.gcode.3mf", data_dir=tmp_path)
     assert not st.pause_first_sweep
+
+
+def test_printer_found_by_name_when_the_slicer_left_out_its_id():
+    """Bambu Studio's and Orca's command line write no printer_model_id; the name is still there."""
+    from clearloop import printers
+
+    sf = load(make_3mf(plate_gcode(SMALL), model_id=""))
+    assert sf.info.printer_model == "Bambu Lab P2S" and sf.info.printer_model_id == "N7"
+    assert printers.model_id_for("Bambu Lab H2D") == "O1D" and printers.model_id_for("Prusa MK4") == ""
