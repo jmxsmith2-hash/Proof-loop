@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from proofloop import __version__
+from proofloop.core import theme
 from proofloop.core.paths import home
 
 log = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ class Shell:
         }
         # JSON inside <script>: "<" escaped so no value can close the tag
         blob = json.dumps(config).replace("<", "\\u003c")
-        return (STATIC / "shell.html").read_text(encoding="utf-8").replace("__PROOFLOOP_CONFIG__", blob)
+        return theme.inline((STATIC / "shell.html").read_text(encoding="utf-8")).replace("__PROOFLOOP_CONFIG__", blob)
 
     def status(self) -> dict:
         from proofloop.app import autostart
@@ -197,7 +198,7 @@ class Shell:
 
         @api.get("/loop", response_class=HTMLResponse)
         def loop_page():
-            return (LOOP_STATIC / "loop.html").read_text(encoding="utf-8")
+            return theme.inline((LOOP_STATIC / "loop.html").read_text(encoding="utf-8"))
 
         api.mount("/", create_app(self.monitor))  # Loop files' and Printers' /api/... (the page is at /loop)
         return api

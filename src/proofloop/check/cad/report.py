@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, PackageLoader, select_autoescape
+from proofloop.core import theme
 
 
 def write_design_report(result: dict[str, Any], out_dir: Path) -> Path:
@@ -13,8 +13,7 @@ def write_design_report(result: dict[str, Any], out_dir: Path) -> Path:
 
 
 def write_report(template: str, result: dict[str, Any], out_dir: Path) -> Path:
-    env = Environment(loader=PackageLoader("proofloop.check", "templates"), autoescape=select_autoescape(["j2"]),
-                      trim_blocks=True, lstrip_blocks=True)
+    env = theme.environment("proofloop.check", "templates", trim_blocks=True, lstrip_blocks=True)
     html = env.get_template(template).render(r=result)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / "index.html"

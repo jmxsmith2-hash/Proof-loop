@@ -8,10 +8,10 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
-from jinja2 import Environment, PackageLoader, select_autoescape
 from PIL import Image, ImageDraw
 
 from proofloop import SYNTHETIC_DISCLAIMER, __version__
+from proofloop.core import theme
 from proofloop.core.config import Settings
 from proofloop.core.db import Database, utcnow
 from proofloop.core.llm import LLMGateway, LLMRequest
@@ -84,8 +84,7 @@ class ReportBuilder:
         self.db = db
         self.gateway = gateway
         self.profile = None
-        self.env = Environment(loader=PackageLoader("proofloop.web", "report/templates"),
-                               autoescape=select_autoescape(["html", "j2"]), trim_blocks=True, lstrip_blocks=True)
+        self.env = theme.environment("proofloop.web", "report/templates", trim_blocks=True, lstrip_blocks=True)
 
     async def build(self, run_id: str, out_dir: Path | None = None) -> Path:
         run = self.db.one("SELECT * FROM runs WHERE id = ?", [run_id])

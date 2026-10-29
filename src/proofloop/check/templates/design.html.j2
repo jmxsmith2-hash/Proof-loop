@@ -4,9 +4,10 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ r.design }} v{{ r.version }}: design check</title>
 {% set made = r.process.kind if r.process else 'print' %}
-{% include "_physical_style.html.j2" %}
+{% include "_style.html.j2" %}
 </head>
 <body><main>
+<div class="brand">{{ icon }}ProofLoop</div>
 <h1>{{ r.design }} <span class="muted">v{{ r.version }}</span></h1>
 <p class="secondary small">{{ r.file }} · {% if made == 'print' %}{{ (r.printer.names or [r.printer.name])[0] }} ({{ r.printer.nozzle }} mm nozzle, {{ r.printer.layer_height }} mm layers){% else %}{{ r.process.label }}{% if r.process.pull %}, pull along {{ r.process.pull|upper }}{% endif %}{% endif %} ·
   {{ r.material.name }}{% if r.material.learned_from_prints %} · <b>adjusted from {{ r.material.learned_from_prints }} real print(s)</b>{% endif %}
@@ -60,12 +61,12 @@
 {% endfor %}
 
 {% if r.metrics.auto_eject %}{% set ae = r.metrics.auto_eject %}
-<h2>Auto-eject (FarmLoop / ClearLoop)</h2>
+<h2>Auto-eject (FarmLoop loop files)</h2>
 <div class="card small">
   <p>{% if ae.copies_per_plate %}<b>{{ ae.copies_per_plate }} copies</b> fit on one plate ({{ ae.layout[0] }} across x {{ ae.layout[1] }} deep), inside the pusher's lanes (X {{ ae.usable_x[0] }} to {{ ae.usable_x[1] }} mm) and in front of Y {{ ae.rear_limit_y }} mm.{% else %}It doesn't fit inside the pusher's lanes.{% endif %}</p>
   <table><tr><th>Part</th><th class="n">height mm</th><th class="n">pushed at mm</th><th class="n">footprint mm</th><th class="n">flat contact cm²</th></tr>
   {% for p in ae.parts %}<tr><td>{{ loop.index }}</td><td class="n">{{ p.height }}</td><td class="n">{{ p.push_z }}</td><td class="n">{{ p.width }} x {{ p.depth }}</td><td class="n">{{ p.contact_cm2 }}</td></tr>{% endfor %}</table>
-  <p class="muted">Pusher floor {{ ae.settings.floor_z }} mm{% if not ae.settings.floor_calibrated %} (not calibrated yet){% endif %}, push depth {{ ae.settings.push_offset }} mm, release at {{ ae.settings.release_temp }} °C, bender {{ 'fitted' if ae.settings.bender_fitted else 'not fitted' }}{% if ae.settings.from_settings %}, from your ClearLoop settings{% else %} (ClearLoop's defaults){% endif %}.</p>
+  <p class="muted">Pusher floor {{ ae.settings.floor_z }} mm{% if not ae.settings.floor_calibrated %} (not calibrated yet){% endif %}, push depth {{ ae.settings.push_offset }} mm, release at {{ ae.settings.release_temp }} °C, bender {{ 'fitted' if ae.settings.bender_fitted else 'not fitted' }}{% if ae.settings.from_settings %}, from your loop-file settings{% else %} (the defaults for new loop files){% endif %}.</p>
 </div>{% endif %}
 
 {% if r.metrics.orientation %}{% set o = r.metrics.orientation %}

@@ -21,6 +21,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from proofloop.app.config import Settings
+from proofloop.core import theme
 
 log = logging.getLogger(__name__)
 COOKIE = "proofloop_phone"
@@ -40,18 +41,22 @@ def lan_address() -> str:
 
 PAIR_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Pair this phone · ProofLoop</title>
-<style>body{{font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding:24px 16px;background:#f6f5f2;color:#0b0b0b}}
-@media (prefers-color-scheme:dark){{body{{background:#121211;color:#f0efec}}input{{background:#1a1a19;color:inherit}}}}
-main{{max-width:420px;margin:0 auto}}h1{{font-size:22px;margin:0 0 8px}}p{{margin:0 0 14px}}
-input{{font:inherit;font-size:24px;letter-spacing:6px;width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #bbb;border-radius:10px}}
-button{{margin-top:12px;width:100%;padding:12px;border:0;border-radius:10px;background:#2a78d6;color:#fff;font:inherit;font-weight:600}}
-.err{{color:#c81e1e}}</style></head><body><main>
-<h1>Pair this phone with ProofLoop</h1>
-<p>Scan the QR code in ProofLoop on your computer (the <b>Phone</b> button), or type the six-digit code shown there.</p>
+<link rel="icon" href="__PROOFLOOP_FAVICON__"><style>/*__THEME__*/</style>
+<style>main{{max-width:420px;padding-top:28px}}p{{margin:0 0 14px}}.brand{{margin-bottom:18px}}
+input#code{{font-size:24px;letter-spacing:6px;padding:10px 12px;border-radius:10px;margin:4px 0 12px}}
+button.btn{{width:100%;justify-content:center}}.err{{color:var(--bad)}}</style></head><body><main>
+<div class="brand">__PROOFLOOP_ICON__ProofLoop</div>
+<h1>Pair this phone</h1>
+<p class="sub">Scan the QR code in ProofLoop on your computer (More › <b>Phone</b>), or type the six-digit code shown there.</p>
 {error}
-<form method="post" action="/pair"><label for="code">Code</label>
-<input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{{6}}" maxlength="6" required autofocus>
-<button type="submit">Pair</button></form></main></body></html>"""
+<form method="post" action="/pair"><label class="field" for="code"><span>Code</span></label>
+<input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{{6}}" maxlength="6"
+ required autofocus>
+<button type="submit" class="btn primary big">Pair</button></form></main></body></html>"""
+
+
+def pair_page(error: str = "") -> str:
+    return theme.inline(PAIR_PAGE.format(error=error))
 
 
 class Phone:
@@ -153,20 +158,20 @@ class Phone:
                 response.headers.setdefault("X-Frame-Options", "DENY")
                 return response
             if request.method == "GET" and request.url.path == "/":
-                return HTMLResponse(PAIR_PAGE.format(error=""))
+                return HTMLResponse(pair_page())
             return JSONResponse({"detail": "pair this phone first: open ProofLoop on your computer"}, 401)
 
         @api.get("/pair")
         def pair_link(key: str = ""):
             if key and hmac.compare_digest(key, self.settings.phone_secret):
                 return self._pair_response()
-            return HTMLResponse(PAIR_PAGE.format(error='<p class="err">That link is out of date. Scan the '
+            return HTMLResponse(pair_page('<p class="err">That link is out of date. Scan the '
                                                        "code in ProofLoop again.</p>"), 403)
 
         @api.post("/pair")
         async def pair_code(request: Request):
             if self._too_many_tries():
-                return HTMLResponse(PAIR_PAGE.format(error='<p class="err">Too many wrong codes. Wait ten '
+                return HTMLResponse(pair_page('<p class="err">Too many wrong codes. Wait ten '
                                                            "minutes, or scan the QR code instead.</p>"), 429)
             form = await request.form()
             code = str(form.get("code", "")).strip()
@@ -174,7 +179,7 @@ class Phone:
                 return self._pair_response()
             with self._lock:
                 self._tries.append(time.time())
-            return HTMLResponse(PAIR_PAGE.format(error=f'<p class="err">{html.escape("That code is wrong.")}'
+            return HTMLResponse(pair_page(f'<p class="err">{html.escape("That code is wrong.")}'
                                                        "</p>"), 403)
 
         api.mount("/", create_app(self.monitor))  # the Loop files & Printers page and API, nothing else

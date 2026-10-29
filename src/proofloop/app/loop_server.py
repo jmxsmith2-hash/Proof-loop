@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from proofloop import __version__
-from proofloop.core import printers
+from proofloop.core import printers, theme
 from proofloop.core.settings import Defaults, Notifier, PrinterConfig, QuietHours
 from proofloop.loopfiles import threemf
 from proofloop.loopfiles.api import pick_profile
@@ -117,7 +117,7 @@ def create_app(app: App) -> FastAPI:
 
     @api.get("/", response_class=HTMLResponse)
     def index():
-        return (STATIC / "loop.html").read_text(encoding="utf-8")
+        return theme.inline((STATIC / "loop.html").read_text(encoding="utf-8"))
 
     def monitor_card(w) -> dict:
         d = w.as_dict()

@@ -14,9 +14,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
-from jinja2 import Environment, PackageLoader, select_autoescape
-
 from proofloop import SYNTHETIC_DISCLAIMER
+from proofloop.core import theme
 from proofloop.core.config import Settings
 from proofloop.core.db import Database
 from proofloop.core.logging import get_logger
@@ -32,8 +31,7 @@ class Dashboard:
         self.db = db
         self.reports = (settings.data_dir / "reports").resolve()
         self.runs_dir = (settings.data_dir / "runs").resolve()   # session screenshots
-        self.env = Environment(loader=PackageLoader("proofloop.web", "dashboard/templates"),
-                               autoescape=select_autoescape(["j2"]))
+        self.env = theme.environment("proofloop.web", "dashboard/templates")
         self._lock = threading.Lock()
 
     # --------------------------------------------------------------- data

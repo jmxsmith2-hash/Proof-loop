@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }}</title>
+<title>{{ title }} · ProofLoop</title>
 {% include "style.html.j2" %}
 </head>
 <body><main>
-<p class="muted"><a href="/">← dashboard</a>{% if back %} · <a href="{{ back.href }}">{{ back.label }}</a>{% endif %}</p>
+<p class="muted"><a href="/">← Results</a>{% if back %} · <a href="{{ back.href }}">{{ back.label }}</a>{% endif %}</p>
 <h1>Sessions of {{ run.id }}</h1>
 <p class="muted">{{ run.study }} · {{ run.created_at[:16].replace('T', ' ') }} · <a href="/run/{{ run.id }}">report</a></p>
-<div class="banner">{{ disclaimer }}</div>
+<div class="banner warn">{{ disclaimer }}</div>
 <div class="card"><table>
 <tr><th>Session</th><th>Persona</th><th>Task</th><th>Device</th><th>Outcome</th><th class="num">Steps</th><th class="num">Frustration</th><th class="num">Issues</th></tr>
 {% for s in sessions %}<tr><td><a href="/session/{{ s.id }}">{{ s.id }}</a></td><td>{{ s.persona }}</td><td>{{ s.task_id }}</td>

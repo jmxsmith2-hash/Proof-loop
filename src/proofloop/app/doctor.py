@@ -203,20 +203,23 @@ def text(results: list[dict]) -> str:
 def html_page(results: list[dict]) -> str:
     import html as h
 
-    color = {OK: "#0a7d0a", WARN: "#b86e00", BAD: "#c81e1e", INFO: "#2a78d6"}
+    from proofloop.core import theme
+
+    css = {OK: "ok", WARN: "warning", BAD: "danger", INFO: "info"}
     rows = "".join(
-        f'<li><span style="color:{color[r["level"]]}" aria-label="{r["level"]}">{ICON[r["level"]]}</span>'
-        f'<div><b>{h.escape(r["title"])}</b>{"<br><small>" + h.escape(r["detail"]) + "</small>" if r["detail"] else ""}'
-        "</div></li>" for r in results)
+        f'<li><span class="ic {css[r["level"]]}" aria-label="{r["level"]}">{ICON[r["level"]]}</span>'
+        f'<div><b>{h.escape(r["title"])}</b>'
+        + (f'<div class="hint">{h.escape(r["detail"])}</div>' if r["detail"] else "") + "</div></li>" for r in results)
     bad = sum(r["level"] == BAD for r in results)
     warn = sum(r["level"] == WARN for r in results)
-    head = "Everything looks ready." if not (bad or warn) else \
-        f"{bad} problem{'s' if bad != 1 else ''} and {warn} thing{'s' if warn != 1 else ''} to look at."
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+    parts = [f"{bad} problem{'s' if bad != 1 else ''}"] * bool(bad) + [f"{warn} thing{'s' if warn != 1 else ''} to look at"] * bool(warn)
+    head = " and ".join(parts).capitalize() + "." if parts else "Everything looks ready."
+    chip = "ok" if not (bad or warn) else "bad" if bad else "warn"
+    return theme.inline(f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Setup check · ProofLoop</title>
-<style>body{{font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;padding:20px 16px;background:#f6f5f2;color:#0b0b0b}}
-@media (prefers-color-scheme:dark){{body{{background:#121211;color:#f0efec}}}}
-main{{max-width:760px;margin:0 auto}}ul{{list-style:none;padding:0}}li{{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #8883}}
-li span{{font-weight:700;width:1.2em;flex:none}}small{{opacity:.8;word-break:break-word}}</style></head><body><main>
-<h1>Setup check</h1><p>{h.escape(head)} Run <code>proofloop doctor --slice-test --send-test</code> to also slice a test
-part with your slicer and send a test notice.</p><ul>{rows}</ul></main></body></html>"""
+<link rel="icon" href="__PROOFLOOP_FAVICON__"><style>/*__THEME__*/</style>
+<style>main{{max-width:760px;padding-top:24px}}.brand{{margin-bottom:12px}}.hint{{word-break:break-word}}</style>
+</head><body><main><div class="brand">__PROOFLOOP_ICON__ProofLoop</div>
+<div class="spread"><h1>Setup check</h1><span class="chip {chip}">{h.escape(head)}</span></div>
+<p class="sub">Run <code>proofloop doctor --slice-test --send-test</code> to also slice a test part with your slicer
+and send a test notice.</p><div class="card"><ul class="list">{rows}</ul></div></main></body></html>""")

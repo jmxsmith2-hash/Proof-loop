@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>proofloop web dashboard</title>
+<title>Results · ProofLoop</title>
 {% include "style.html.j2" %}
 </head>
 <body><main>
-<h1>synthux</h1>
-<p class="muted">Synthetic user testing · local, read-only view of this machine's results</p>
-<div class="banner">{{ disclaimer }}</div>
+<div class="brand">{{ icon }}ProofLoop</div>
+<h1>Results</h1>
+<p class="sub">Website tests, design checks and product predictions on this computer (read-only).</p>
+<div class="banner warn">{{ disclaimer }}</div>
 
 <h2>CAD designs</h2>
 <div class="card">{% if designs %}<table>
@@ -29,7 +30,7 @@
   <td class="num">{{ r.promoted }}</td>
   <td class="wrap">{% if r.top %}{{ r.top.title }} <span class="muted">{{ r.top.screen_id }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
   <td>{{ r.calibration_version }}</td><td>{{ r.status }} · <a href="/run/{{ r.id }}/sessions">sessions</a></td></tr>{% endfor %}
-</table>{% else %}<p class="muted">No runs yet. Try: proofloop web demo, then proofloop web run studies/demo.yaml</p>{% endif %}</div>
+</table>{% else %}<p class="muted">No runs yet. Try: proofloop web demo, then proofloop web run examples/studies/demo.yaml</p>{% endif %}</div>
 
 <h2>Calibration against real users</h2>
 {% if cal_chart %}<div class="card">{{ cal_chart|safe }}</div>{% endif %}

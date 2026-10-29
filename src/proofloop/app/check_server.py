@@ -27,9 +27,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from jinja2 import Environment, PackageLoader, select_autoescape
-
 from proofloop.check.feedback import path as feedback_path
+from proofloop.core import theme
 from proofloop.core.config import ConfigError, Settings, load_settings, load_yaml_file
 from proofloop.core.db import Database
 from proofloop.core.logging import get_logger
@@ -107,15 +106,14 @@ class App:
         self.db = db
         self.port = port
         self.shell = shell  # origin of the ProofLoop window that shows this app in a frame, if any
-        self.root = (settings.data_dir / "app").resolve()
+        self.root = (settings.data_dir / "checks").resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.feedback_file = feedback_path()
         self.jobs: dict[str, Job] = {}
         self.lock = threading.Lock()
         self.checks = ThreadPoolExecutor(max_workers=2, thread_name_prefix="proofloop-check")
         self.browser = ThreadPoolExecutor(max_workers=1, thread_name_prefix="proofloop-web")  # one site test at a time
-        self.env = Environment(loader=PackageLoader("proofloop.app", "templates"),
-                               autoescape=select_autoescape(["j2"]))
+        self.env = theme.environment("proofloop.app", "templates")
         self._load_jobs()
 
     # ------------------------------------------------------------------ saved jobs

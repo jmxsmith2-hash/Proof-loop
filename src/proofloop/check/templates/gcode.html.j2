@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ r.file }}: G-code check</title>
-{% include "_physical_style.html.j2" %}
+{% include "_style.html.j2" %}
 </head>
 <body><main>
+<div class="brand">{{ icon }}ProofLoop</div>
 <h1>{{ r.file }}</h1>
 <p class="secondary small">{{ r.printer.label }} ({{ r.printer_source }}, {{ r.nozzle }} mm nozzle) · {{ r.material.name }} ({{ r.material_source }})
   {% if r.notes.slicer %} · {{ r.notes.slicer }}{% endif %}{% if r.plates and r.plates|length > 1 %} · plate {{ r.plate }} of {{ r.plates|join(', ') }}{% endif %}
@@ -30,9 +31,9 @@
 <div class="card small">
   <p><b>{{ lf.loops }} loops</b> made by {{ lf.made_by }}{% if lf.plates > 1 %}, {{ lf.plates }} different plates{% endif %}:
     {{ r.metrics.filament_g_per_loop }} g and {{ r.metrics.layers }} layers per loop{% if lf.plate_check_pauses %};
-    the printer waits for ProofLoop's printer monitor's plate check {{ lf.plate_check_pauses }} time(s){% endif %}.
-    The checks below look at each loop's print; the cooldown, door, bend and sweep after it are
-    {% if lf.loop_checks is not none %}checked by ClearLoop:{% else %}not checked here (install ClearLoop).{% endif %}</p>
+    the printer waits for ProofLoop's plate check {{ lf.plate_check_pauses }} time(s){% endif %}.
+    The checks below look at each loop's print; the cooldown, door, bend and sweep after it
+    {% if lf.loop_checks is not none %}get the loop-file checks:{% else %}need the whole .gcode.3mf to be checked.{% endif %}</p>
   {% if lf.loop_checks %}<table>{% for c in lf.loop_checks %}<tr><td class="{{ 'ok' if c.level == 'ok' else 'bad' if c.level == 'danger' else '' }}">{{ {'ok': 'OK', 'danger': 'danger', 'warning': 'warning', 'info': 'note'}[c.level] }}</td><td><b>{{ c.title }}</b><br>{{ c.detail }}</td></tr>{% endfor %}</table>{% endif %}
 </div>{% endif %}
 

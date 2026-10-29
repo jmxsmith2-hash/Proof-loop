@@ -2,15 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ title }}</title>
+<title>{{ title }} · ProofLoop</title>
 {% include "style.html.j2" %}
 </head>
 <body><main>
-<p class="muted"><a href="/">← dashboard</a>{% if back %} · <a href="{{ back.href }}">{{ back.label }}</a>{% endif %}</p>
+<p class="muted"><a href="/">← Results</a>{% if back %} · <a href="{{ back.href }}">{{ back.label }}</a>{% endif %}</p>
 <h1>{{ persona }} · {{ session.task_id }}</h1>
 <p class="muted">{{ session.id }} · {{ device }} · outcome <b>{{ session.outcome }}</b>{% if session.quit_reason %}: “{{ session.quit_reason }}”{% endif %}
   · {{ session.steps_count }} steps · frustration {{ '%.0f' % session.final_frustration }}</p>
-<div class="banner">{{ disclaimer }}</div>
+<div class="banner warn">{{ disclaimer }}</div>
 {% if issues %}<h2>Issues raised in this session</h2>
 <div class="card"><table><tr><th>Step</th><th>Issue</th><th>Status</th><th>Replay</th></tr>
 {% for i in issues %}<tr><td><a href="#step{{ i.step_idx }}">{{ i.step_idx + 1 }}</a></td><td class="wrap">{{ i.title }}: {{ i.description }}</td>

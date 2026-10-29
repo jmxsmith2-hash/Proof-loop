@@ -3,15 +3,16 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ r.model }}: ready to print?</title>
-{% include "_physical_style.html.j2" %}
+{% include "_style.html.j2" %}
 <style>
-.verdict { border-radius: 14px; padding: 18px 20px; margin: 14px 0; border: 2px solid var(--border); background: var(--card); }
-.verdict.ready { border-color: var(--good); } .verdict.fix { border-color: var(--s3); }
+.verdict { border-radius: 14px; padding: 18px 20px; margin: 14px 0; border: 2px solid var(--line); background: var(--panel); }
+.verdict.ready { border-color: var(--ok); } .verdict.fix { border-color: var(--sev3); }
 .verdict h2 { margin: 0 0 4px; font-size: 22px; }
 .links a { margin-right: 14px; font-weight: 600; }
 </style>
 </head>
 <body><main>
+<div class="brand">{{ icon }}ProofLoop</div>
 <h1>{{ r.model }}</h1>
 <p class="secondary small">{{ (r.printer.names or [r.printer.name])[0] }} · {{ r.material.name }} · sliced by {{ r.slicer.name }} with
   "{{ r.presets.process }}" and "{{ r.presets.filament }}"{% if r.presets.overrides %} (support {{ 'on' if r.presets.overrides.process.enable_support else 'off' }}){% endif %} · {{ r.generated[:16] }}</p>

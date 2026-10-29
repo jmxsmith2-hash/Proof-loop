@@ -85,12 +85,11 @@ def _summarise(per_persona: dict[str, list[PhysicalFinding]], personas: list[Per
 
 
 def write_report(result: dict[str, Any], out_dir: Path, personas: list[Persona]) -> Path:
-    from jinja2 import Environment, PackageLoader, select_autoescape
-
     from proofloop import SYNTHETIC_DISCLAIMER
     from proofloop.check.guardrails import LABEL
+    from proofloop.core import theme
 
-    env = Environment(loader=PackageLoader("proofloop.check", "templates"), autoescape=select_autoescape(["j2"]))
+    env = theme.environment("proofloop.check", "templates")
     html = env.get_template("physical.html.j2").render(
         r=result, label=LABEL, disclaimer=SYNTHETIC_DISCLAIMER, personas={p.id: p for p in personas},
         generated=utcnow())

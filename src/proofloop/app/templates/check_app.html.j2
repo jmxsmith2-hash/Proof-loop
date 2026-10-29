@@ -2,59 +2,48 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Synthux</title>
-{% include "style.html.j2" %}
+<title>{{ "Website tests" if view == "web" else "Check" }} · ProofLoop</title>
+<link rel="icon" href="{{ favicon }}">
+<style>{{ theme_css }}</style>
 <style>
-main { max-width: 1040px; }
-.lead { color: var(--text-secondary); margin: 4px 0 18px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
-.tool { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
-.tool h2 { margin: 0 0 4px; font-size: 17px; } .tool p { margin: 0 0 10px; color: var(--text-secondary); font-size: 14px; }
-.drop { border: 2px dashed var(--border); border-radius: 12px; padding: 22px 12px; text-align: center; cursor: pointer;
-  color: var(--text-secondary); transition: border-color .15s, background .15s; font-size: 14px; }
-.drop:hover, .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.drop b { color: var(--text); display: block; font-size: 15px; margin-bottom: 2px; }
-label { display: block; font-size: 13px; color: var(--text-secondary); margin: 8px 0 3px; }
-input[type=text], input[type=url], input[type=number], select { width: 100%; padding: 7px 9px; border-radius: 8px;
-  border: 1px solid var(--border); background: var(--bg); color: var(--text); font: inherit; font-size: 14px; }
-.row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--text-secondary); margin-top: 8px; }
+.lead { color: var(--muted); margin: 4px 0 18px; }
+.brand { margin-bottom: 14px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.cards h2 { font-size: 17px; margin: 0 0 4px; } .cards .card > p { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+.cards .drop { padding: 22px 12px; }
+.cards label:not(.check) { display: block; font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
+.cards .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; color: var(--ink-2); margin-top: 10px; }
 .check input { margin-top: 3px; }
-button { margin-top: 12px; padding: 8px 16px; border-radius: 9px; border: 0; background: var(--accent); color: #fff;
-  font: inherit; font-weight: 600; cursor: pointer; } button:disabled { opacity: .5; cursor: default; }
-.err { color: #c81e1e; font-size: 13px; margin-top: 8px; min-height: 1em; }
-.job { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+#w-go { margin-top: 14px; }
+.btn.small { padding: 3px 10px; font-size: 13px; font-weight: 500; }
+.err { color: var(--bad); font-size: 13px; margin-top: 8px; min-height: 1em; }
+.job { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .job:last-child { border-bottom: 0; }
-.job h3 { margin: 0; font-size: 15px; } .job ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; color: var(--text-secondary); }
-.status { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--border); }
-.status.done { color: #0a7d0a; border-color: #0a7d0a; } .status.failed { color: #c81e1e; border-color: #c81e1e; }
-.loop { margin-top: 8px; font-size: 14px; } .loop input { width: 64px; }
-button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); margin-left: 6px; }
-button.small { margin-top: 4px; padding: 3px 10px; font-size: 13px; font-weight: 500; }
-.small { font-size: 13px; }
-.side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-.verdicts { margin-top: 8px; font-size: 14px; } .verdicts summary { cursor: pointer; color: var(--accent); }
+.job h3 { margin: 0; font-size: 15px; } .job ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink-2); }
+.job .fail { color: var(--bad); }
+.loop { margin-top: 8px; font-size: 14px; } .loop input { width: 72px; margin: 0 4px; }
+.side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.verdicts { margin-top: 8px; font-size: 14px; } .verdicts summary { color: var(--accent); }
 .verdicts ul { list-style: none; padding: 0; } .verdicts li { padding: 4px 0; }
-.status.running { color: var(--accent); border-color: var(--accent); }
-.bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 6px; overflow: hidden; }
-.bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+.progress { height: 4px; background: var(--line); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
 .open { display: inline-block; margin-top: 4px; font-weight: 600; }
-.hosts { font-size: 12px; color: var(--muted); margin-top: 6px; }
-@media (prefers-reduced-motion: reduce) { .drop, .bar i { transition: none; } }
+.hosts { font-size: 12px; color: var(--muted); margin-top: 8px; }
 </style>
 </head>
 <body><main>
-{% if not shell %}<h1>Synthux</h1>{% endif %}
+{% if not shell %}<div class="brand">{{ icon }}ProofLoop</div>{% endif %}
 <p class="lead">{% if view == "web" %}Let personas try your website: they see only the screen, like people, and you get a report with replays.
   {% elif view == "print" %}Check a design before you print, or check the sliced file before it goes to the printer.
   {% else %}Check a design before you print, check the sliced file before it goes to the printer, or let personas try a website.
   {% endif %}Everything runs on this computer{% if not smart %} and is free{% endif %}.</p>
 
 <div class="cards">
-  {% if view != "web" %}<section class="tool" aria-labelledby="cad-h">
+  {% if view != "web" %}<section class="card" aria-labelledby="cad-h">
     <h2 id="cad-h">CAD design</h2>
     <p>STL, 3MF, OBJ, PLY, GLB from Fusion, Tinkercad or Blender. Checks it for printing, moulding or machining, and how people would hold it.</p>
-    <div class="drop" id="cad-drop" tabindex="0" role="button" aria-label="Choose a CAD file"><b>Drop a CAD file here</b>or click to choose</div>
+    <div class="drop" id="cad-drop" tabindex="0" role="button" aria-label="Choose a CAD file"><strong>Drop a CAD file here</strong><small>or click to choose</small></div>
     <input type="file" id="cad-file" accept=".stl,.3mf,.obj,.ply,.glb,.gltf,.off,.step,.stp" hidden>
     <div class="row">
       <div><label for="cad-process">How it is made</label><select id="cad-process">
@@ -72,24 +61,24 @@ button.small { margin-top: 4px; padding: 3px 10px; font-size: 13px; font-weight:
     <label class="check"><input type="checkbox" id="cad-eject"> Printed in a FarmLoop loop (check the pusher clears it; copies per plate)</label>
     {% if slicer %}<label class="check" id="cad-slice-box"><input type="checkbox" id="cad-slice" checked> Slice it with {{ slicer }} too and check the G-code (ready-to-print verdict)</label>
     <div class="row" id="cad-slice-opts"><div><label for="cad-support">Support</label><select id="cad-support"><option value="">As the preset has it</option><option value="on">On (tree)</option><option value="off">Off</option></select></div>
-      <div><label for="cad-loops">ClearLoop loops</label><input type="number" id="cad-loops" min="0" max="50" value="0"></div></div>{% endif %}
+      <div><label for="cad-loops">Also make a loop file, loops</label><input type="number" id="cad-loops" min="0" max="50" value="0"></div></div>{% endif %}
     <div class="err" id="cad-err" role="alert"></div>
   </section>
 
-  <section class="tool" aria-labelledby="g-h">
+  <section class="card" aria-labelledby="g-h">
     <h2 id="g-h">Sliced G-code</h2>
     <p>.gcode or a Bambu Studio .gcode.3mf. Checks the plate, layers, temperatures, flow, retraction and cooling.</p>
-    <div class="drop" id="g-drop" tabindex="0" role="button" aria-label="Choose a G-code file"><b>Drop a G-code file here</b>or click to choose</div>
+    <div class="drop" id="g-drop" tabindex="0" role="button" aria-label="Choose a G-code file"><strong>Drop a G-code file here</strong><small>or click to choose</small></div>
     <input type="file" id="g-file" accept=".gcode,.3mf,.gco" hidden>
     <div class="row">
       <div><label for="g-printer">Printer</label><select id="g-printer"><option value="">From the file</option>{% if farm %}<optgroup label="Your printers">{% for p in farm %}<option value="{{ p.id }}">{{ p.label }}</option>{% endfor %}</optgroup><optgroup label="Printer types">{% endif %}{% for p in printers if p.type != 'resin' %}<option value="{{ p.id }}">{{ p.label }}</option>{% endfor %}{% if farm %}</optgroup>{% endif %}</select></div>
       <div><label for="g-material">Material</label><select id="g-material"><option value="">From the file</option>{% for m in materials if m != 'resin' %}<option>{{ m }}</option>{% endfor %}</select></div>
     </div>
-    {% if farm %}<p class="hosts">Your printers come from ClearLoop (Loop files &amp; printers › Monitor): add one there and it shows here too.</p>{% endif %}
+    {% if farm %}<p class="hosts">Your printers come from Printers › Monitor: add one there and it shows here too.</p>{% endif %}
     <div class="err" id="g-err" role="alert"></div>
   </section>{% endif %}
 
-  {% if view != "print" %}<section class="tool" aria-labelledby="w-h">
+  {% if view != "print" %}<section class="card" aria-labelledby="w-h">
     <h2 id="w-h">Website</h2>
     <p>Personas see only the screen, like people. They try your task and you get a report with replays.</p>
     <form id="w-form">
@@ -103,7 +92,7 @@ button.small { margin-top: 4px; padding: 3px 10px; font-size: 13px; font-weight:
       <label class="check"><input type="checkbox" id="w-find"> It's about finding information (also checks how buried it is)</label>
       <label class="check"><input type="checkbox" id="w-allow"> This is my own site: add it to the allowlist (payments, emails and deletes stay blocked)</label>
       {% if smart %}<label class="check"><input type="checkbox" id="w-smart"> Smart mode: Claude on hard screens and for judging (costs a little; limited by run.max_cost_usd)</label>{% endif %}
-      <button type="submit" id="w-go">Start the test</button>
+      <button type="submit" class="btn primary" id="w-go">Start the test</button>
       <div class="err" id="w-err" role="alert"></div>
       <div class="hosts">Allowed now: {{ hosts|join(', ') }}</div>
     </form>
@@ -135,10 +124,10 @@ function uploader(kind) {
     xhr.open("POST", "/api/check?" + q.toString());
     xhr.setRequestHeader("{{ header }}", "1");
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    drop.querySelector("b").textContent = "Uploading " + file.name + "...";
-    xhr.upload.onprogress = (e) => { if (e.lengthComputable) drop.querySelector("b").textContent =
+    drop.querySelector("strong").textContent = "Uploading " + file.name + "...";
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) drop.querySelector("strong").textContent =
       "Uploading " + file.name + " (" + Math.round(100 * e.loaded / e.total) + "%)"; };
-    xhr.onload = () => { drop.querySelector("b").textContent = kind === "g" ? "Drop a G-code file here" : "Drop a CAD file here";
+    xhr.onload = () => { drop.querySelector("strong").textContent = kind === "g" ? "Drop a G-code file here" : "Drop a CAD file here";
       if (xhr.status >= 300) { try { err.textContent = JSON.parse(xhr.responseText).error; } catch (e) { err.textContent = "Upload failed"; } }
       refresh(); };
     xhr.onerror = () => { err.textContent = "Upload failed"; };
@@ -184,7 +173,7 @@ window.addEventListener("drop", (e) => { if (e.target.closest(".drop")) return; 
 });{% endif %}
 
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
-const LABEL = {cad: "CAD", gcode: "G-code", web: "Website"};
+const LABEL = {cad: "CAD", gcode: "G-code", web: "Website"}, STATUS = {done: "ok", failed: "bad", running: "info"};
 async function refresh() {
   let jobs = [];
   try { jobs = await (await fetch("/api/jobs")).json(); } catch (e) { return; }
@@ -194,28 +183,28 @@ async function refresh() {
     clearTimeout(window._t); window._t = setTimeout(refresh, 5000); return; }
   box.innerHTML = jobs.map(j => {
     const counts = j.counts.total !== undefined && j.kind !== "web"
-      ? ` · ${j.counts.fail ? `<b style="color:#c81e1e">${j.counts.fail} will fail</b> · ` : ""}${j.counts.major || 0} major, ${j.counts.total} in total` : "";
+      ? ` · ${j.counts.fail ? `<b class="fail">${j.counts.fail} will fail</b> · ` : ""}${j.counts.major || 0} major, ${j.counts.total} in total` : "";
     const done = j.status === "done" || j.status === "failed";
     const verdicts = j.status === "done" && j.printer && j.findings.length ? `<details class="verdicts"><summary>Wrong about something?</summary>
       <p class="muted">Mark false alarms: a check you mark twice on ${esc(j.printer)} with ${esc(j.material || "")} counts lower there from then on.</p>
       <ul>${j.findings.map(f => `<li><span>${esc(f.severity_name)}: ${esc(f.title)}</span>
         ${f.verdict ? `<span class="muted">${f.verdict === "wrong" ? "marked a false alarm" : "marked right"}</span>`
-          : `<button type="button" class="ghost small" data-verdict="wrong" data-job="${esc(j.id)}" data-check="${esc(f.check)}">Not a problem</button>
-             <button type="button" class="ghost small" data-verdict="right" data-job="${esc(j.id)}" data-check="${esc(f.check)}">It was right</button>`}</li>`).join("")}</ul></details>` : "";
+          : `<button type="button" class="btn small" data-verdict="wrong" data-job="${esc(j.id)}" data-check="${esc(f.check)}">Not a problem</button>
+             <button type="button" class="btn small" data-verdict="right" data-job="${esc(j.id)}" data-check="${esc(f.check)}">It was right</button>`}</li>`).join("")}</ul></details>` : "";
     return `<div class="job"><div><h3>${esc(LABEL[j.kind])}: ${esc(j.title)}</h3>
       <div class="muted">${esc(j.status === "failed" ? (j.error || "failed") : j.stage)}${counts}</div>
-      ${j.status === "running" && j.progress !== null ? `<div class="bar"><i style="width:${Math.round(j.progress * 100)}%"></i></div>` : ""}
+      ${j.status === "running" && j.progress !== null ? `<div class="progress"><i style="width:${Math.round(j.progress * 100)}%"></i></div>` : ""}
       ${j.summary.length ? `<ul>${j.summary.map(s => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}
       ${j.report_url ? `<a class="open" href="${j.report_url}" target="_blank" rel="noopener">Open the report</a>` : ""}
       ${j.download ? `<a class="open" style="margin-left:14px" href="${j.download}" download>Download the loop file</a>` : ""}
-      ${j.can_loop && j.status === "done" ? `<div class="loop"><b>Loop file</b> (ClearLoop):
+      ${j.can_loop && j.status === "done" ? `<div class="loop"><b>Loop file:</b>
         <input type="number" min="1" max="500" value="${LOOPS[j.id] || 5}" aria-label="Loops" id="loops-${esc(j.id)}"> loops
-        <button type="button" data-loop="${esc(j.id)}" title="Uses your saved ClearLoop settings: profile, sweep floor, push depth, cooldown">Make it now</button>
-        ${SHELL ? `<button type="button" class="ghost" data-open-loop="${esc(j.id)}" title="Set push heights per part, cooldown, costs and batches">Fine-tune in ClearLoop</button>` : ""}
-        <div class="muted small">${SHELL ? "Make it now uses your saved ClearLoop settings; Fine-tune opens the plate in ClearLoop to change them for this plate." : "Uses your saved ClearLoop settings."}</div></div>` : ""}
+        <button type="button" class="btn primary small" data-loop="${esc(j.id)}" title="Uses your saved loop-file settings: profile, sweep floor, push depth, cooldown">Make it now</button>
+        ${SHELL ? `<button type="button" class="btn small" data-open-loop="${esc(j.id)}" title="Set push heights per part, cooldown, costs and batches">Fine-tune in Loop files</button>` : ""}
+        <div class="muted small">${SHELL ? "Make it now uses your saved loop-file settings; Fine-tune opens the plate in Make a loop file to change them for this plate." : "Uses your saved loop-file settings."}</div></div>` : ""}
       ${verdicts}</div>
-      <div class="side"><span class="status ${esc(j.status)}">${esc(j.status)}</span>
-        ${done ? `<button type="button" class="ghost small" data-remove="${esc(j.id)}" aria-label="Remove ${esc(j.title)}">Remove</button>` : ""}</div></div>`;
+      <div class="side"><span class="chip ${STATUS[j.status] || ""}">${esc(j.status)}</span>
+        ${done ? `<button type="button" class="btn small" data-remove="${esc(j.id)}" aria-label="Remove ${esc(j.title)}">Remove</button>` : ""}</div></div>`;
   }).join("");
   for (const j of jobs) {
     const was = SEEN[j.id];
@@ -229,7 +218,7 @@ async function refresh() {
 const SEEN = {}, LOOPS = {};  // LOOPS keeps a typed loop count across refreshes
 document.getElementById("jobs").addEventListener("input", (e) => {
   if (e.target.id && e.target.id.startsWith("loops-")) LOOPS[e.target.id.slice(6)] = +e.target.value; });
-// Inside the ProofLoop window: hand plates to ClearLoop, and let the window tell you when a check is done.
+// Inside the ProofLoop window: hand plates to Loop files, and let the window tell you when a check is done.
 const SHELL = {{ shell|tojson }};
 if (SHELL) window.addEventListener("message", (e) => {
   if (e.origin === SHELL && e.source === window.parent && e.data && e.data.proofloop === "refresh")
@@ -259,7 +248,7 @@ document.getElementById("jobs").addEventListener("click", async (e) => {
     refresh(); return;
   }
   const o = e.target.closest("button[data-open-loop]");
-  if (o && SHELL) { window.parent.postMessage({proofloop: "open-in-clearloop", job: o.dataset.openLoop}, SHELL); return; }
+  if (o && SHELL) { window.parent.postMessage({proofloop: "open-in-loop-files", job: o.dataset.openLoop}, SHELL); return; }
   const b = e.target.closest("button[data-loop]"); if (!b) return;
   const loops = +document.getElementById("loops-" + b.dataset.loop).value; b.disabled = true;
   try {

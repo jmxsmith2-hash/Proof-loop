@@ -51,7 +51,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 proofloop = [
     "data/*", "data/calibration/*",
-    "core/migrations/*.sql",
+    "core/migrations/*.sql", "core/theme.css",
     "app/static/*", "app/templates/*",
     "check/templates/*",
     "loopfiles/profile_data/*.json",
