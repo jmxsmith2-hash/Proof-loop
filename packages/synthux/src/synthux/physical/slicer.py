@@ -248,7 +248,9 @@ def slice_model(slicer: Slicer, model: Path, presets: Presets, out_dir: Path, *,
     """Run the slicer. Returns (the sliced .gcode.3mf, the slicer's log). Raises ConfigError on failure."""
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{Path(model).name.split('.')[0]}.gcode.3mf"
-    cmd = [str(slicer.exe), "--slice", "0", "--export-3mf", str(out),
+    # --export-3mf takes a file name: the slicers put it inside --outputdir themselves (an absolute
+    # path there becomes <outputdir>/<absolute path> and the export fails with exit -13).
+    cmd = [str(slicer.exe), "--slice", "0", "--export-3mf", out.name,
            "--load-settings", f"{presets.files['machine']};{presets.files['process']}",
            "--load-filaments", str(presets.files["filament"]),
            "--arrange", "1" if arrange else "0", "--orient", "1" if orient else "0",

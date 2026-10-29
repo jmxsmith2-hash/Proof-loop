@@ -127,7 +127,12 @@ def main(argv: list[str] | None = None) -> int:
         zf.writestr("Metadata/plate_1.gcode", data)
         zf.writestr("Metadata/plate_1.gcode.md5", hashlib.md5(data).hexdigest().upper())
         zf.writestr("Metadata/slice_info.config", info)
-    Path(a.out).write_bytes(buf.getvalue())
+    # Like Bambu Studio and Orca: the export name goes inside --outputdir (an absolute path fails, -13)
+    if Path(a.out).is_absolute():
+        (Path(a.outputdir) / "result.json").write_text(json.dumps(
+            {"return_code": -13, "error_string": "Failed exporting 3mf files."}), encoding="utf-8")
+        return -13 & 0xFF
+    (Path(a.outputdir) / a.out).write_bytes(buf.getvalue())
     print(f"sliced {a.model}: {len(zs)} layers, support {'on' if support else 'off'}")
     return 0
 
