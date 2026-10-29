@@ -215,6 +215,14 @@ def write_presets(lib: PresetLibrary, folder: Path, machine: str, process: str, 
         for key, value in overrides.get(kind, {}).items():
             current = data.get(key)
             data[key] = [str(value)] * len(current) if isinstance(current, list) else str(value)
+        # Which printer / process / filament this is, as Bambu Studio and Orca record it in a project:
+        # the CLI checks the process is compatible with the printer by these names.
+        if kind == "machine":
+            data["printer_settings_id"] = name
+        elif kind == "process":
+            data["print_settings_id"] = name
+        else:
+            data["filament_settings_id"] = [name]
         path = folder / f"{kind}.json"
         path.write_text(json.dumps(data, indent=1), encoding="utf-8")
         files[kind] = path

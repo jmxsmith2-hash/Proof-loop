@@ -213,3 +213,11 @@ def test_setup_check_prints_on_a_windows_console(tmp_path, monkeypatch):
     assert main(["doctor"]) in (0, 1)
     sys.stdout.flush()
     assert "✓".encode() in raw.getvalue()
+
+
+def test_finds_its_own_folder():
+    from pathlib import Path
+
+    root = autostart.repo_root()
+    assert root is not None and (root / "packages" / "proofloop").is_dir() and (root / "setup.bat").is_file()
+    assert root == Path(__file__).resolve().parents[3]

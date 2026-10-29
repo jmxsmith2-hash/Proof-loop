@@ -16,7 +16,7 @@ LABEL = "com.proofloop.service"
 
 def repo_root() -> Path | None:
     """The ProofLoop folder (repository root) when ProofLoop runs from it."""
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]  # <root>/packages/proofloop/src/proofloop/autostart.py
     return root if (root / "packages" / "proofloop").is_dir() else None
 
 

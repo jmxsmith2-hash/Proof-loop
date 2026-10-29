@@ -225,3 +225,16 @@ jobs:
         run: |
           synthux physical prepare examples/cad/phone_stand_v1.stl --design examples/cad/phone_stand.yaml --loops 2
           synthux physical prepare examples/cad/block_control.stl --fix
+      - name: What the slicer said (when it failed)
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem packages\synthux\data -Recurse -Filter *.json -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "presets" } | Select-Object -First 3 | ForEach-Object {
+              $j = Get-Content $_.FullName -Raw | ConvertFrom-Json
+              Write-Host "$($_.Name): name=$($j.name) type=$($j.type) printer_model=$($j.printer_model) compatible_printers=$($j.compatible_printers -join ',') settings_id=$($j.printer_settings_id)$($j.print_settings_id)$($j.filament_settings_id)"
+            }
+          foreach ($app in "BambuStudio", "OrcaSlicer") {
+            $log = Get-ChildItem "$env:APPDATA\$app\log" -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+            if ($log) { Write-Host "--- $($log.FullName)"; Get-Content $log.FullName -Tail 60 }
+          }
