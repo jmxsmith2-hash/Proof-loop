@@ -1,0 +1,12 @@
+# Design description for `proofloop check design FILE --design examples/cad/phone_stand.yaml`
+name: Phone stand
+type: [everyday, desk accessory]
+description: Desk stand that holds a phone upright for video calls.
+printer: generic_fdm_0.4
+material: PLA
+use:
+  handheld: false
+  load: {mass_g: 200, at: [0, 18, 45]}     # a phone resting against the back plate (mm, model coordinates)
+features:                                  # dimensions you will measure on the print (optional)
+  - {feature: base width, designed_mm: 60, kind: outer, axis: x}
+  - {feature: base depth, designed_mm: 25, kind: outer, axis: y}

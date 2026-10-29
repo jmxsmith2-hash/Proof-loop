@@ -1,0 +1,86 @@
+# ProofLoop's built-in advanced settings (website tests, personas, models, safety).
+# To change one, put just that setting in ~/.proofloop/config/settings.yaml: it is merged over this file.
+# Values like ${NAME} or ${NAME:-default} are read from the environment (or .env).
+# Secrets must never be written here directly.
+
+# data_dir: ...               # runs, reports, the results database (default: ~/.proofloop)
+log_level: INFO
+
+engine:
+  # "heuristic" runs entirely on this machine and costs nothing (no API key).
+  # "ollama" uses a local model server. "anthropic" uses Claude (needs ANTHROPIC_API_KEY).
+  default: heuristic
+  roles: {}                    # per-role override, e.g. {judge: anthropic, reporter: anthropic}
+  # actor: hybrid = the free rules act, and a model only sees the hard screens (searching, about to quit,
+  # unexplained errors, unclear labels, clicks that did nothing). Usually ~70% cheaper than a model every step.
+  hybrid:
+    engine: anthropic          # or ollama (free, local)
+    max_calls_per_session: 6
+  model_image_width: 1024      # screenshots wider than this are scaled down before a model sees them
+  # batch: true = Claude answers the judge, questionnaire and grouping calls through the Batches API:
+  # half price, but verification waits for the batch (usually minutes, up to 24 h). Personas never batch.
+  batch: false
+  batch_roles: [judge, persona, grouper]
+
+# Only these hosts may ever be opened. A study cannot widen this list.
+safety:
+  allowlist:
+    - host: 127.0.0.1
+      ports: [8765]
+      sandbox: true            # sandbox targets may submit payments/emails (they are fake)
+      note: bundled demo app
+    - host: localhost
+      ports: [8765]
+      sandbox: true
+    - host: 127.0.0.1
+      ports: [8766]
+      sandbox: true
+      note: second demo site (Pinecone Home)
+  # Requests whose URL matches any of these are blocked unless the target is a sandbox.
+  blocked_request_patterns:
+    - "stripe\\.com"
+    - "paypal\\.com"
+    - "braintreegateway\\.com"
+    - "adyen\\.com"
+    - "api\\.sendgrid\\.com"
+    - "api\\.mailgun\\.net"
+    - "api\\.postmarkapp\\.com"
+    - "/pay(ment)?s?(/|$)"
+    - "/charge"
+  # Clicks on controls whose visible text or attributes match these are blocked on non-sandbox targets.
+  payment_patterns: ["\\bpay\\b", "pay now", "place order", "complete purchase", "buy now", "submit payment", "confirm payment"]
+  email_patterns: ["send email", "send message", "send invite", "invite", "\\bsend\\b"]
+  destructive_patterns: ["delete", "remove account", "close account", "erase", "deactivate", "cancel subscription", "unsubscribe"]
+
+run:
+  repeats: 3                   # runs per persona x task
+  promote_min: 2               # an issue must appear in at least this many runs to be promoted
+  concurrency: auto            # parallel browser sessions (auto = 2 per CPU core, up to 8)
+  max_cost_usd: 5.00           # refuse to start a paid run estimated above this (0 = no limit)
+  seconds_per_step: 6          # simulated human time per action (think + act)
+
+noise:
+  enabled: true
+  misclick_rate_by_skill: {1: 0.10, 2: 0.06, 3: 0.04, 4: 0.02, 5: 0.01}   # per click
+  typo_rate_by_skill:     {1: 0.03, 2: 0.02, 3: 0.012, 4: 0.006, 5: 0.003} # per character
+  misclick_sigma_px: 18        # extra scatter, multiplied for motor considerations
+
+browser:
+  headless: true
+  executable_path: null        # auto-detected; set if Chromium is somewhere unusual
+  slow_load_seconds: 3.0       # a page taking longer than this counts as slow
+  quiet_exit_seconds: 1.5      # after an action with no visible effect, stop waiting once the network has
+                               # been idle this long (the persona's full wait still counts in simulated time);
+                               # raise it for sites that update the screen on timers, 0 = always wait in full
+
+devices:
+  desktop: {width: 1280, height: 800, mobile: false, scale: 1}
+  tablet:  {width: 820, height: 1180, mobile: true, scale: 1}
+  mobile:  {width: 390, height: 844, mobile: true, scale: 1}
+
+networks:
+  fast:   {latency_ms: 0, download_kbps: 0, upload_kbps: 0}
+  "4g":   {latency_ms: 150, download_kbps: 4000, upload_kbps: 1500}
+  "3g":   {latency_ms: 400, download_kbps: 750, upload_kbps: 250}
+
+calibration_profile: default   # file under config/calibration/ (or a stored version id)
