@@ -1,3 +1,4 @@
+import dataclasses
 import hashlib
 import io
 import re
@@ -267,6 +268,7 @@ def test_orcaslicer_without_the_machine_markers():
     g = g.replace("; MACHINE_START_GCODE_END\n", "").replace(
         "; MACHINE_END_GCODE_START\n", "; FEATURE: Custom\n; filament end gcode \n"
     )
+    g = g.replace(";===== 2026/05/18 =====", ";===== Based on official 2026/04/21 start gcode =====")
     lay = threemf.layout(g)
     assert lay.ok and lay.lines[lay.start_gcode_end].startswith("; CHANGE_LAYER")
     assert lay.lines[lay.end_gcode_start].startswith("; filament end gcode")
@@ -274,3 +276,8 @@ def test_orcaslicer_without_the_machine_markers():
     bambu = run()
     assert [p.as_dict() for p in orca.analysis.parts] == [p.as_dict() for p in bambu.analysis.parts]
     assert end_block(orca.gcode) == end_block(bambu.gcode)
+    start = "\n".join(orca.gcode.splitlines()[:80])
+    assert "Based on official 2026/04/21 start gcode =====\n; >>> CLEARLOOP START" in start
+    # a profile saved with the Bambu-only date anchor still finds OrcaSlicer's line
+    old = dataclasses.replace(STAGE2, start_anchor=r"^;=+ \d{4}/\d{2}/\d{2} =+$")
+    assert process(load(make_3mf(g, SMALL)), old, LoopSettings()).gcode == orca.gcode

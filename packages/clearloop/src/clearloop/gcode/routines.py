@@ -30,7 +30,10 @@ from .sweep import SweepPlan, SweepSettings, sweep_gcode
 BLOCK_RE = re.compile(r"; >>> CLEARLOOP (\w+)\n.*?; <<< CLEARLOOP \1\n", re.S)
 FAN_OFF_RE = re.compile(r"^\s*M106\b(?:\s+P\d+)?\s+S0\b")
 STEPPER_RE = re.compile(r"^\s*(M17|M18|M84)\b")
-DATE_LINE = re.compile(r"^;=+ \d{4}/\d{2}/\d{2} =+$")
+# Bambu Studio: ";===== 2026/05/18 =====". OrcaSlicer: ";===== Based on official 2026/04/21 start gcode =====".
+DATE_ANCHOR = r"^;=+ (?:Based on official )?\d{4}/\d{2}/\d{2}(?: start gcode)? =+$"
+_BAMBU_DATE_ANCHOR = r"^;=+ \d{4}/\d{2}/\d{2} =+$"  # in profiles imported before OrcaSlicer was supported
+DATE_LINE = re.compile(DATE_ANCHOR)
 
 # P2S fan indexes, from the printer's stock end G-code template in Bambu Studio:
 # P2 = "remote part cooling fan" (aux), P3 = "chamber cooling fan" (exhaust).
@@ -83,7 +86,7 @@ def stock_fans_off(end_region: list[str]) -> list[str]:
 
 
 def find_start_anchor(lines: list[str], lo: int, hi: int, anchor: str) -> int:
-    pattern = re.compile(anchor)
+    pattern = re.compile(DATE_ANCHOR if anchor == _BAMBU_DATE_ANCHOR else anchor)
     for i in range(lo, hi):
         if pattern.match(lines[i].rstrip("\r\n").strip()):
             return i
@@ -93,7 +96,7 @@ def find_start_anchor(lines: list[str], lo: int, hi: int, anchor: str) -> int:
 def generalize_anchor(anchor_line: str) -> str:
     """Bambu stamps a date on its start template; anchor on 'the date line', not one specific date."""
     if DATE_LINE.match(anchor_line.strip()):
-        return r"^;=+ \d{4}/\d{2}/\d{2} =+$"
+        return DATE_ANCHOR
     return "^" + re.escape(anchor_line.strip()) + "$"
 
 
