@@ -2,14 +2,12 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
 # (or double-click setup.bat)
 #
-# Installs ProofLoop into one .venv here: synthux (checks designs and G-code), ClearLoop (loop
-# files, printers) and the ProofLoop window that shows both and hands plates between them.
+# Installs ProofLoop into a .venv here (your settings and data go to %USERPROFILE%\.proofloop).
 # Python isn't needed beforehand: when no Python 3.11+ is found, the setup fetches uv
 # (https://docs.astral.sh/uv/, a single program installed for your user only, no admin rights)
 # and uv downloads its own Python 3.12 for this folder.
 param(
     [switch]$ForceUv,        # use uv even if Python is installed (CI uses this to test that path)
-    [switch]$NoClearLoop,    # don't install ClearLoop (ProofLoop then shows synthux alone)
     [switch]$NoShortcuts,    # don't add desktop shortcuts
     [switch]$NoAutostart,    # don't start ProofLoop in the background when you log in
     [switch]$WithBrowser     # download Chromium now (otherwise on the first website test)
@@ -53,7 +51,7 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
         Write-Host "Using $py"
         & $found.Exe @($found.Args) -m venv .venv; Step "Creating .venv"
     } else {
-        Write-Host "No Python 3.11+ found: getting uv to download one just for synthux." -ForegroundColor Yellow
+        Write-Host "No Python 3.11+ found: getting uv to download one just for ProofLoop." -ForegroundColor Yellow
         $uv = (Get-Command uv -ErrorAction SilentlyContinue).Source
         if (-not $uv) {
             $uv = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
@@ -73,14 +71,9 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 }
 $venvPy = (Resolve-Path ".\.venv\Scripts\python.exe").Path
 & $venvPy -m pip install --upgrade pip; Step "Updating pip"
-$packages = @("-e", "packages\synthux[dev]", "-e", "packages\proofloop[dev]")
-if (-not $NoClearLoop) { $packages += @("-e", "packages\clearloop[dev]") }
-& $venvPy -m pip install @packages; Step "Installing ProofLoop (synthux and ClearLoop)"
+& $venvPy -m pip install -e ".[all]"; Step "Installing ProofLoop"
 if ($WithBrowser) { & $venvPy -m playwright install chromium; Step "Downloading Chromium" }
 else { Write-Host "(Chromium for website tests downloads by itself the first time you test a website.)" }
-$synthuxConfig = "packages\synthux\config"
-if (-not (Test-Path "$synthuxConfig\settings.yaml")) { Copy-Item "$synthuxConfig\settings.example.yaml" "$synthuxConfig\settings.yaml" }
-& ".\.venv\Scripts\synthux.exe" check; Step "synthux check"
 
 # Shortcuts start ProofLoop with pythonw.exe: no console window, and closing ProofLoop's window
 # leaves it running in the background (icon next to the clock) so the printers stay watched.
@@ -115,4 +108,4 @@ Write-Host "It keeps running next to the clock when you close the window, and st
 Write-Host "(turn that off in its menu, or with: proofloop autostart off). Update later with Update.bat."
 Write-Host "For the command line, activate it in a new PowerShell window with:"
 Write-Host "    .\.venv\Scripts\Activate.ps1"
-Write-Host "Then try:  proofloop check packages\synthux\examples\cad\phone_stand_v1.stl --design packages\synthux\examples\cad\phone_stand.yaml"
+Write-Host "Then try:  proofloop check examples\cad\phone_stand_v1.stl --design examples\cad\phone_stand.yaml"

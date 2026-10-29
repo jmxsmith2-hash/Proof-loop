@@ -26,7 +26,7 @@ def test_live_model_personas_find_planted_flaws(tmp_path, settings, profile, dem
     settings.engine.roles = {"actor": "anthropic", "judge": "anthropic", "persona": "anthropic"}
     settings.run.concurrency = 3
     db = Database(tmp_path / "live.sqlite")
-    personas = asyncio.run(PersonaGenerator(seed=7).generate(3, [REPO / s for s in demo_study.personas.sources]))
+    personas = asyncio.run(PersonaGenerator(seed=7).generate(3, [REPO / "examples" / s for s in demo_study.personas.sources]))
     save_personas(db, personas, demo_study.name)
     orch = Orchestrator(settings, db, demo_study, profile)
     assert orch.estimate(personas, repeats=2).total_usd < settings.run.max_cost_usd

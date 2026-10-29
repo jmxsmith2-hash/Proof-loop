@@ -6,67 +6,42 @@ on:
   workflow_dispatch:
 
 jobs:
-  clearloop:
-    # ClearLoop on its own: it must keep working without synthux installed.
-    name: clearloop / py${{ matrix.python }}
+  light:
+    # The light install (no website tests): what Docker runs. Check, Loop files and Printers must
+    # work without Playwright or the on-screen text reader.
+    name: light install / py${{ matrix.python }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python: ["3.11", "3.12", "3.13"]
-    defaults:
-      run:
-        working-directory: packages/clearloop
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: pip install -e ".[dev]"
-      - run: ruff check src tests tools
-      - run: pytest -q
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: ruff check src tests tools examples
+      - run: python -m pytest -q tests/core tests/check tests/loopfiles tests/monitor tests/app
 
-  clearloop-evidence:
+  evidence:
     # Re-check the built-in P2S profile against the public FarmLoop files it was learned from.
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: packages/clearloop
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -e ".[dev]"
+      - run: python -m pip install -e ".[dev]"
       - run: |
           git clone https://github.com/Liaminamerica2/p2s-autofarm-playbook /tmp/playbook
           git -C /tmp/playbook checkout 7b9a988963bf152c3839344d441e82bdcd96b924
-      - run: CLEARLOOP_EVIDENCE=/tmp/playbook/evidence pytest -q tests/test_evidence.py
+      - run: PROOFLOOP_EVIDENCE=/tmp/playbook/evidence python -m pytest -q tests/loopfiles/test_evidence.py
 
-  synthux-alone:
-    # synthux without ClearLoop: everything but loop files must still work.
-    name: synthux alone / py3.11
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: packages/synthux
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" ruff
-      - run: ruff check --select F,E9 src tests
-      - run: python -m pytest tests/unit -q
-
-  together:
-    # ProofLoop as setup.bat installs it: synthux, ClearLoop and the ProofLoop window in one
-    # environment, so the features that join them (loop files in synthux, print checks and print
-    # history in ClearLoop, plates handed between them in the window) run for real.
-    name: together / ${{ matrix.os }}
+  everything:
+    # ProofLoop as setup.bat installs it, every test including the browser and end-to-end ones.
+    name: everything / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -82,37 +57,24 @@ jobs:
       - name: Install ProofLoop
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e "packages/synthux[dev,anthropic]" -e "packages/clearloop[dev]" -e "packages/proofloop[dev]"
+          python -m pip install -e ".[all,anthropic,dev]"
           python -m playwright install chromium
-      - name: ProofLoop tests (one window, plates handed both ways)
-        working-directory: packages/proofloop
-        run: |
-          ruff check src tests
-          python -m pytest -q
-      - name: ClearLoop tests (with synthux's print checks)
-        working-directory: packages/clearloop
+      - run: ruff check src tests tools examples
+      - name: Tests (the window, Check, Loop files, Printers, website tests, end to end)
         run: python -m pytest -q
-      - name: synthux unit tests (with ClearLoop's loop files)
-        working-directory: packages/synthux
-        run: python -m pytest tests/unit -q
       - name: Text files are read and written as UTF-8 (Windows defaults to another encoding)
         if: runner.os == 'Linux'
-        working-directory: packages/synthux
-        run: python -X warn_default_encoding -m pytest tests/unit -q -W "error::EncodingWarning:synthux" -W "error::EncodingWarning:tests"
-      - name: synthux browser integration tests
-        working-directory: packages/synthux
-        run: python -m pytest tests/integration -q
-      - name: synthux end-to-end (demo shop + CAD example)
-        working-directory: packages/synthux
-        run: python -m pytest tests/e2e -q
-      - name: CLI smoke test from the repository root
+        run: python -X warn_default_encoding -m pytest -q --ignore=tests/browser --ignore=tests/e2e -W "error::EncodingWarning:proofloop" -W "error::EncodingWarning:tests"
+      - name: The command line, from the repository root
         run: |
-          synthux check
-          synthux run packages/synthux/studies/demo.yaml --dry-run
-          synthux physical gcode packages/synthux/examples/gcode/bracket_good.gcode.3mf
-          proofloop check packages/synthux/examples/gcode/bracket_good.gcode.3mf
-          proofloop clearloop profiles
           proofloop --help
+          proofloop check examples/gcode/bracket_good.gcode.3mf
+          proofloop check gcode examples/gcode/FL_S2_bracket_plate.gcode.3mf
+          proofloop loop profiles
+          proofloop loop check examples/gcode/FL_S2_bracket_plate.gcode.3mf
+          proofloop printers history
+          proofloop web settings
+          proofloop web run examples/studies/demo.yaml --dry-run
 
   windows-setup-script:
     name: windows / setup.bat
@@ -126,17 +88,17 @@ jobs:
       - name: Run the one-step setup script
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
-      - name: Use the installed tools
+      - name: Use the installed command
         shell: pwsh
         run: |
-          $ex = "packages\synthux\examples"
-          .\.venv\Scripts\synthux.exe physical check $ex\cad\phone_stand_v1.stl --design $ex\cad\phone_stand.yaml
-          .\.venv\Scripts\synthux.exe physical printed "Phone stand" --measure $ex\cad\v1_print_measurements.csv --defect poor_overhang
-          .\.venv\Scripts\synthux.exe physical check $ex\cad\phone_stand_v2.stl --design $ex\cad\phone_stand.yaml
-          .\.venv\Scripts\synthux.exe physical history
-          .\.venv\Scripts\synthux.exe physical gcode $ex\gcode\bracket_flawed.gcode
+          $ex = "examples"
+          .\.venv\Scripts\proofloop.exe check design $ex\cad\phone_stand_v1.stl --design $ex\cad\phone_stand.yaml
+          .\.venv\Scripts\proofloop.exe check printed "Phone stand" --measure $ex\cad\v1_print_measurements.csv --defect poor_overhang
+          .\.venv\Scripts\proofloop.exe check $ex\cad\phone_stand_v2.stl --design $ex\cad\phone_stand.yaml
+          .\.venv\Scripts\proofloop.exe check history
+          .\.venv\Scripts\proofloop.exe check $ex\gcode\bracket_flawed.gcode
           .\.venv\Scripts\proofloop.exe check $ex\gcode\bracket_plate.gcode.3mf
-          .\.venv\Scripts\proofloop.exe clearloop profiles
+          .\.venv\Scripts\proofloop.exe loop profiles
           if (-not (Test-Path ([IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "ProofLoop.lnk")))) { Write-Host "no ProofLoop shortcut"; exit 1 }
           $startup = [IO.Path]::Combine([Environment]::GetFolderPath("Startup"), "ProofLoop.lnk")
           if (-not (Test-Path $startup)) { Write-Host "ProofLoop won't start at login"; exit 1 }
@@ -149,9 +111,9 @@ jobs:
           .\.venv\Scripts\proofloop.exe --no-window
           if ($LASTEXITCODE) { Get-Content $HOME\.proofloop\proofloop.log -ErrorAction SilentlyContinue; exit 1 }
           $r = Invoke-RestMethod http://127.0.0.1:8600/proofloop/ping
-          if (-not ($r.synthux -and $r.clearloop -and $r.background)) { Write-Host "not both apps"; exit 1 }
+          if (-not $r.background) { Write-Host "not running in the background"; exit 1 }
           $page = (Invoke-WebRequest http://127.0.0.1:8600/ -UseBasicParsing).Content
-          if ($page -notmatch "Loop files") { exit 1 }
+          if ($page -notmatch "Loop files" -or $page -notmatch "Printers") { exit 1 }
           .\.venv\Scripts\proofloop.exe --no-window   # a second double-click: no second copy
           .\.venv\Scripts\proofloop.exe status
           .\.venv\Scripts\proofloop.exe stop
@@ -167,12 +129,12 @@ jobs:
       - name: Run the setup script, made to fetch its own Python
         shell: pwsh
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -ForceUv
-      - name: Use the installed tools
+      - name: Use the installed command
         shell: pwsh
         run: |
           .\.venv\Scripts\python.exe -c "import sys; print(sys.version); assert sys.version_info[:2] == (3, 12)"
-          .\.venv\Scripts\synthux.exe physical gcode packages\synthux\examples\gcode\bracket_flawed.gcode
-          .\.venv\Scripts\proofloop.exe clearloop --help
+          .\.venv\Scripts\proofloop.exe check examples\gcode\bracket_flawed.gcode
+          .\.venv\Scripts\proofloop.exe loop --help
           if (-not (Test-Path ([IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "ProofLoop.lnk")))) { exit 1 }
 
   real-slicer:
@@ -192,7 +154,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install ProofLoop
-        run: python -m pip install -e "packages/synthux[dev]" -e "packages/clearloop[dev]" -e "packages/proofloop[dev]"
+        run: python -m pip install -e ".[dev]"
       - name: Download the slicer
         shell: pwsh
         env:
@@ -217,20 +179,19 @@ jobs:
             $exe = Get-ChildItem "$env:ProgramFiles\Bambu Studio" -Recurse -Filter bambu-studio.exe | Select-Object -First 1
           }
           if (-not $exe) { throw "the slicer program wasn't found after installing" }
-          "SYNTHUX_SLICER=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PROOFLOOP_SLICER=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: STL to print-ready verdict, with a loop file, and the slicer-setting fixes applied
-        working-directory: packages/synthux
         run: |
-          synthux physical prepare examples/cad/phone_stand_v1.stl --design examples/cad/phone_stand.yaml --loops 2
+          proofloop check prepare examples/cad/phone_stand_v1.stl --design examples/cad/phone_stand.yaml --loops 2
           if ($LASTEXITCODE) { exit 1 }
-          synthux physical prepare examples/cad/block_control.stl --fix
+          proofloop check prepare examples/cad/block_control.stl --fix
       - name: The setup check finds it and slices a test part
         run: proofloop doctor --slice-test
       - name: What the slicer wrote (when it failed)
         if: failure()
         shell: pwsh
         run: |
-          $presets = Get-ChildItem packages\synthux\data -Recurse -Directory -ErrorAction SilentlyContinue |
+          $presets = Get-ChildItem $HOME\.proofloop -Recurse -Directory -ErrorAction SilentlyContinue |
             Where-Object { Test-Path (Join-Path $_.FullName "machine.json") } | Select-Object -First 1
           if (-not $presets) { Write-Host "no presets were written"; exit 0 }
           foreach ($k in "machine", "process", "filament") {
@@ -239,7 +200,7 @@ jobs:
           }
           $out = "$env:RUNNER_TEMP\slice-debug"; New-Item -ItemType Directory -Force $out | Out-Null
           $m = Join-Path $presets.FullName "machine.json"; $p = Join-Path $presets.FullName "process.json"; $f = Join-Path $presets.FullName "filament.json"
-          & $env:SYNTHUX_SLICER --debug 4 --slice 0 --export-3mf t.gcode.3mf --load-settings "$m;$p" --load-filaments $f --arrange 1 --outputdir $out packages\synthux\examples\cad\block_control.stl 2>&1 | Select-Object -Last 80
+          & $env:PROOFLOOP_SLICER --debug 4 --slice 0 --export-3mf t.gcode.3mf --load-settings "$m;$p" --load-filaments $f --arrange 1 --outputdir $out examples\cad\block_control.stl 2>&1 | Select-Object -Last 80
           Write-Host "exit: $LASTEXITCODE"
           if (Test-Path "$out\result.json") { Get-Content "$out\result.json" }
           $sliced = Get-ChildItem $out -Filter *.3mf | Select-Object -First 1

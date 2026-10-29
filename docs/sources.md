@@ -1,8 +1,8 @@
 # Where every value comes from
 
-ClearLoop doesn't invent printer or kit behaviour. Each fact it relies on is
+ProofLoop doesn't invent printer or kit behaviour. Each fact it relies on is
 listed here with its source. Values that can only be known on your own machine
-are measured with the Calibrate tab. ClearLoop's own design choices (safety
+are measured with *Loop files › Calibrate*. ProofLoop's own design choices (safety
 margins and the like) are listed separately, so they're never confused with
 facts.
 
@@ -26,7 +26,7 @@ facts.
 | The P2S stock end G-code finishes with `M18` (steppers off) | `M17` before any move in the cycle (added only when the file's own end G-code ends with M18/M84) | BS P2S `machine_end_gcode` template; EV plain slice |
 | P2S fans: `P1` part, `P2` "remote part cooling" (aux), `P3` chamber (exhaust), `P10` left aux | Exhaust-fan cooldown option (P2S only); natural cooldown reuses the file's own fan-off lines | BS P2S end template; PB |
 | G-code after `; EXECUTABLE_BLOCK_END` is not executed | The cycle is inserted just before that marker | BD `threemf_tools.py` (verified on a P1S); PB runs the same placement on a P2S |
-| `M190 R` on a P2S raised HMS 0300-0100-0003-0008 and drove the bed target up | ClearLoop never writes `M190 R`; the checker flags it | PB GCODE-HOWTO §11 |
+| `M190 R` on a P2S raised HMS 0300-0100-0003-0008 and drove the bed target up | ProofLoop never writes `M190 R`; the checker flags it | PB GCODE-HOWTO §11 |
 | `M190 S<t>` holds while the bed cools (seen on a P2S); whether it holds all the way to `<t>` is unconfirmed | Cooldown wait, repeated the same number of times as FarmLoop's output; the Cooldown calibration test shows your printer's behaviour | PB §11; EV (60–62 repeats) |
 | MQTT over TLS on 8883, user `bblp`, LAN access code; topics `device/<serial>/report` and `/request`; `pushall`, `get_version`, `pause`, `resume` payloads | Monitor | BD `bambu_mqtt.py` |
 | HMS alert level is the high 16 bits of `code` (1 error, 2 warning, 3 notification); `code < 0x4000` is a status value | Monitor events | BD `bambu_mqtt.py` (follows Bambu Studio `DevHMSItem::parse_hms_info`) |
@@ -35,7 +35,7 @@ facts.
 | X1, X2D, H2, P2S camera: RTSPS on port 322; Debian's GnuTLS ffmpeg drops P2S streams, so a local OpenSSL proxy is used | Plate check | BD `camera.py` |
 | Printers announce themselves with SSDP on UDP port 2021 (multicast 239.255.255.250, `ST: urn:bambulab-com:device:3dprinter:1`), with `USN` = serial, `DevName.bambu.com`, `DevModel.bambu.com` = model id | *Find printers* | BD `discovery.py` |
 | ntfy takes a picture as a PUT body with `Filename` and `Message` headers; Discord as multipart with `payload_json` + `files[0]` | Photo alerts | BD `notification_service.py` |
-| A batch's filament mapping comes from the file's first plate | Batches require the same filament slots, plate and nozzle | Inference from the 3MF layout (one `slice_info.config` per file), so ClearLoop refuses anything else |
+| A batch's filament mapping comes from the file's first plate | Batches require the same filament slots, plate and nozzle | Inference from the 3MF layout (one `slice_info.config` per file), so ProofLoop refuses anything else |
 | `Metadata/plate_N.gcode.md5` is upper-case MD5 hex; FarmLoop changes only the plate G-code and its checksum | File writing | EV (compared every archive member) |
 
 ## FarmLoop hardware facts
@@ -73,13 +73,13 @@ facts.
 | `tray_uuid` / `tag_uid` all zeros = no RFID tag read; periodic reports often carry zeros and must not overwrite a tag already read | RFID spools link themselves | BD `spoolman.py`, `bambu_mqtt.py` |
 | The P2S (like the A1 and P1S) doesn't report which tray each slicer slot was mapped to | Which spool fed a loop is taken from `tray_now` during the loop (one-filament plates), or a single AMS tray with the same type and colour; otherwise you assign it | BD `spoolman_tracking.py` (`mapping` not published on A1/P1S/P2S) |
 | Bambu slices use relative extrusion (`M83`); `M73 L<n>` marks layer n, the number the printer reports as `layer_num`; `T<n>` selects filament n + 1 | Filament used by a loop that stopped part-way: the net `E` sum up to the last finished layer | EV plain slice (its P2S `change_filament_gcode` uses `T[next_filament_id]`, a 0-based index); BD `threemf_tools.py` (counts layers the same way) |
-| The net `E` sum, with the file's own `filament_diameter` and `filament_density`, equals the slicer's `used_g` | Confirms the part-way method | EV: 53.887 g from the G-code vs 53.89 g in `slice_info.config` (checked by `tests/test_evidence.py`) |
+| The net `E` sum, with the file's own `filament_diameter` and `filament_density`, equals the slicer's `used_g` | Confirms the part-way method | EV: 53.887 g from the G-code vs 53.89 g in `slice_info.config` (checked by `tests/loopfiles/test_evidence.py`) |
 | `CONFIG_BLOCK` holds the slicer's filament preset per slot: `filament_settings_id`, `filament_vendor`, `filament_ids` (the AMS `tray_info_idx`), `filament_density`, `filament_diameter`, `filament_cost`, nozzle range, `filament_dev_ams_drying_temperature` / `_time` | Filling in a new spool from the plate; drying hints | EV plain slice |
 | Spoolman: `GET /api/v1/spool`, `PUT /api/v1/spool/{id}/use` `{"use_weight": g}`, `PATCH /api/v1/spool/{id}` `{"remaining_weight": g}`; net weight = `initial_weight` else the filament's `weight`; empty spool = `spool_weight`, else the filament's, else the vendor's | Spoolman import and reporting | BD `services/spoolman.py`, `_spoolman_helpers.py` |
 
-What ClearLoop doesn't take from these sources: Bambuddy's table of empty-spool
+What ProofLoop doesn't take from these sources: Bambuddy's table of empty-spool
 weights has no cited source, and its default density and spool weight are
-fallbacks. ClearLoop uses neither. Empty-spool weights are yours to weigh, and
+fallbacks. ProofLoop uses neither. Empty-spool weights are yours to weigh, and
 part-way usage needs the file's own density, or it isn't estimated.
 
 ## Filament design choices
@@ -94,8 +94,8 @@ part-way usage needs the file's own density, or it isn't estimated.
 
 ## Costs
 
-Every **rate** in the Costs tab (spool prices, electricity, watts, printer
-price and life, labour, fees, tax, shipping) is yours to enter. ClearLoop ships
+Every **rate** under *Loop files › Costs* (spool prices, electricity, watts, printer
+price and life, labour, fees, tax, shipping) is yours to enter. ProofLoop ships
 no prices and no power figures; a cost whose rate is missing is reported as
 "not set" and left out of the total, which is then marked as a minimum.
 
@@ -105,15 +105,15 @@ The **quantities** come from your file and printer:
 |---|---|
 | Grams per filament slot | `slice_info.config` → `filament used_g`, as the slicer reports it |
 | Print time | `slice_info.config` → `prediction` (the slicer's estimate) |
-| FarmBoard waits, sweep and door time | The G-code ClearLoop adds, timed from its own dwells and moves |
-| Cooldown time | Measured by the Monitor on your printer (T1 → T2), else the cycle time minus sweep and door, else your own estimate, else "unknown" |
+| FarmBoard waits, sweep and door time | The G-code ProofLoop adds, timed from its own dwells and moves |
+| Cooldown time | Measured by the printer monitor on your printer (T1 → T2), else the cycle time minus sweep and door, else your own estimate, else "unknown" |
 | Parts per plate | The file's object labels |
 
 The cost formulas are plain arithmetic: wear = price ÷ life; failed loops add
 cost ÷ (1 − failure rate) − cost; break-even price = (cost + per-order costs
 per part) ÷ (1 ÷ (1 + tax) − fee % − payment %).
 
-## ClearLoop design choices (not hardware facts)
+## ProofLoop design choices (not hardware facts)
 
 | Setting | Default | Why |
 |---|---|---|

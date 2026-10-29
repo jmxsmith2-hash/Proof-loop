@@ -1,6 +1,12 @@
-# Synthetic User Testing — Build Plan
+# Website tests: design and history
 
-Status: **all 8 phases built and tested** (see README.md for usage).
+The design notes for website tests and the first CAD and G-code checks, from when they were a
+separate project (synthux). Module paths below are from that time: `physical/` is now
+`proofloop/check/`, and the website-test modules are in `proofloop/web/`; see
+[architecture.md](architecture.md) for the code as it is now, and [website-tests.md](website-tests.md)
+for how to use it.
+
+Status: **all 8 phases built and tested**.
 
 ### Changes from the original plan
 
@@ -50,8 +56,8 @@ free and paid; and next, more CAD checks, a simple app window, real products and
   printer and nozzle mismatches, layers, temperatures, volumetric flow, line width, retraction and
   stringing over open space, cooling, adhesion, heaters left on, header consistency; layer
   previews and a flow map.
-* **App window** (`synthux app`, the Synthux desktop shortcut): drop a CAD or G-code file, or
-  paste a website and a task; background jobs with links to reports; localhost only.
+* **App window** (now the *Check* and *Website tests* tabs of the ProofLoop window): drop a CAD or
+  G-code file, or paste a website and a task; background jobs with links to reports; localhost only.
 * **More CAD checks:** fine detail and text the nozzle can't reproduce, engraved lines that fill
   in, steps shallower than a layer, horizontal holes, flexing tabs and snap-fits.
 * **Real products:** `--process injection` (undercuts and side actions, draft, wall thickness,
@@ -264,40 +270,7 @@ for step in budget:
 
 ## 3. File structure
 
-```
-pyproject.toml            # deps, ruff, pytest config, `synthux` entry point
-README.md
-.env.example
-config/
-  settings.example.yaml   # targets/allowlist, run params, concurrency, paths
-  models.yaml             # model ids per role + prices
-  scales.yaml             # anchored rating scales
-  calibration/default.yaml# frustration weights, patience scaling (versioned)
-src/synthux/
-  cli.py
-  core/{config.py, logging.py, db.py, schema.sql, llm.py, cache.py, cost.py, similarity.py}
-  safety/{allowlist.py, guard.py, network.py, credentials.py}
-  personas/{ingest.py, anonymize.py, traits.py, design.py, generate.py, diversity.py, models.py}
-  runner/{browser.py, observe.py, actor.py, actions.py, noise.py, frustration.py,
-          patience.py, conditions.py, classify.py, memory.py, session.py, orchestrator.py}
-  elicitation/{questions.py, scales.py, framing.py, complaints.py}
-  judge/{review.py, evidence.py, replay.py, repeat.py, novelty.py}
-  aggregate/{dedupe.py, rank.py, guardrails.py}
-  report/{build.py, charts.py, templates/report.html.j2}
-  calibration/{importer.py, match.py, metrics.py, tune.py, profiles.py}
-  physical/{inputs.py, reviews.py, evaluate.py, sensors.py, guardrails.py}
-  dashboard/{server.py, templates/}
-  prompts/*.md            # all prompts as versioned files, hashed into run metadata
-demo_app/
-  server.py               # stdlib HTTP server, deterministic
-  pages/…                 # signup/checkout flow with planted flaws + clean control pages
-  planted_flaws.yaml      # ground truth used by the e2e test
-examples/                 # sample survey CSV, reviews, real-user results, sensor CSV
-tests/
-  unit/<module>/…
-  e2e/test_demo_app_offline.py   # scripted FakeLLM: pipeline correctness
-  e2e/test_demo_app_live.py      # real model, @pytest.mark.live: the quality bar
-```
+See [architecture.md](architecture.md).
 
 ### Demo app with planted flaws
 

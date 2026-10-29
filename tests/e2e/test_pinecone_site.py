@@ -51,7 +51,7 @@ def pinecone_run(tmp_path_factory):
     db = Database(tmp / "pinecone.sqlite")
     profile = load_profile(settings, db)
     personas = asyncio.run(PersonaGenerator(seed=11).generate(study.personas.count,
-                                                              [REPO / s for s in study.personas.sources]))
+                                                              [REPO / "examples" / s for s in study.personas.sources]))
     save_personas(db, personas, study.name)
     with PineconeServer(port):
         run_id = asyncio.run(Orchestrator(settings, db, study, profile).run(personas))

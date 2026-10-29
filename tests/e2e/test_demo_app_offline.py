@@ -46,7 +46,7 @@ def e2e_run(tmp_path_factory, demo_url):
     study = Study.model_validate(raw)
     db = Database(tmp / "e2e.sqlite")
     profile = load_profile(settings, db)
-    sources = [REPO / s for s in study.personas.sources]
+    sources = [REPO / "examples" / s for s in study.personas.sources]
     personas = asyncio.run(PersonaGenerator(seed=7).generate(study.personas.count, sources))
     save_personas(db, personas, study.name)
     run_id = asyncio.run(Orchestrator(settings, db, study, profile).run(personas))
