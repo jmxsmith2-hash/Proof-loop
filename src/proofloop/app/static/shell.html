@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProofLoop</title>
+<link rel="icon" href="__PROOFLOOP_FAVICON__">
+<style>/*__THEME__*/</style>
+<style>
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; }
+header { display: flex; align-items: center; gap: 18px; padding: 0 16px; height: 50px; flex: none; background: var(--panel); border-bottom: 1px solid var(--line); }
+nav { display: flex; gap: 2px; height: 100%; min-width: 0; }
+nav button, .more > button { white-space: nowrap; height: 100%; padding: 0 12px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+nav button[aria-selected="true"], .more > button.on { color: var(--ink); border-bottom-color: var(--accent); }
+nav button:focus-visible, .more > button:focus-visible { outline-offset: -3px; }
+.badge { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+.more { position: relative; height: 100%; }
+.menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 10; min-width: 230px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(16,24,40,.14); }
+.menu button { display: flex; width: 100%; gap: 10px; align-items: flex-start; text-align: left; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: inherit; cursor: pointer; }
+.menu button:hover, .menu button:focus-visible { background: var(--soft); }
+.menu small { display: block; color: var(--muted); font-size: 12.5px; }
+.menu .on b::after { content: " · on"; color: var(--ok); font-weight: 600; }
+.ver { margin-left: auto; color: var(--muted); font-size: 13px; }
+.strip { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 16px; margin: 0; border-radius: 0; border-bottom: 1px solid var(--line); font-size: 14px; flex: none; }
+.strip button { padding: 4px 12px; font-size: 14px; }
+iframe { flex: 1; width: 100%; border: 0; display: block; background: var(--bg); }
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); max-width: min(440px, calc(100vw - 32px)); padding: 18px 20px; }
+dialog::backdrop { background: #0006; }
+dialog h2 { font-size: 18px; margin: 0 0 6px; }
+dialog p { margin: 6px 0; }
+.qr { background: #fff; border-radius: 10px; padding: 8px; width: 220px; margin: 10px auto; }
+.qr svg { width: 100%; height: auto; display: block; }
+.code { font-size: 26px; letter-spacing: 6px; font-weight: 700; text-align: center; }
+.err { color: var(--bad); }
+@media (max-width: 760px) { .ver, .brand span { display: none; } nav button, .more > button { padding: 0 8px; font-size: 14px; } header { gap: 8px; padding: 0 10px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">__PROOFLOOP_ICON__<span>ProofLoop</span></div>
+  <nav role="tablist" aria-label="ProofLoop">
+    <button role="tab" id="tab-check" data-tab="check" aria-controls="check" title="Check CAD designs and sliced G-code before you print">Check<span class="badge hidden"></span></button>
+    <button role="tab" id="tab-loopfiles" data-tab="loopfiles" aria-controls="loop" title="Make loop files for FarmLoop auto-eject: a push height for each part, a safe cooldown">Loop files</button>
+    <button role="tab" id="tab-printers" data-tab="printers" aria-controls="loop" title="Your printers: status, plate checks, print history, filament">Printers</button>
+  </nav>
+  <div class="more">
+    <button type="button" id="moreBtn" aria-haspopup="true" aria-expanded="false"><span id="moreLabel">More</span> ▾<span class="badge hidden"></span></button>
+    <div class="menu hidden" id="moreMenu" role="menu">
+      <button type="button" role="menuitem" data-tab="web"><span><b>Website tests</b><small>Personas try your website, like people do</small></span></button>
+      <button type="button" role="menuitem" id="phoneBtn" class="hidden"><span><b>Phone</b><small>See your printers on your phone, over your Wi-Fi</small></span></button>
+      <button type="button" role="menuitem" id="doctorBtn"><span><b>Setup check</b><small>Is everything ProofLoop needs working?</small></span></button>
+    </div>
+  </div>
+  <span class="ver" id="ver"></span>
+</header>
+<div class="banner warn strip hidden" id="noticeBanner" role="region" aria-label="Notifications">
+  <span>Get a desktop notice when a check finishes while ProofLoop is in the background?</span>
+  <button type="button" class="btn primary" id="noticeYes">Turn on notices</button>
+  <button type="button" class="btn" id="noticeNo">Not now</button>
+</div>
+<div class="banner info strip hidden" id="bgBanner" role="region" aria-label="Running in the background">
+  <span>Closing this window keeps ProofLoop watching your printers. Quit it from its icon next to the clock.</span>
+  <span class="hidden" id="autostartHint">It doesn't start when you log in yet, so after a restart nothing watches the printers. <button type="button" class="btn primary" id="autostartYes">Start when I log in</button></span>
+  <button type="button" class="btn" id="bgOk">OK</button>
+</div>
+<iframe id="check" role="tabpanel" aria-labelledby="tab-check" title="Check" class="hidden"></iframe>
+<iframe id="loop" role="tabpanel" title="Loop files and Printers" class="hidden"></iframe>
+<iframe id="web" role="tabpanel" title="Website tests" class="hidden"></iframe>
+
+<dialog id="phoneDlg" aria-labelledby="phoneTitle">
+  <h2 id="phoneTitle">Your printers on your phone</h2>
+  <div id="phoneOff">
+    <p>Shows <b>Loop files</b> and <b>Printers</b> on your phone, over your own Wi-Fi: printer status, plate checks, filament and costs. Nothing goes through the internet, and only phones you pair can see it.</p>
+    <p class="muted">Windows may ask whether Python can use the network: choose <b>Private networks</b>.</p>
+  </div>
+  <div id="phoneOn" class="hidden">
+    <p>On your phone, on the same Wi-Fi, scan this code with the camera:</p>
+    <div class="qr" id="phoneQr" role="img" aria-label="QR code to pair your phone"></div>
+    <p>Or open <b id="phoneUrl"></b> and type</p>
+    <p class="code" id="phoneCode"></p>
+    <p class="muted">A paired phone stays paired. "Forget phones" unpairs all of them and makes a new code.</p>
+  </div>
+  <p class="err" id="phoneErr" role="alert"></p>
+  <div class="row">
+    <button type="button" class="btn primary" id="phoneToggle">Turn on phone access</button>
+    <button type="button" class="btn hidden" id="phoneForget">Forget phones</button>
+    <button type="button" class="btn" id="phoneClose">Close</button>
+  </div>
+</dialog>
+
+<script>
+const CFG = __PROOFLOOP_CONFIG__;
+const CHECK_ORIGIN = new URL(CFG.check).origin;  // Check and Website tests: a page on a private port
+const $ = (id) => document.getElementById(id);
+const frames = {check: $("check"), loop: $("loop"), web: $("web")};
+const FRAME = {check: "check", loopfiles: "loop", printers: "loop", web: "web"};  // tab -> frame
+const NAMES = {check: "Check", loopfiles: "Loop files", printers: "Printers", web: "Website tests"};
+const tabs = [...document.querySelectorAll("nav [role=tab]")];
+const store = {get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }};
+let current = null, loopReady = false, loopWant = null;
+$("ver").textContent = "v" + CFG.version;
+frames.check.src = CFG.check;
+frames.web.src = CFG.web;
+frames.loop.src = CFG.loop;
+frames.loop.addEventListener("load", () => { loopReady = true; if (loopWant) frames.loop.contentWindow.postMessage(loopWant, location.origin); });
+
+function badge(tab, on) {
+  const el = tab === "web" ? document.querySelector(".more .badge") : document.querySelector(`#tab-${tab} .badge`);
+  if (el) el.classList.toggle("hidden", !on);
+}
+
+function show(tab, sub) {
+  if (!FRAME[tab]) return;
+  current = tab;
+  for (const [name, f] of Object.entries(frames)) f.classList.toggle("hidden", name !== FRAME[tab]);
+  for (const t of tabs) {
+    const on = t.dataset.tab === tab;
+    t.setAttribute("aria-selected", on);
+    t.tabIndex = on || (tab === "web" && t === tabs[0]) ? 0 : -1;
+  }
+  frames.loop.setAttribute("aria-labelledby", tab === "printers" ? "tab-printers" : "tab-loopfiles");
+  $("moreBtn").classList.toggle("on", tab === "web");
+  $("moreLabel").textContent = tab === "web" ? NAMES.web : "More";
+  if (FRAME[tab] === "loop") {  // one page for both: it shows the sections of the tab you chose
+    loopWant = {proofloop: "part", part: tab, tab: sub || null};
+    if (loopReady) frames.loop.contentWindow.postMessage(loopWant, location.origin);
+  }
+  badge(tab, false);
+  store.set("proofloop-tab", tab);
+}
+for (const t of tabs) {
+  t.onclick = () => show(t.dataset.tab);
+  t.onkeydown = (e) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const i = tabs.indexOf(t), next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+    show(next.dataset.tab); next.focus();
+  };
+}
+const saved = store.get("proofloop-tab");
+show(FRAME[saved] ? saved : "check");
+
+// ---- More: Website tests, phone access, setup check
+function menu(open) {
+  $("moreMenu").classList.toggle("hidden", !open);
+  $("moreBtn").setAttribute("aria-expanded", open);
+  if (open) $("moreMenu").querySelector("button:not(.hidden)").focus();
+}
+$("moreBtn").onclick = (e) => { e.stopPropagation(); menu($("moreMenu").classList.contains("hidden")); };
+document.addEventListener("click", () => menu(false));
+$("moreMenu").addEventListener("keydown", (e) => {
+  const items = [...$("moreMenu").querySelectorAll("button:not(.hidden)")], i = items.indexOf(document.activeElement);
+  if (e.key === "Escape") { menu(false); $("moreBtn").focus(); }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus(); }
+});
+$("moreMenu").querySelector('[data-tab="web"]').onclick = () => { menu(false); show("web"); };
+$("doctorBtn").onclick = () => { menu(false); window.open("/proofloop/doctor", "_blank", "noopener"); };
+
+function toast(msg, action, onAction) {
+  document.querySelectorAll(".toast").forEach(t => t.remove());
+  const t = document.createElement("div"); t.className = "toast"; t.setAttribute("role", "status");
+  const span = document.createElement("span"); span.textContent = msg; t.appendChild(span);
+  if (action) { const b = document.createElement("button"); b.textContent = action; b.onclick = () => { t.remove(); onAction(); }; t.appendChild(b); }
+  document.body.appendChild(t); setTimeout(() => t.remove(), action ? 9000 : 4500);
+}
+
+// ---- desktop notices: the browser only asks after a click in this page, so ask with a button
+if (window.Notification && Notification.permission === "default" && !store.get("proofloop-notices-asked")) $("noticeBanner").classList.remove("hidden");
+$("noticeYes").onclick = async () => {
+  store.set("proofloop-notices-asked", "1"); $("noticeBanner").classList.add("hidden");
+  const p = await Notification.requestPermission();
+  toast(p === "granted" ? "Notices are on" : "Notices are off: you can allow them later in the browser's site settings");
+};
+$("noticeNo").onclick = () => { store.set("proofloop-notices-asked", "1"); $("noticeBanner").classList.add("hidden"); };
+
+async function call(path, body) {
+  const r = await fetch(path, body === undefined ? {headers: {[CFG.header]: "1"}} :
+    {method: "POST", headers: {[CFG.header]: "1", "Content-Type": "application/json"}, body: JSON.stringify(body)});
+  let data = {}; try { data = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+
+// ---- running in the background, phone access
+let STATUS = null;
+async function loadStatus() {
+  if (!CFG.service) return;
+  try { STATUS = await call("/proofloop/status"); } catch (e) { return; }
+  $("phoneBtn").classList.toggle("hidden", !STATUS.phone);
+  $("phoneBtn").classList.toggle("on", !!(STATUS.phone && STATUS.phone.on));
+  const showBg = !store.get("proofloop-bg-ok") || (!STATUS.autostart && !store.get("proofloop-autostart-dismissed"));
+  $("autostartHint").classList.toggle("hidden", STATUS.autostart);
+  $("bgBanner").classList.toggle("hidden", !showBg);
+  renderPhone();
+}
+$("bgOk").onclick = () => { store.set("proofloop-bg-ok", "1"); store.set("proofloop-autostart-dismissed", "1"); $("bgBanner").classList.add("hidden"); };
+$("autostartYes").onclick = async () => {
+  try { STATUS = await call("/proofloop/autostart", {on: true}); toast("ProofLoop will start when you log in"); $("bgBanner").classList.add("hidden"); store.set("proofloop-bg-ok", "1"); }
+  catch (e) { toast(e.message); }
+};
+function renderPhone() {
+  const ph = (STATUS && STATUS.phone) || {};
+  $("phoneOff").classList.toggle("hidden", !!ph.on); $("phoneOn").classList.toggle("hidden", !ph.on);
+  $("phoneForget").classList.toggle("hidden", !ph.on);
+  $("phoneToggle").textContent = ph.on ? "Turn off phone access" : "Turn on phone access";
+  $("phoneErr").textContent = ph.error || "";
+  if (ph.on) { $("phoneQr").innerHTML = ph.qr; $("phoneUrl").textContent = ph.url; $("phoneCode").textContent = ph.code; }
+}
+$("phoneBtn").onclick = () => { menu(false); renderPhone(); $("phoneDlg").showModal(); };
+$("phoneClose").onclick = () => $("phoneDlg").close();
+$("phoneToggle").onclick = async () => {
+  $("phoneToggle").disabled = true;
+  try { STATUS = await call("/proofloop/phone", {on: !(STATUS.phone && STATUS.phone.on)}); }
+  catch (e) { $("phoneErr").textContent = e.message; }
+  $("phoneToggle").disabled = false; renderPhone(); loadStatus();
+};
+$("phoneForget").onclick = async () => {
+  if (!confirm("Unpair every phone and make a new code?")) return;
+  try { STATUS = await call("/proofloop/phone", {forget: true, on: true}); } catch (e) { $("phoneErr").textContent = e.message; }
+  renderPhone();
+};
+loadStatus();
+
+// ---- plates handed between the tabs, and finished checks
+window.addEventListener("message", async (e) => {
+  const d = e.data;
+  if (!d || typeof d !== "object" || typeof d.proofloop !== "string") return;
+  try {
+    const from = ["check", "web"].find(n => e.origin === CHECK_ORIGIN && e.source === frames[n].contentWindow);
+    if (from) {
+      if (d.proofloop === "open-in-loop-files") {
+        const r = await call("/proofloop/to-loop", {job: d.job});
+        show("loopfiles", "make");
+        frames.loop.contentWindow.postMessage({proofloop: "open-plate", token: r.token}, location.origin);
+      } else if (d.proofloop === "job-finished") {
+        if (document.hidden && window.Notification && Notification.permission === "granted") {
+          const n = new Notification(String(d.title), {body: String(d.body || "")});
+          n.onclick = () => { window.focus(); show(from); };
+        } else if (current !== from) {
+          badge(from, true);
+          toast(String(d.title), "Show", () => show(from));
+        }
+      }
+    } else if (e.origin === location.origin && e.source === frames.loop.contentWindow) {
+      if (d.proofloop === "check-plate") {
+        const r = await call("/proofloop/to-check", {token: d.token});
+        show("check");
+        frames.check.contentWindow.postMessage({proofloop: "refresh"}, CHECK_ORIGIN);
+        toast("Checking " + r.title);
+      } else if (d.proofloop === "show" && (d.part === "loopfiles" || d.part === "printers")) {
+        show(d.part, typeof d.tab === "string" ? d.tab : null);  // a link to a section of the other tab
+      }
+    }
+  } catch (err) { toast(err.message); }
+});
+</script>
+</body>
+</html>

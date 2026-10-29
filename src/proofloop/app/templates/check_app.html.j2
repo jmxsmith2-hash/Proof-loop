@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ "Website tests" if view == "web" else "Check" }} · ProofLoop</title>
+<link rel="icon" href="{{ favicon }}">
+<style>{{ theme_css }}</style>
+<style>
+.lead { color: var(--muted); margin: 4px 0 18px; }
+.brand { margin-bottom: 14px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.cards h2 { font-size: 17px; margin: 0 0 4px; } .cards .card > p { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
+.cards .drop { padding: 22px 12px; }
+.cards label:not(.check) { display: block; font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
+.cards .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; color: var(--ink-2); margin-top: 10px; }
+.check input { margin-top: 3px; }
+#w-go { margin-top: 14px; }
+.btn.small { padding: 3px 10px; font-size: 13px; font-weight: 500; }
+.err { color: var(--bad); font-size: 13px; margin-top: 8px; min-height: 1em; }
+.job { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.job:last-child { border-bottom: 0; }
+.job h3 { margin: 0; font-size: 15px; } .job ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink-2); }
+.job .fail { color: var(--bad); }
+.loop { margin-top: 8px; font-size: 14px; } .loop input { width: 72px; margin: 0 4px; }
+.side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.verdicts { margin-top: 8px; font-size: 14px; } .verdicts summary { color: var(--accent); }
+.verdicts ul { list-style: none; padding: 0; } .verdicts li { padding: 4px 0; }
+.progress { height: 4px; background: var(--line); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+.open { display: inline-block; margin-top: 4px; font-weight: 600; }
+.hosts { font-size: 12px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body><main>
+{% if not shell %}<div class="brand">{{ icon }}ProofLoop</div>{% endif %}
+<p class="lead">{% if view == "web" %}Let personas try your website: they see only the screen, like people, and you get a report with replays.
+  {% elif view == "print" %}Check a design before you print, or check the sliced file before it goes to the printer.
+  {% else %}Check a design before you print, check the sliced file before it goes to the printer, or let personas try a website.
+  {% endif %}Everything runs on this computer{% if not smart %} and is free{% endif %}.</p>
+
+<div class="cards">
+  {% if view != "web" %}<section class="card" aria-labelledby="cad-h">
+    <h2 id="cad-h">CAD design</h2>
+    <p>STL, 3MF, OBJ, PLY, GLB from Fusion, Tinkercad or Blender. Checks it for printing, moulding or machining, and how people would hold it.</p>
+    <div class="drop" id="cad-drop" tabindex="0" role="button" aria-label="Choose a CAD file"><strong>Drop a CAD file here</strong><small>or click to choose</small></div>
+    <input type="file" id="cad-file" accept=".stl,.3mf,.obj,.ply,.glb,.gltf,.off,.step,.stp" hidden>
+    <div class="row">
+      <div><label for="cad-process">How it is made</label><select id="cad-process">
+        <option value="print">3D printing</option><option value="injection">Injection moulding</option><option value="cnc">CNC machining</option></select></div>
+      <div id="cad-pull-box" hidden><label for="cad-pull">Mould opens along</label><select id="cad-pull">
+        <option value="auto">Best direction</option><option value="z">Z</option><option value="x">X</option><option value="y">Y</option></select></div>
+    </div>
+    <div class="row">
+      <div id="cad-printer-box"><label for="cad-printer">Printer</label><select id="cad-printer">{% if farm %}<optgroup label="Your printers">{% for p in farm %}<option value="{{ p.id }}" {{ 'selected' if loop.first }}>{{ p.label }}</option>{% endfor %}</optgroup><optgroup label="Printer types">{% endif %}{% for p in printers %}<option value="{{ p.id }}" {{ 'selected' if p.id == default_printer and not farm }}>{{ p.label }}</option>{% endfor %}{% if farm %}</optgroup>{% endif %}</select></div>
+      <div><label for="cad-material">Material</label><select id="cad-material">{% for m in materials %}<option {{ 'selected' if m == default_material }}>{{ m }}</option>{% endfor %}</select></div>
+    </div>
+    <label for="cad-design">Design name <span class="muted">(same name = next version; shows what changed)</span></label>
+    <input type="text" id="cad-design" placeholder="from the file name">
+    <label class="check"><input type="checkbox" id="cad-handheld"> It is held in the hand (grip and weight checks)</label>
+    <label class="check"><input type="checkbox" id="cad-eject"> Printed in a FarmLoop loop (check the pusher clears it; copies per plate)</label>
+    {% if slicer %}<label class="check" id="cad-slice-box"><input type="checkbox" id="cad-slice" checked> Slice it with {{ slicer }} too and check the G-code (ready-to-print verdict)</label>
+    <div class="row" id="cad-slice-opts"><div><label for="cad-support">Support</label><select id="cad-support"><option value="">As the preset has it</option><option value="on">On (tree)</option><option value="off">Off</option></select></div>
+      <div><label for="cad-loops">Also make a loop file, loops</label><input type="number" id="cad-loops" min="0" max="50" value="0"></div></div>{% endif %}
+    <div class="err" id="cad-err" role="alert"></div>
+  </section>
+
+  <section class="card" aria-labelledby="g-h">
+    <h2 id="g-h">Sliced G-code</h2>
+    <p>.gcode or a Bambu Studio .gcode.3mf. Checks the plate, layers, temperatures, flow, retraction and cooling.</p>
+    <div class="drop" id="g-drop" tabindex="0" role="button" aria-label="Choose a G-code file"><strong>Drop a G-code file here</strong><small>or click to choose</small></div>
+    <input type="file" id="g-file" accept=".gcode,.3mf,.gco" hidden>
+    <div class="row">
+      <div><label for="g-printer">Printer</label><select id="g-printer"><option value="">From the file</option>{% if farm %}<optgroup label="Your printers">{% for p in farm %}<option value="{{ p.id }}">{{ p.label }}</option>{% endfor %}</optgroup><optgroup label="Printer types">{% endif %}{% for p in printers if p.type != 'resin' %}<option value="{{ p.id }}">{{ p.label }}</option>{% endfor %}{% if farm %}</optgroup>{% endif %}</select></div>
+      <div><label for="g-material">Material</label><select id="g-material"><option value="">From the file</option>{% for m in materials if m != 'resin' %}<option>{{ m }}</option>{% endfor %}</select></div>
+    </div>
+    {% if farm %}<p class="hosts">Your printers come from Printers › Monitor: add one there and it shows here too.</p>{% endif %}
+    <div class="err" id="g-err" role="alert"></div>
+  </section>{% endif %}
+
+  {% if view != "print" %}<section class="card" aria-labelledby="w-h">
+    <h2 id="w-h">Website</h2>
+    <p>Personas see only the screen, like people. They try your task and you get a report with replays.</p>
+    <form id="w-form">
+      <label for="w-url">Page to start on</label><input type="url" id="w-url" required placeholder="https://staging.example.com/">
+      <label for="w-task">What should a person do there?</label><input type="text" id="w-task" required placeholder="Find the opening hours">
+      <label for="w-done">Text that shows it worked</label><input type="text" id="w-done" required placeholder="Open today">
+      <div class="row">
+        <div><label for="w-n">Personas</label><input type="number" id="w-n" value="5" min="1" max="20"></div>
+        <div><label for="w-device">Device</label><select id="w-device"><option value="">Each persona's own</option>{% for d in devices %}<option>{{ d }}</option>{% endfor %}</select></div>
+      </div>
+      <label class="check"><input type="checkbox" id="w-find"> It's about finding information (also checks how buried it is)</label>
+      <label class="check"><input type="checkbox" id="w-allow"> This is my own site: add it to the allowlist (payments, emails and deletes stay blocked)</label>
+      {% if smart %}<label class="check"><input type="checkbox" id="w-smart"> Smart mode: Claude on hard screens and for judging (costs a little; limited by run.max_cost_usd)</label>{% endif %}
+      <button type="submit" class="btn primary" id="w-go">Start the test</button>
+      <div class="err" id="w-err" role="alert"></div>
+      <div class="hosts">Allowed now: {{ hosts|join(', ') }}</div>
+    </form>
+  </section>{% endif %}
+</div>
+
+<h2>Jobs</h2>
+<div class="card" id="jobs"><p class="muted" id="nojobs">Nothing yet. Results appear here and are kept until you remove them.</p></div>
+</main>
+<script>
+const H = {"{{ header }}": "1"};
+function uploader(kind) {
+  const drop = document.getElementById(kind + "-drop"), input = document.getElementById(kind + "-file"),
+        err = document.getElementById(kind + "-err");
+  const send = (file) => {
+    err.textContent = "";
+    const q = new URLSearchParams({name: file.name, kind: kind === "g" ? "gcode" : "cad"});
+    const pick = (id, key) => { const el = document.getElementById(id); if (el && el.value) q.set(key, el.value); };
+    if (kind === "cad") { pick("cad-material", "material"); pick("cad-design", "design");
+      const proc = document.getElementById("cad-process").value;
+      if (proc === "print") { pick("cad-printer", "printer");
+        const sl = document.getElementById("cad-slice");
+        if (sl && sl.checked) { q.set("slice", "1"); pick("cad-support", "support"); const l = document.getElementById("cad-loops"); if (l && +l.value) q.set("loops", l.value); } }
+      else { q.set("process", proc); if (proc === "injection") pick("cad-pull", "pull"); }
+      if (document.getElementById("cad-handheld").checked) q.set("handheld", "1");
+      if (document.getElementById("cad-eject").checked) q.set("auto_eject", "1"); }
+    else { pick("g-printer", "printer"); pick("g-material", "material"); }
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/check?" + q.toString());
+    xhr.setRequestHeader("{{ header }}", "1");
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    drop.querySelector("strong").textContent = "Uploading " + file.name + "...";
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) drop.querySelector("strong").textContent =
+      "Uploading " + file.name + " (" + Math.round(100 * e.loaded / e.total) + "%)"; };
+    xhr.onload = () => { drop.querySelector("strong").textContent = kind === "g" ? "Drop a G-code file here" : "Drop a CAD file here";
+      if (xhr.status >= 300) { try { err.textContent = JSON.parse(xhr.responseText).error; } catch (e) { err.textContent = "Upload failed"; } }
+      refresh(); };
+    xhr.onerror = () => { err.textContent = "Upload failed"; };
+    xhr.send(file);
+  };
+  drop.addEventListener("click", () => input.click());
+  drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+  input.addEventListener("change", () => { if (input.files[0]) send(input.files[0]); input.value = ""; });
+  ["dragenter", "dragover"].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) send(f); });
+}
+const VIEW = {{ view|tojson }};  // "print", "web" or "" (everything)
+{% if view != "web" %}uploader("cad"); uploader("g");
+const MATERIALS = {{ process_materials|tojson }}, DEFAULT_MATERIAL = {{ default_material|tojson }};
+document.getElementById("cad-process").addEventListener("change", (e) => {
+  const proc = e.target.value, sel = document.getElementById("cad-material");
+  sel.innerHTML = (MATERIALS[proc] || []).map(m => `<option${proc === "print" && m === DEFAULT_MATERIAL ? " selected" : ""}>${m}</option>`).join("");
+  document.getElementById("cad-printer-box").hidden = proc !== "print";
+  document.getElementById("cad-pull-box").hidden = proc !== "injection";
+  for (const id of ["cad-slice-box", "cad-slice-opts"]) { const el = document.getElementById(id); if (el) el.hidden = proc !== "print"; }
+});
+// a file dropped anywhere else goes to the right card by its type
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => { if (e.target.closest(".drop")) return; e.preventDefault();
+  const f = e.dataTransfer.files[0]; if (!f) return;
+  const g = /\.(gcode|gco)$|\.gcode\.3mf$/i.test(f.name);
+  document.getElementById(g ? "g-drop" : "cad-drop").dispatchEvent(new DragEvent("drop", {dataTransfer: e.dataTransfer, bubbles: false})); });
+{% endif %}
+{% if view != "print" %}document.getElementById("w-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = document.getElementById("w-err"), go = document.getElementById("w-go"); err.textContent = ""; go.disabled = true;
+  const body = {url: document.getElementById("w-url").value, tasks: [document.getElementById("w-task").value],
+    successes: [document.getElementById("w-done").value], personas: +document.getElementById("w-n").value,
+    device: document.getElementById("w-device").value, find: document.getElementById("w-find").checked,
+    allow: document.getElementById("w-allow").checked, smart: !!(document.getElementById("w-smart") || {}).checked};
+  try {
+    const r = await fetch("/api/test", {method: "POST", headers: {...H, "Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const data = await r.json();
+    if (!r.ok) { err.textContent = data.error; if (data.needs_allow) document.getElementById("w-allow").focus(); }
+  } catch (x) { err.textContent = "Could not start the test"; }
+  go.disabled = false; refresh();
+});{% endif %}
+
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const LABEL = {cad: "CAD", gcode: "G-code", web: "Website"}, STATUS = {done: "ok", failed: "bad", running: "info"};
+async function refresh() {
+  let jobs = [];
+  try { jobs = await (await fetch("/api/jobs")).json(); } catch (e) { return; }
+  if (VIEW) jobs = jobs.filter(j => (j.kind === "web") === (VIEW === "web"));
+  const box = document.getElementById("jobs");
+  if (!jobs.length) { box.innerHTML = '<p class="muted" id="nojobs">Nothing yet. Results appear here and are kept until you remove them.</p>';
+    clearTimeout(window._t); window._t = setTimeout(refresh, 5000); return; }
+  box.innerHTML = jobs.map(j => {
+    const counts = j.counts.total !== undefined && j.kind !== "web"
+      ? ` · ${j.counts.fail ? `<b class="fail">${j.counts.fail} will fail</b> · ` : ""}${j.counts.major || 0} major, ${j.counts.total} in total` : "";
+    const done = j.status === "done" || j.status === "failed";
+    const verdicts = j.status === "done" && j.printer && j.findings.length ? `<details class="verdicts"><summary>Wrong about something?</summary>
+      <p class="muted">Mark false alarms: a check you mark twice on ${esc(j.printer)} with ${esc(j.material || "")} counts lower there from then on.</p>
+      <ul>${j.findings.map(f => `<li><span>${esc(f.severity_name)}: ${esc(f.title)}</span>
+        ${f.verdict ? `<span class="muted">${f.verdict === "wrong" ? "marked a false alarm" : "marked right"}</span>`
+          : `<button type="button" class="btn small" data-verdict="wrong" data-job="${esc(j.id)}" data-check="${esc(f.check)}">Not a problem</button>
+             <button type="button" class="btn small" data-verdict="right" data-job="${esc(j.id)}" data-check="${esc(f.check)}">It was right</button>`}</li>`).join("")}</ul></details>` : "";
+    return `<div class="job"><div><h3>${esc(LABEL[j.kind])}: ${esc(j.title)}</h3>
+      <div class="muted">${esc(j.status === "failed" ? (j.error || "failed") : j.stage)}${counts}</div>
+      ${j.status === "running" && j.progress !== null ? `<div class="progress"><i style="width:${Math.round(j.progress * 100)}%"></i></div>` : ""}
+      ${j.summary.length ? `<ul>${j.summary.map(s => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}
+      ${j.report_url ? `<a class="open" href="${j.report_url}" target="_blank" rel="noopener">Open the report</a>` : ""}
+      ${j.download ? `<a class="open" style="margin-left:14px" href="${j.download}" download>Download the loop file</a>` : ""}
+      ${j.can_loop && j.status === "done" ? `<div class="loop"><b>Loop file:</b>
+        <input type="number" min="1" max="500" value="${LOOPS[j.id] || 5}" aria-label="Loops" id="loops-${esc(j.id)}"> loops
+        <button type="button" class="btn primary small" data-loop="${esc(j.id)}" title="Uses your saved loop-file settings: profile, sweep floor, push depth, cooldown">Make it now</button>
+        ${SHELL ? `<button type="button" class="btn small" data-open-loop="${esc(j.id)}" title="Set push heights per part, cooldown, costs and batches">Fine-tune in Loop files</button>` : ""}
+        <div class="muted small">${SHELL ? "Make it now uses your saved loop-file settings; Fine-tune opens the plate in Make a loop file to change them for this plate." : "Uses your saved loop-file settings."}</div></div>` : ""}
+      ${verdicts}</div>
+      <div class="side"><span class="chip ${STATUS[j.status] || ""}">${esc(j.status)}</span>
+        ${done ? `<button type="button" class="btn small" data-remove="${esc(j.id)}" aria-label="Remove ${esc(j.title)}">Remove</button>` : ""}</div></div>`;
+  }).join("");
+  for (const j of jobs) {
+    const was = SEEN[j.id];
+    if (was && was !== j.status && (j.status === "done" || j.status === "failed")) tell(j);
+    SEEN[j.id] = j.status;
+  }
+  const busy = jobs.some(j => j.status === "running" || j.status === "queued");
+  clearTimeout(window._t); window._t = setTimeout(refresh, busy ? 1200 : 5000);
+}
+// a desktop notice when a check finishes while the window is in the background
+const SEEN = {}, LOOPS = {};  // LOOPS keeps a typed loop count across refreshes
+document.getElementById("jobs").addEventListener("input", (e) => {
+  if (e.target.id && e.target.id.startsWith("loops-")) LOOPS[e.target.id.slice(6)] = +e.target.value; });
+// Inside the ProofLoop window: hand plates to Loop files, and let the window tell you when a check is done.
+const SHELL = {{ shell|tojson }};
+if (SHELL) window.addEventListener("message", (e) => {
+  if (e.origin === SHELL && e.source === window.parent && e.data && e.data.proofloop === "refresh")
+    refresh().then(() => document.getElementById("jobs").scrollIntoView({block: "start"})); });
+function askToTell() { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); }
+function tell(j) {
+  if (SHELL) {
+    window.parent.postMessage({proofloop: "job-finished", ok: j.status === "done",
+      title: `${LABEL[j.kind]}: ${j.title} ${j.status === "done" ? "is done" : "failed"}`,
+      body: j.status === "done" ? (j.summary[0] || "") : (j.error || ""),
+      report: j.report_url ? new URL(j.report_url, location.href).href : null}, SHELL);
+    return;
+  }
+  if (!window.Notification || Notification.permission !== "granted" || !document.hidden) return;
+  const n = new Notification(`${LABEL[j.kind]}: ${j.title} ${j.status === "done" ? "is done" : "failed"}`,
+    {body: j.status === "done" ? (j.summary[0] || "") : (j.error || "")});
+  n.onclick = () => { window.focus(); if (j.report_url) window.open(j.report_url, "_blank", "noopener"); };
+}
+document.addEventListener("click", askToTell, {once: true});
+document.getElementById("jobs").addEventListener("click", async (e) => {
+  const v = e.target.closest("button[data-verdict]"), rm = e.target.closest("button[data-remove]");
+  if (v || rm) {
+    const body = v ? {job: v.dataset.job, check: v.dataset.check, verdict: v.dataset.verdict} : {job: rm.dataset.remove};
+    if (rm && !confirm("Remove this job and its report?")) return;
+    try { const r = await fetch(v ? "/api/feedback" : "/api/remove", {method: "POST", headers: {...H, "Content-Type": "application/json"},
+      body: JSON.stringify(body)}); if (!r.ok) alert((await r.json()).error); } catch (x) { alert("That didn't work"); }
+    refresh(); return;
+  }
+  const o = e.target.closest("button[data-open-loop]");
+  if (o && SHELL) { window.parent.postMessage({proofloop: "open-in-loop-files", job: o.dataset.openLoop}, SHELL); return; }
+  const b = e.target.closest("button[data-loop]"); if (!b) return;
+  const loops = +document.getElementById("loops-" + b.dataset.loop).value; b.disabled = true;
+  try {
+    const r = await fetch("/api/loop", {method: "POST", headers: {...H, "Content-Type": "application/json"},
+      body: JSON.stringify({job: b.dataset.loop, loops})});
+    if (!r.ok) alert((await r.json()).error);
+  } catch (x) { alert("Could not make the loop file"); }
+  b.disabled = false; refresh();
+});
+refresh();
+</script>
+</body></html>

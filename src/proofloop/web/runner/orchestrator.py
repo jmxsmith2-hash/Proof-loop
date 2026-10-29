@@ -1,0 +1,165 @@
+"""Runs every persona x task x repeat (x visit) in parallel and stores the results."""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+from collections.abc import Callable
+from dataclasses import asdict
+from typing import Any
+
+from proofloop.core.config import Settings
+from proofloop.core.cost import CostEstimate, estimate_run
+from proofloop.core.db import Database, new_id, utcnow
+from proofloop.core.llm import LLMGateway
+from proofloop.core.logging import get_logger
+from proofloop.personas.models import Persona
+from proofloop.web.calibration.profiles import CalibrationProfile
+from proofloop.web.engines import actor_for
+from proofloop.web.runner.browser import BrowserPool
+from proofloop.web.runner.memory import SessionMemory
+from proofloop.web.runner.session import SessionRunner, step_to_row
+from proofloop.web.runner.types import SessionResult
+from proofloop.web.study import Study, is_sandbox
+
+log = get_logger(__name__)
+
+
+def session_seed(run_id: str, persona_id: str, task_id: str, repeat: int) -> int:
+    digest = hashlib.sha256(f"{run_id}|{persona_id}|{task_id}|{repeat}".encode()).hexdigest()
+    return int(digest[:8], 16)
+
+
+class Orchestrator:
+    def __init__(self, settings: Settings, db: Database, study: Study, profile: CalibrationProfile,
+                 gateway: LLMGateway | None = None):
+        self.settings = settings
+        self.db = db
+        self.study = study
+        self.profile = profile
+        self.gateway = gateway or LLMGateway(settings, db)
+        self.sandbox = is_sandbox(study, settings)
+
+    # ---------------------------------------------------------------- plan
+    def repeats(self, override: int | None = None) -> int:
+        return override or self.study.repeats or self.settings.run.repeats
+
+    def session_count(self, personas: list[Persona], repeats: int | None = None) -> int:
+        return len(personas) * len(self.study.tasks) * self.repeats(repeats) * self.study.visits
+
+    def estimate(self, personas: list[Persona], repeats: int | None = None) -> CostEstimate:
+        device = self.settings.device(self.study.conditions.device or "desktop")
+        avg_steps = self.profile.patience.base_steps * 0.7
+        return estimate_run(self.settings, sessions=self.session_count(personas, repeats), avg_steps=avg_steps,
+                            viewport=(device.width, device.height), persona_count=0)
+
+    # ----------------------------------------------------------------- run
+    async def run(self, personas: list[Persona], *, repeats: int | None = None, run_id: str | None = None,
+                  task_ids: list[str] | None = None,
+                  on_session: Callable[[SessionResult], None] | None = None, seed_key: str | None = None) -> str:
+        """`seed_key` fixes the sessions' random seeds (instead of the run id): runs that share it differ only
+        in their settings, which is what a calibration search compares."""
+        run_id = run_id or new_id("run")
+        seed_key = seed_key or run_id
+        n_repeats = self.repeats(repeats)
+        tasks = [t for t in self.study.tasks if not task_ids or t.id in task_ids]
+        out_dir = self.settings.data_dir / "runs" / run_id
+        estimate = self.estimate(personas, repeats)
+        self.db.insert("runs", {
+            "id": run_id, "created_at": utcnow(), "study": self.study.name, "target_url": self.study.target.url,
+            "status": "running", "calibration_version": self.profile.version,
+            "cost_estimate_usd": estimate.total_usd,
+            "config_json": {"repeats": n_repeats, "visits": self.study.visits, "tasks": [t.id for t in tasks],
+                            "personas": [p.id for p in personas], "engines": self.settings.engine.model_dump(),
+                            "conditions": self.study.conditions.model_dump(), "sandbox": self.sandbox,
+                            "profile_fingerprint": self.profile.fingerprint(),
+                            "framing": self.study.target.framing},
+        })
+        self.gateway.run_id = run_id
+        runner = SessionRunner(self.settings, self.profile, self.study, sandbox=self.sandbox, out_dir=out_dir)
+        semaphore = asyncio.Semaphore(self.settings.run.concurrency)
+        log.info("run %s: %d personas x %d tasks x %d repeats x %d visits (concurrency %d)", run_id, len(personas),
+                 len(tasks), n_repeats, self.study.visits, self.settings.run.concurrency)
+
+        from proofloop.web.runner.perception import OcrEngine
+
+        ocr_cache = self.settings.data_dir / "cache" / "ocr_lines.json"
+        loaded = await asyncio.to_thread(OcrEngine.shared().load_lines, ocr_cache)
+        if loaded:
+            log.info("reusing %d text lines read in earlier runs", loaded)
+        async with BrowserPool(self.settings) as pool:
+            async def chain(persona: Persona, task, repeat: int) -> None:
+                memory = SessionMemory()
+                for visit in range(self.study.visits):
+                    async with semaphore:
+                        result = await runner.run(
+                            pool, persona, task, actor_for(persona, self.gateway),
+                            seed=session_seed(seed_key, persona.id, task.id, repeat) + visit,
+                            repeat_index=repeat, visit_index=visit, memory=memory)
+                    self._store(run_id, result)
+                    if on_session:
+                        on_session(result)
+                    memory = SessionMemory.from_long_term(result.memory)
+
+            jobs = [chain(p, t, r) for p in personas for t in tasks for r in range(n_repeats)]
+            outcomes = await asyncio.gather(*jobs, return_exceptions=True)
+        try:
+            await asyncio.to_thread(OcrEngine.shared().save_lines, ocr_cache)
+        except OSError as exc:  # a full disk must not fail the run
+            log.warning("could not save the OCR cache: %s", exc)
+        failures = [o for o in outcomes if isinstance(o, BaseException)]
+        for failure in failures:
+            log.error("session chain failed: %r", failure)
+        status = "done" if not failures else ("failed" if len(failures) == len(jobs) else "done_with_errors")
+        self.db.update("runs", "id", run_id, {"status": status, "finished_at": utcnow(),
+                                              "cost_actual_usd": round(self.gateway.spent_usd, 4)})
+        if failures and len(failures) == len(jobs):
+            raise failures[0]
+        return run_id
+
+    # --------------------------------------------------------------- store
+    def _store(self, run_id: str, result: SessionResult) -> None:
+        self.db.insert("sessions", {
+            "id": result.session_id, "run_id": run_id, "persona_id": result.persona_id, "task_id": result.task_id,
+            "repeat_index": result.repeat_index, "visit_index": result.visit_index, "seed": result.seed,
+            "conditions_json": result.conditions, "outcome": result.outcome, "quit_reason": result.quit_reason,
+            "steps_count": len(result.steps), "sim_seconds": result.sim_seconds, "wall_seconds": result.wall_seconds,
+            "final_frustration": result.final_frustration,
+            "memory_json": {**result.memory, "frustration_timeline": result.frustration_timeline},
+            "started_at": utcnow(), "ended_at": utcnow(),
+        })
+        for step in result.steps:
+            self.db.insert("steps", step_to_row(result.session_id, step))
+        for issue in result.issues:
+            self.db.insert("issues", issue_row(run_id, result, issue))
+        store_a11y(self.db, run_id, result.a11y)
+
+
+def store_a11y(db: Database, run_id: str, findings: list[Any]) -> None:
+    """One row per (check, screen, text) per run; the devices it was seen on accumulate."""
+    for f in findings:
+        row = db.one("SELECT id, devices_json, measured FROM a11y_findings WHERE run_id = ? AND check_name = ? "
+                     "AND screen_id = ? AND text = ?", [run_id, f.check, f.screen_id, f.text])
+        if row is None:
+            db.insert("a11y_findings", {"run_id": run_id, "check_name": f.check, "screen_id": f.screen_id,
+                                        "text": f.text, "measured": f.measured, "required": f.required,
+                                        "severity": f.severity, "region_json": f.region, "screenshot": f.screenshot,
+                                        "devices_json": list(f.devices)})
+        else:
+            devices = sorted(set(row["devices_json"]) | set(f.devices))
+            db.execute("UPDATE a11y_findings SET devices_json = ?, measured = ? WHERE id = ?",
+                       [devices, min(row["measured"], f.measured), row["id"]])
+
+
+def issue_row(run_id: str, result: SessionResult, issue: Any) -> dict[str, Any]:
+    return {
+        "id": new_id("iss"), "run_id": run_id, "session_id": result.session_id, "persona_id": result.persona_id,
+        "task_id": result.task_id, "step_idx": issue.step_idx, "screen_id": issue.screen_id,
+        "region_json": issue.region, "category": issue.category, "title": issue.title,
+        "description": issue.description, "severity": issue.severity, "source": issue.source,
+        "failure_class": issue.failure_class, "status": "pending", "evidence_json": issue.evidence,
+    }
+
+
+def session_summary(result: SessionResult) -> dict[str, Any]:
+    return {k: v for k, v in asdict(result).items() if k not in ("steps", "issues")}

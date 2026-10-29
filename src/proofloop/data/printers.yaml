@@ -1,0 +1,132 @@
+# Printer and material profiles used by `proofloop check design`.
+# Pick with --printer / --material, or set defaults here. All lengths in mm.
+default_printer: bambu_p2s
+default_material: PLA
+
+# Bambu Lab sizes are from their published specs; check yours on the spec sheet if a check looks off.
+# volumetric_speed_mm3_s is the realistic average (travel included) used for time estimates;
+# max_flow_mm3_s is what the hot end can melt, used to check sliced G-code; names are the printer_model
+# the slicer writes into G-code; accel_mm_s2 is used when the file doesn't set one.
+printers:
+  bambu_p2s:
+    type: fdm
+    names: ["Bambu Lab P2S"]
+    extruder: direct
+    accel_mm_s2: 10000
+    build_volume: [256, 256, 256]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 18
+    max_flow_mm3_s: 28
+    max_nozzle_temp: 300
+    max_bed_temp: 110
+    enclosed: true
+  bambu_h2d:                         # single-nozzle volume; both nozzles reach a little less in X
+    type: fdm
+    names: ["Bambu Lab H2D", "Bambu Lab H2D Pro"]
+    extruder: direct
+    accel_mm_s2: 10000
+    build_volume: [350, 320, 325]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 20
+    max_flow_mm3_s: 32
+    max_nozzle_temp: 350
+    max_bed_temp: 120
+    enclosed: true
+  bambu_h2s:
+    type: fdm
+    names: ["Bambu Lab H2S"]
+    extruder: direct
+    accel_mm_s2: 10000
+    build_volume: [340, 320, 340]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 20
+    max_flow_mm3_s: 32
+    max_nozzle_temp: 350
+    max_bed_temp: 120
+    enclosed: true
+  generic_fdm_0.4:
+    type: fdm
+    names: []
+    extruder: direct
+    accel_mm_s2: 2000
+    build_volume: [220, 220, 250]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 10       # realistic average including travel
+    max_flow_mm3_s: 15
+    max_nozzle_temp: 260
+    max_bed_temp: 100
+  bambu_x1:
+    type: fdm
+    names: ["Bambu Lab X1 Carbon", "Bambu Lab X1", "Bambu Lab X1E", "Bambu Lab P1S", "Bambu Lab P1P"]
+    extruder: direct
+    accel_mm_s2: 10000
+    build_volume: [256, 256, 256]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 18
+    max_flow_mm3_s: 24
+    max_nozzle_temp: 300
+    max_bed_temp: 110
+    enclosed: true
+  prusa_mk4:
+    type: fdm
+    names: ["Original Prusa MK4", "Original Prusa MK4S", "MK4", "MK4S"]
+    extruder: direct
+    accel_mm_s2: 4000
+    build_volume: [250, 210, 220]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 14
+    max_flow_mm3_s: 20
+    max_nozzle_temp: 290
+    max_bed_temp: 120
+  ender3:
+    type: fdm
+    names: ["Creality Ender-3", "Creality Ender-3 V2", "Ender-3"]
+    extruder: bowden
+    accel_mm_s2: 500
+    build_volume: [220, 220, 250]
+    nozzle: 0.4
+    layer_height: 0.2
+    volumetric_speed_mm3_s: 8
+    max_flow_mm3_s: 12
+    max_nozzle_temp: 260
+    max_bed_temp: 100
+  generic_resin:
+    type: resin
+    build_volume: [130, 80, 160]
+    nozzle: 0.05                     # XY resolution stand-in
+    layer_height: 0.05
+    volumetric_speed_mm3_s: 40
+
+# nozzle_c / bed_c: usual printing ranges; flow_mm3_s: typical safe melt rate on a standard hot end;
+# fan_pct: part-cooling range the material wants after the first layers;
+# snap_strain_pct: how far it stretches in a snap-fit or flexing clip before it cracks or stays bent.
+materials:
+  PLA:   {density_g_cm3: 1.24, price_per_kg: 22, max_overhang_deg: 45, max_bridge_mm: 25, min_wall_mm: 0.8,
+          clearance_mm: 0.3, shrinkage_pct: 0.3, warp_risk: low,
+          nozzle_c: [190, 235], bed_c: [35, 65], flow_mm3_s: 21, fan_pct: [70, 100], snap_strain_pct: 2, aliases: [PLA Basic, PLA Matte, PLA+]}
+  PETG:  {density_g_cm3: 1.27, price_per_kg: 24, max_overhang_deg: 40, max_bridge_mm: 15, min_wall_mm: 0.8,
+          clearance_mm: 0.35, shrinkage_pct: 0.4, warp_risk: low,
+          nozzle_c: [220, 270], bed_c: [60, 85], flow_mm3_s: 16, fan_pct: [20, 70], snap_strain_pct: 4, aliases: [PETG HF, PETG Basic, PETG-CF]}
+  ABS:   {density_g_cm3: 1.04, price_per_kg: 22, max_overhang_deg: 45, max_bridge_mm: 20, min_wall_mm: 1.0,
+          clearance_mm: 0.35, shrinkage_pct: 0.7, warp_risk: high,
+          nozzle_c: [240, 280], bed_c: [90, 110], flow_mm3_s: 20, fan_pct: [0, 40], snap_strain_pct: 5, aliases: [ABS-GF]}
+  ASA:   {density_g_cm3: 1.07, price_per_kg: 28, max_overhang_deg: 45, max_bridge_mm: 20, min_wall_mm: 1.0,
+          clearance_mm: 0.35, shrinkage_pct: 0.6, warp_risk: high,
+          nozzle_c: [240, 280], bed_c: [90, 110], flow_mm3_s: 18, fan_pct: [0, 40], snap_strain_pct: 4, aliases: []}
+  TPU:   {density_g_cm3: 1.21, price_per_kg: 32, max_overhang_deg: 35, max_bridge_mm: 8, min_wall_mm: 1.2,
+          clearance_mm: 0.5, shrinkage_pct: 0.3, warp_risk: low,
+          nozzle_c: [210, 250], bed_c: [25, 60], flow_mm3_s: 4, fan_pct: [30, 100], snap_strain_pct: 30, aliases: [TPU 95A, TPU 90A]}
+  resin: {density_g_cm3: 1.15, price_per_kg: 45, max_overhang_deg: 30, max_bridge_mm: 5, min_wall_mm: 0.4,
+          clearance_mm: 0.15, shrinkage_pct: 0.5, warp_risk: medium, snap_strain_pct: 1.5}
+
+slicer:                              # assumptions for weight/time estimates
+  perimeters: 2
+  top_bottom_layers: 4
+  infill_pct: 15
+  filament_diameter: 1.75

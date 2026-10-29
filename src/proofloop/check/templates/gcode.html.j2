@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ r.file }}: G-code check</title>
+{% include "_style.html.j2" %}
+</head>
+<body><main>
+<div class="brand">{{ icon }}ProofLoop</div>
+<h1>{{ r.file }}</h1>
+<p class="secondary small">{{ r.printer.label }} ({{ r.printer_source }}, {{ r.nozzle }} mm nozzle) · {{ r.material.name }} ({{ r.material_source }})
+  {% if r.notes.slicer %} · {{ r.notes.slicer }}{% endif %}{% if r.plates and r.plates|length > 1 %} · plate {{ r.plate }} of {{ r.plates|join(', ') }}{% endif %}
+  · {{ r.generated }}</p>
+<div class="banner small"><b>Measured from the G-code itself:</b> every move, temperature and fan command, against the
+  {{ r.printer.label }} profile and the usual ranges for {{ r.material.name }}. Speeds are the ones the file asks for;
+  the printer may go slower on short moves. Check the filament maker's own temperatures.</div>
+
+{% set s4 = r.findings|selectattr('severity', 'equalto', 4)|list %}{% set s3 = r.findings|selectattr('severity', 'equalto', 3)|list %}
+<div class="stats">
+  <div class="stat"><b class="{{ 'bad' if s4 else 'ok' }}">{{ s4|length }}</b><span>will fail</span></div>
+  <div class="stat"><b>{{ s3|length }}</b><span>major problems</span></div>
+  <div class="stat"><b>{{ r.findings|length }}</b><span>findings in total</span></div>
+  <div class="stat"><b>{{ r.metrics.filament_g }} g</b><span>filament ({{ r.metrics.filament_m }} m, about {{ r.cost }})</span></div>
+  <div class="stat"><b>{{ r.time.slicer or r.time.replay }}</b><span>{{ 'slicer estimate' if r.time.slicer else 'rough estimate' }}</span></div>
+  <div class="stat"><b>{{ r.metrics.layers }}</b><span>layers, {{ r.metrics.extents.z if r.metrics.extents else '?' }} mm tall</span></div>
+  {% if r.metrics.peak_flow_mm3_s %}<div class="stat"><b>{{ r.metrics.peak_flow_mm3_s }}</b><span>peak flow mm³/s (hot end {{ r.printer.max_flow_mm3_s }})</span></div>{% endif %}
+</div>
+
+{% if r.metrics.loop_file %}{% set lf = r.metrics.loop_file %}
+<h2>Loop file</h2>
+<div class="card small">
+  <p><b>{{ lf.loops }} loops</b> made by {{ lf.made_by }}{% if lf.plates > 1 %}, {{ lf.plates }} different plates{% endif %}:
+    {{ r.metrics.filament_g_per_loop }} g and {{ r.metrics.layers }} layers per loop{% if lf.plate_check_pauses %};
+    the printer waits for ProofLoop's plate check {{ lf.plate_check_pauses }} time(s){% endif %}.
+    The checks below look at each loop's print; the cooldown, door, bend and sweep after it
+    {% if lf.loop_checks is not none %}get the loop-file checks:{% else %}need the whole .gcode.3mf to be checked.{% endif %}</p>
+  {% if lf.loop_checks %}<table>{% for c in lf.loop_checks %}<tr><td class="{{ 'ok' if c.level == 'ok' else 'bad' if c.level == 'danger' else '' }}">{{ {'ok': 'OK', 'danger': 'danger', 'warning': 'warning', 'info': 'note'}[c.level] }}</td><td><b>{{ c.title }}</b><br>{{ c.detail }}</td></tr>{% endfor %}</table>{% endif %}
+</div>{% endif %}
+
+{% if r.metrics.history %}{% set h = r.metrics.history %}
+<h2>What your printer taught</h2>
+<div class="card small">
+  <p>{{ h.prints }} {{ r.material.name }} print(s) on your {{ r.printer.label }} recorded by ProofLoop's printer monitor:
+    {{ h.finished }} finished, {{ h.failed }} failed{% if h.eject_checked %}; {{ h.eject_left }} of {{ h.eject_checked }} plate checks found parts left{% endif %}.</p>
+  {% if h.by_cause %}<ul>{% for cause, n in h.by_cause.items() %}<li>{{ n }} failed: {{ {'first_layer': 'in the first layers', 'filament_feed': 'with an AMS alert', 'camera': 'stopped by the camera inspection', 'flow': 'at high flow', 'cooling': 'on very quick layers', 'unknown': 'cause not clear from the file'}.get(cause, cause) }}</li>{% endfor %}</ul>{% endif %}
+  {% if h.proven_flow %}<p>It has finished prints at up to {{ h.proven_flow }} mm³/s{% if h.failed_flow %}, and failed at about {{ h.failed_flow }} mm³/s{% endif %}.</p>{% endif %}
+  <p class="muted">Causes are the likely ones from what was printing when a print stopped, not a diagnosis.</p>
+</div>{% endif %}
+
+<h2>Preview</h2>
+<div class="views">{% for name, src in r.images.items() if name not in ('flow', 'travel') %}<figure><img src="{{ src }}" alt="{{ name }}"><figcaption>{{ {'plate': 'first layer on the plate', 'side': 'side view (red: layers too thick)'}.get(name, name|replace('layer', 'layer ')) }}</figcaption></figure>{% endfor %}</div>
+
+<h2>Checks</h2>
+{% if not r.findings %}<p class="card ok">No problems found in the G-code.</p>{% endif %}
+{% for f in r.findings %}
+<div class="card finding">
+  <div>
+    <h3><span class="num sev{{ f.severity }}">{{ f.n }}</span>{{ f.title }}</h3>
+    <span class="chip">{{ f.severity_name }}</span><span class="chip">{{ f.check|replace('_', ' ') }}</span>
+    {% if f.loop_no %}<span class="chip">loop {{ f.loop_no }}, layer {{ f.layer_in_loop }}</span>{% elif f.layer %}<span class="chip">layer {{ f.layer }}</span>{% endif %}
+    {% if f.location %}<span class="chip">at x {{ f.location.x }}, y {{ f.location.y }}, z {{ f.location.z }} mm</span>{% endif %}
+    <p>{{ f.detail }}</p>
+    {% if f.fix %}<div class="fix"><b>Fix:</b> {{ f.fix }}</div>{% endif %}
+    {% for st in f.settings %}<span class="chip">{{ st.label }} = <b>{{ st.value }}</b></span>{% endfor %}
+  </div>
+  <div>{% if f.image %}<img src="{{ f.image }}" alt="picture for finding {{ f.n }}">{% if f.image == r.images.get('flow') %}<p class="small muted">green: easy flow, red: more than the hot end melts</p>{% elif f.image == r.images.get('travel') %}<p class="small muted">red: travels without retraction</p>{% endif %}{% endif %}</div>
+</div>
+{% endfor %}
+
+{% if r.setting_fixes %}<h2>Slicer settings to change</h2>
+<div class="card small"><table><tr><th>Where in Bambu Studio / OrcaSlicer</th><th>Setting</th><th class="n">Value</th><th>Fixes</th></tr>
+{% for st in r.setting_fixes %}<tr><td>{{ st.label }}</td><td><code>{{ st.key }}</code></td><td class="n"><b>{{ st.value }}</b></td><td>{{ st.why }}</td></tr>{% endfor %}</table>
+{% if r.fix_presets %}<p>Or import them as presets (File › Import › Import Configs): {% for k, v in r.fix_presets.items() %}<a href="{{ v }}">{{ k }} preset</a>{% if not loop.last %}, {% endif %}{% endfor %}. They inherit from the presets this file was sliced with.</p>{% endif %}
+</div>{% endif %}
+
+<h2>What the file does</h2>
+<div class="card small"><table>
+<tr><td>Size on the plate</td><td>{% if r.metrics.extents %}X {{ r.metrics.extents.x|join('..') }}, Y {{ r.metrics.extents.y|join('..') }}, up to Z {{ r.metrics.extents.z }} mm (plate {{ r.printer.build_volume|join(' x ') }} mm){% endif %}</td></tr>
+<tr><td>Layers</td><td>{{ r.metrics.layers }}; first {{ r.metrics.first_layer_mm }} mm; heights {{ r.metrics.layer_heights_mm|join(', ') }} mm</td></tr>
+<tr><td>Temperatures</td><td>nozzle {{ (r.metrics.nozzle_c or ['not set'])|join(', ') }} °C, bed {{ (r.metrics.bed_c or ['not set'])|join(', ') }} °C
+  ({{ r.material.name }}: {{ r.material.nozzle_c|join('-') if r.material.nozzle_c else '?' }} / {{ r.material.bed_c|join('-') if r.material.bed_c else '?' }} °C)</td></tr>
+<tr><td>Part fan</td><td>{% if r.metrics.fan_pct %}{{ r.metrics.fan_pct|join('-') }}% after layer 3{% else %}not used{% endif %}</td></tr>
+<tr><td>Flow</td><td>typical {{ r.metrics.typical_flow_mm3_s }} mm³/s, peak {{ r.metrics.peak_flow_mm3_s }} mm³/s; line width about {{ r.metrics.median_line_width_mm }} mm</td></tr>
+<tr><td>Retraction</td><td>{{ r.metrics.retractions or 0 }} retractions{% if r.metrics.retraction_mm %}, about {{ r.metrics.retraction_mm }} mm each{% endif %}; {{ r.metrics.travel_m }} m of travel</td></tr>
+<tr><td>Time</td><td>{% if r.time.slicer %}slicer {{ r.time.slicer }}; {% endif %}replayed from the moves about {{ r.time.replay }} (rough: heating and homing not counted{% if r.metrics.loop_file %}; printing only, without each loop's cooldown and sweep{% endif %})</td></tr>
+{% if r.metrics.minutes_by_feature %}<tr><td>Printing time by feature</td><td>{% for k, v in r.metrics.minutes_by_feature.items() %}{{ k }} {{ v }} min{% if not loop.last %} · {% endif %}{% endfor %}</td></tr>{% endif %}
+{% if r.metrics.tool_changes %}<tr><td>Filament changes</td><td>{{ r.metrics.tool_changes }}</td></tr>{% endif %}
+<tr><td>File</td><td>{{ r.lines }} lines, {{ r.moves }} moves, checked in {{ r.seconds }} s</td></tr>
+</table></div>
+
+<h2>Limitations</h2>
+<ul class="card small">
+  <li>Temperature and flow ranges are typical for the material; your filament's label wins.</li>
+  <li>The printer's start code (purge line, wipe) is left out of the plate check when the file marks its layers.</li>
+  <li>Bambu printers adjust some settings in firmware (flow and pressure calibration); the checks see only the file.</li>
+</ul>
+</main></body></html>

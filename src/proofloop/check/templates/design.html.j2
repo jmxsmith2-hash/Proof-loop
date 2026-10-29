@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ r.design }} v{{ r.version }}: design check</title>
+{% set made = r.process.kind if r.process else 'print' %}
+{% include "_style.html.j2" %}
+</head>
+<body><main>
+<div class="brand">{{ icon }}ProofLoop</div>
+<h1>{{ r.design }} <span class="muted">v{{ r.version }}</span></h1>
+<p class="secondary small">{{ r.file }} · {% if made == 'print' %}{{ (r.printer.names or [r.printer.name])[0] }} ({{ r.printer.nozzle }} mm nozzle, {{ r.printer.layer_height }} mm layers){% else %}{{ r.process.label }}{% if r.process.pull %}, pull along {{ r.process.pull|upper }}{% endif %}{% endif %} ·
+  {{ r.material.name }}{% if r.material.learned_from_prints %} · <b>adjusted from {{ r.material.learned_from_prints }} real print(s)</b>{% endif %}
+  · {{ r.generated }}</p>
+<div class="banner small"><b>Design checks</b> are measured from your CAD file before {{ 'printing' if made == 'print' else 'making it' }}: they are about the geometry,
+  not about people. <b>Persona reactions</b> are a {{ r.label|lower }}: grounded only in those measurements and
+  approximate body-size data, never in how it feels, its texture, taste or smell. {{ r.disclaimer }}</div>
+
+{% set s4 = r.findings|selectattr('severity', 'equalto', 4)|list %}{% set s3 = r.findings|selectattr('severity', 'equalto', 3)|list %}
+<div class="stats">
+  <div class="stat"><b class="{{ 'bad' if s4 else 'ok' }}">{{ s4|length }}</b><span>will fail</span></div>
+  <div class="stat"><b>{{ s3|length }}</b><span>major problems</span></div>
+  <div class="stat"><b>{{ r.findings|length }}</b><span>findings in total</span></div>
+  <div class="stat"><b>{{ r.metrics.estimates.printed_grams }} g</b><span>estimated mass of the part{% if r.metrics.estimates.support_grams %} (+ {{ r.metrics.estimates.support_grams }} g support){% endif %}</span></div>
+  {% if made == 'print' %}<div class="stat"><b>{{ r.metrics.estimates.print_hours }} h</b><span>estimated print time</span></div>{% endif %}
+  <div class="stat"><b>{{ r.metrics.estimates.material_cost }}</b><span>material cost (at {{ r.material.price_per_kg }} per kg)</span></div>
+  {% for value, label in r.metrics.estimates.process_stats or [] %}<div class="stat"><b>{{ value }}</b><span>{{ label }}</span></div>{% endfor %}
+  {% if r.metrics.tip_angle_deg is not none %}<div class="stat">{% if r.metrics.tip_angle_deg < 0 %}<b class="bad">falls over</b><span>as used</span>{% else %}<b>{{ r.metrics.tip_angle_deg }}°</b><span>tilt before it tips</span>{% endif %}</div>{% endif %}
+</div>
+
+{% if r.comparison %}{% set c = r.comparison %}
+<h2>Since version {{ c.previous_version }}</h2>
+<div class="card">
+  {% if c.same_file %}<p class="bad">This is the same file as v{{ c.previous_version }}.</p>{% endif %}
+  <p><span class="ok">{{ c.fixed|length }} fixed</span> · {{ c.persisting|length }} still there · <span class="{{ 'bad' if c.new else '' }}">{{ c.new|length }} new</span></p>
+  <table><tr><th>Status</th><th>Finding</th></tr>
+  {% for f in c.fixed %}<tr><td class="ok">fixed</td><td>{{ f.title }}</td></tr>{% endfor %}
+  {% for f in c.persisting %}<tr><td>still there{% if f.severity < f.was_severity %} (better){% elif f.severity > f.was_severity %} (worse){% endif %}</td><td>#{{ f.n }} {{ f.title }}</td></tr>{% endfor %}
+  {% for f in c.new %}<tr><td class="bad">new</td><td>#{{ f.n }} {{ f.title }}</td></tr>{% endfor %}
+  </table>
+  {% if c.metrics %}<table style="margin-top:10px"><tr><th>Measure</th><th class="n">v{{ c.previous_version }}</th><th class="n">v{{ r.version }}</th><th class="n">change</th></tr>
+  {% for m in c.metrics %}<tr><td>{{ m.metric }}</td><td class="n">{{ m.before }}</td><td class="n">{{ m.after }}</td><td class="n">{{ '%+g' % m.change }}</td></tr>{% endfor %}</table>{% endif %}
+</div>{% endif %}
+
+<h2>Where the problems are</h2>
+<div class="views">{% for name, src in r.images.items() %}<figure><img src="{{ src }}" alt="{{ name }} view with numbered problem markers"><figcaption>{{ name }} view</figcaption></figure>{% endfor %}</div>
+
+<h2>Design checks</h2>
+{% if not r.findings %}<p class="card ok">No problems found by the geometry checks.</p>{% endif %}
+{% for f in r.findings %}
+<div class="card finding">
+  <div>
+    <h3><span class="num sev{{ f.severity }}">{{ f.n }}</span>{{ f.title }}</h3>
+    <span class="chip">{{ f.severity_name }}</span><span class="chip">{{ f.check|replace('_', ' ') }}</span>
+    {% if f.location %}<span class="chip">at x {{ f.location.x }}, y {{ f.location.y }}, z {{ f.location.z }} mm</span>{% endif %}
+    <p>{{ f.detail }}</p>
+    {% if f.fix %}<div class="fix"><b>Fix:</b> {{ f.fix }}</div>{% endif %}
+  </div>
+  <div>{% if f.image %}<img src="{{ f.image }}" alt="where finding {{ f.n }} is">{% endif %}</div>
+</div>
+{% endfor %}
+
+{% if r.metrics.auto_eject %}{% set ae = r.metrics.auto_eject %}
+<h2>Auto-eject (FarmLoop loop files)</h2>
+<div class="card small">
+  <p>{% if ae.copies_per_plate %}<b>{{ ae.copies_per_plate }} copies</b> fit on one plate ({{ ae.layout[0] }} across x {{ ae.layout[1] }} deep), inside the pusher's lanes (X {{ ae.usable_x[0] }} to {{ ae.usable_x[1] }} mm) and in front of Y {{ ae.rear_limit_y }} mm.{% else %}It doesn't fit inside the pusher's lanes.{% endif %}</p>
+  <table><tr><th>Part</th><th class="n">height mm</th><th class="n">pushed at mm</th><th class="n">footprint mm</th><th class="n">flat contact cm²</th></tr>
+  {% for p in ae.parts %}<tr><td>{{ loop.index }}</td><td class="n">{{ p.height }}</td><td class="n">{{ p.push_z }}</td><td class="n">{{ p.width }} x {{ p.depth }}</td><td class="n">{{ p.contact_cm2 }}</td></tr>{% endfor %}</table>
+  <p class="muted">Pusher floor {{ ae.settings.floor_z }} mm{% if not ae.settings.floor_calibrated %} (not calibrated yet){% endif %}, push depth {{ ae.settings.push_offset }} mm, release at {{ ae.settings.release_temp }} °C, bender {{ 'fitted' if ae.settings.bender_fitted else 'not fitted' }}{% if ae.settings.from_settings %}, from your loop-file settings{% else %} (the defaults for new loop files){% endif %}.</p>
+</div>{% endif %}
+
+{% if r.metrics.orientation %}{% set o = r.metrics.orientation %}
+<h2>Print orientation</h2>
+<div class="card"><table><tr><th></th><th class="n">overhang mm²</th><th class="n">bed contact mm²</th><th class="n">height mm</th><th>fits</th></tr>
+<tr><td>as modelled</td><td class="n">{{ o.current.overhang_mm2 }}</td><td class="n">{{ o.current.contact_mm2 }}</td><td class="n">{{ o.current.height_mm }}</td><td>{{ 'yes' if o.current.fits else 'no' }}</td></tr>
+<tr><td>best: {{ o.best.name }}</td><td class="n">{{ o.best.overhang_mm2 }}</td><td class="n">{{ o.best.contact_mm2 }}</td><td class="n">{{ o.best.height_mm }}</td><td>{{ 'yes' if o.best.fits else 'no' }}</td></tr></table></div>{% endif %}
+
+<h2>How people would react <span class="muted small">({{ r.label|lower }})</span></h2>
+<div class="card"><table><tr><th>Persona</th><th>Most likely reason to stop using it</th><th>Other concerns</th></tr>
+{% for p in r.personas %}{% set top = r.return_reasons[p.id] %}<tr>
+  <td><b>{{ p.label }}</b><br><span class="small muted">hands {{ p.traits.hand_size }}, grip {{ p.traits.grip_strength }}{% if p.traits.motor != 'none' %}, {{ p.traits.motor|replace('_', ' ') }}{% endif %}{% if p.traits.age_range == '65+' %}, 65+{% endif %}</span>
+    {% if p.low_confidence %}<br><span class="small bad">{{ p.note }}</span>{% endif %}</td>
+  <td class="small">{% if top %}<b>{{ top.title }}</b><br>{{ top.text }}<br><span class="muted">Evidence: {{ top.evidence|join('; ') }}</span>{% else %}<span class="muted">nothing measured gives this persona a reason</span>{% endif %}</td>
+  <td class="small">{% for x in r.reactions[p.id][1:4] %}{{ x.title }}{% if not loop.last %}; {% endif %}{% endfor %}</td></tr>{% endfor %}
+</table></div>
+
+{% if r.checklist %}<h2>Check by hand <span class="muted small">(general patterns for {{ r.types|join(', ') }}: not measurable from CAD, not your data)</span></h2>
+<div class="card"><ul class="small">{% for c in r.checklist %}<li>{{ c.title }}</li>{% endfor %}</ul></div>{% endif %}
+
+{% if r.prints %}<h2>What earlier prints taught us</h2>
+<div class="card">{% for p in r.prints %}<p class="small"><b>v{{ p.version }} print</b> ({{ p.created_at[:10] }}){% if p.defects_json %}: {{ p.defects_json|join(', ')|replace('_', ' ') }}{% endif %}</p>
+  <ul class="small">{% for a in p.analysis_json.advice %}<li>{{ a }}</li>{% endfor %}</ul>{% endfor %}
+  {% if r.learned %}<p class="small secondary">Applied to this check for {{ r.printer.name }} + {{ r.material.name }}:
+    {% for k, v in r.learned.adjust.items() %}{{ k|replace('_', ' ') }} {{ '%+g' % v if v is number else v }}{% if not loop.last %}, {% endif %}{% endfor %}
+    {% if r.learned.scale %} · measured scale {% for k, v in r.learned.scale.items() %}{{ k }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
+    {% if r.learned.hole_offset_mm is not none %} · holes print {{ r.learned.hole_offset_mm }} mm{% endif %}</p>{% endif %}
+</div>{% endif %}
+
+<h2>Estimates and assumptions</h2>
+<div class="card small"><table>
+<tr><td>Size</td><td>{{ r.metrics.size_mm|join(' x ') }} mm</td></tr>
+<tr><td>Solid volume</td><td>{{ r.metrics.estimates.solid_volume_cm3 }} cm³</td></tr>
+{% if made == 'print' %}<tr><td>Filament</td><td>{{ r.metrics.estimates.filament_m }} m ({{ r.metrics.estimates.assumptions }})</td></tr>
+{% else %}<tr><td>Assumptions</td><td>{{ r.metrics.estimates.assumptions }}</td></tr>
+{% if r.metrics.wall_mm %}<tr><td>Wall thickness</td><td>{{ r.metrics.wall_mm.min }} to {{ r.metrics.wall_mm.max }} mm (typical {{ r.metrics.wall_mm.typical }} mm)</td></tr>{% endif %}{% endif %}
+<tr><td>Mesh</td><td>{{ r.metrics.triangles }} triangles, {{ r.metrics.shells }} body/bodies, watertight: {{ 'yes' if r.metrics.watertight else 'no' }}</td></tr>
+<tr><td>Check resolution</td><td>{{ r.metrics.voxel_mm }} mm{% if r.metrics.resolution_note %} ({{ r.metrics.resolution_note }}){% endif %}</td></tr>
+</table></div>
+
+<h2>Limitations</h2>
+<ul class="card small">
+  <li>Checks use your model as exported, Z up as the position it is used in. Rotate the file if it is used another way up.</li>
+  {% if made == 'print' %}<li>Weight, time and cost are estimates from typical slicer settings; your slicer's numbers win.</li>
+  {% else %}<li>Process figures (walls, draft, shrinkage, tool sizes, clamp force, cycle and machining times) are typical design-guide values from config/processes.yaml; your moulder's or machinist's quote wins.</li>{% endif %}
+  <li>Strength is judged from thickness and layer direction only; no load simulation.</li>
+  <li>Body-size ranges are approximate population figures, not measurements of anyone.</li>
+  {% if made == 'print' %}<li>Print the part and record what happened (<code>proofloop check printed</code>): later checks learn from it.</li>{% endif %}
+</ul>
+</main></body></html>

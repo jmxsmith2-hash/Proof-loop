@@ -1,8 +1,0 @@
-services:
-  clearloop:
-    build: .
-    restart: unless-stopped
-    # Host networking: the monitor talks to printers on your LAN (MQTT 8883, camera 6000/322).
-    network_mode: host
-    volumes:
-      - ./clearloop-data:/data

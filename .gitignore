@@ -1,12 +1,11 @@
-# Shared virtual environment made by setup.bat / scripts/setup_unix.sh
+# The virtual environment made by setup.bat / scripts/setup_unix.sh
 .venv/
 __pycache__/
 *.pyc
 *.egg-info/
+build/
+dist/
 .pytest_cache/
 .ruff_cache/
 .env
-# Each package has its own .gitignore for its data folders.
-# Reports and data written when synthux is run from the repository root
-/reports/
-/data/
+proofloop-data/

@@ -1,0 +1,18 @@
+<link rel="icon" href="{{ favicon }}">
+<style>{{ theme_css }}</style>
+<style>
+main { max-width: 1100px; padding-top: 24px; }
+h2 { font-size: 18px; margin: 32px 0 10px; }
+.brand { margin-bottom: 6px; }
+.card { padding: 8px 14px; overflow-x: auto; }
+td, th { white-space: nowrap; } td.wrap { white-space: normal; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.chart text { fill: var(--ink-2); font-size: 12px; } .chart .axis, .chart .grid { stroke: var(--line); }
+.chart .direct-label { fill: var(--ink); }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; } .swatch { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
+.shot { max-width: 420px; width: 100%; border: 1px solid var(--line); border-radius: 8px; display: block; }
+.step { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+@media (max-width: 760px) { .step { grid-template-columns: 1fr; } }
+.step .chip { margin: 2px 4px 2px 0; }
+dl { margin: 6px 0; } dt { color: var(--muted); font-size: 12px; } dd { margin: 0 0 6px; }
+</style>

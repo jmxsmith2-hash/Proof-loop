@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Product prediction · ProofLoop</title>
+{% include "_style.html.j2" %}
+<style>
+.risk-high { color: var(--bad); font-weight: 700; } .risk-medium { color: var(--sev2); font-weight: 700; } .risk-low { color: var(--ok); font-weight: 700; }
+.bar { display: inline-block; height: 10px; border-radius: 4px; background: var(--accent); vertical-align: middle; }
+blockquote { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--line); font-size: 13.5px; }
+</style>
+</head>
+<body><main>
+<div class="brand">{{ icon }}ProofLoop</div>
+<h1>{{ r.product.name }}</h1>
+<p class="muted">{{ r.product.category }} · {{ r.reviews }} reviews of {{ r.product.similar_products|length }} similar products · generated {{ generated }}</p>
+<div class="banner" role="note"><b>{{ label|upper }}.</b> Nothing here was measured on the product itself. These are
+  predictions from reviews of similar products, the specs and the photos. They never assess feel, weight in the hand,
+  texture, taste or smell. {{ disclaimer }}</div>
+
+<h2>Predicted complaint risks</h2>
+<div class="card"><table><tr><th>Category</th><th>Risk</th><th>Why</th><th>Evidence</th></tr>
+{% for row in r.summary %}<tr>
+  <td><b>{{ row.category }}</b>{% if row.low_confidence %}<br><span class="small risk-high">low confidence; verify with real users</span>{% endif %}</td>
+  <td class="risk-{{ row.risk_label }}">{{ row.risk_label }}<br><span class="bar" style="width: {{ (row.risk * 80)|round|int }}px"></span></td>
+  <td class="small">{{ row.detail }}{% if row.personas_high %}<br><span class="muted">High risk for: {{ row.personas_high|join(', ') }}</span>{% endif %}</td>
+  <td class="small">{% for e in row.evidence %}<div><b>{{ e.kind }}</b>: {{ e.detail }}</div>
+    {% for q in e.data.get('quotes', []) %}<blockquote>“{{ q }}” <span class="muted">(review of a similar product)</span></blockquote>{% endfor %}{% endfor %}</td>
+</tr>{% endfor %}</table></div>
+
+<h2>Which complaint would make each persona return it?</h2>
+<div class="card"><table><tr><th>Persona</th><th>Most likely return reason</th></tr>
+{% for pid, reason in r.return_reasons.items() %}<tr><td>{{ personas[pid].label }}{% if personas[pid].low_confidence %}<br><span class="small risk-high">{{ personas[pid].confidence_note }}</span>{% endif %}</td>
+  <td class="small">{% if reason %}<b>{{ reason.category }}</b>: {{ reason.because }}{% else %}<span class="muted">no supported prediction</span>{% endif %}</td></tr>{% endfor %}</table></div>
+
+<h2>Complaints in reviews of similar products</h2>
+<div class="card"><table><tr><th>Category</th><th class="num">Reviews</th><th class="num">Share</th><th>Example</th></tr>
+{% for c in r.complaints %}<tr><td>{{ c.category }}</td><td class="num">{{ c.mentions }}</td><td class="num">{{ '%.0f' % (c.share * 100) }}%</td>
+  <td class="small">{% if c.quotes %}“{{ c.quotes[0] }}”{% endif %}</td></tr>{% endfor %}</table></div>
+
+{% if r.sensors %}<h2>Prototype sensor data</h2>
+{% for s in r.sensors %}<div class="card"><b>{{ s.source }}</b>
+  <table>{% for f in s.findings %}<tr><td>{{ f.kind|replace('_', ' ') }}</td><td class="small">{{ f.detail }}
+    {% if f.examples %}<br><span class="muted">e.g. {% for e in f.examples[:3] %}{{ e.time }} = {{ e.value }}{% if not loop.last %}; {% endif %}{% endfor %}</span>{% endif %}</td></tr>{% endfor %}</table></div>{% endfor %}{% endif %}
+
+<h2>Rejected predictions</h2>
+<div class="card small">{% set ns = namespace(n=0) %}{% for pid, fs in r.per_persona.items() %}{% for f in fs if f.status != 'accepted' %}{% set ns.n = ns.n + 1 %}
+  <div>{{ personas[pid].label }} · {{ f.category }}: rejected because {{ f.reject_reason }}</div>{% endfor %}{% endfor %}
+  {% if ns.n == 0 %}<span class="muted">None.</span>{% endif %}</div>
+
+<h2>Spec used</h2>
+<div class="card small"><pre style="white-space: pre-wrap; margin: 0">{{ r.product.spec }}</pre></div>
+</main></body></html>
