@@ -20,7 +20,7 @@ measured on your machine with a guided test. Nothing is guessed. See
 ## Start in three minutes
 
 ```bash
-pip install "clearloop @ git+https://github.com/jmxsmith2-hash/proofloop#subdirectory=packages/clearloop"
+pip install "clearloop @ git+https://github.com/jmxsmith2-hash/Proof-loop#subdirectory=packages/clearloop"
 clearloop app
 ```
 
