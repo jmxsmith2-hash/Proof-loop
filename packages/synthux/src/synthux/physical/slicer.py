@@ -215,8 +215,11 @@ def write_presets(lib: PresetLibrary, folder: Path, machine: str, process: str, 
         for key, value in overrides.get(kind, {}).items():
             current = data.get(key)
             data[key] = [str(value)] * len(current) if isinstance(current, list) else str(value)
-        # Which printer / process / filament this is, as Bambu Studio and Orca record it in a project:
-        # the CLI checks the process is compatible with the printer by these names.
+        # Written the way Bambu Studio exports a user preset: "from": "User" plus "inherits" naming the
+        # system preset. The CLI finds the system printer through "inherits" to check that the process
+        # is compatible with it (without it: exit -17, process not compatible), and these ids name
+        # them the way a project file does.
+        data["from"], data["inherits"] = "User", name
         if kind == "machine":
             data["printer_settings_id"] = name
         elif kind == "process":
@@ -230,6 +233,15 @@ def write_presets(lib: PresetLibrary, folder: Path, machine: str, process: str, 
 
 
 # ------------------------------------------------------------------------------- slicing
+
+def _slicer_reason(out_dir: Path) -> str:
+    """Bambu Studio and Orca write result.json next to their output, with the reason they stopped."""
+    try:
+        data = json.loads((Path(out_dir) / "result.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(data.get("error_string") or data.get("message") or "").strip()
+
 
 def slice_model(slicer: Slicer, model: Path, presets: Presets, out_dir: Path, *, arrange: bool = True,
                 orient: bool = False, timeout: int = 900) -> tuple[Path, str]:
@@ -254,5 +266,8 @@ def slice_model(slicer: Slicer, model: Path, presets: Presets, out_dir: Path, *,
     log = (proc.stdout or "") + (proc.stderr or "")
     if proc.returncode != 0 or not out.is_file():
         tail = "\n".join(log.strip().splitlines()[-12:])
-        raise ConfigError(f"{slicer.label} could not slice {Path(model).name} (exit {proc.returncode}):\n{tail}")
+        code = proc.returncode - (1 << 32) if proc.returncode > (1 << 31) else proc.returncode  # Windows: unsigned
+        reason = _slicer_reason(out_dir)
+        raise ConfigError(f"{slicer.label} could not slice {Path(model).name} (exit {code})"
+                          + (f": {reason}" if reason else "") + (f"\n{tail}" if tail else ""))
     return out, log

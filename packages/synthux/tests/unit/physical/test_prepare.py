@@ -74,6 +74,27 @@ def test_presets_are_found_and_flattened(profiles):
     assert found and found.exe == FAKE and found.profile_dirs == [profiles.resolve()]
 
 
+def test_presets_are_written_as_the_slicer_exports_user_presets(profiles, tmp_path):
+    from synthux.physical.slicer import write_presets
+
+    lib = PresetLibrary([profiles])
+    proc, fil = lib.process(MACHINE, 0.2), lib.filament(MACHINE, "PLA")
+    pre = write_presets(lib, tmp_path, MACHINE, proc, fil, {"process": {"enable_support": 1}})
+    m, p, f = (json.loads(pre.files[k].read_text(encoding="utf-8")) for k in ("machine", "process", "filament"))
+    # the CLI finds the system printer through "inherits" to check the process fits it (else exit -17)
+    assert (m["from"], m["inherits"], m["printer_settings_id"]) == ("User", MACHINE, MACHINE)
+    assert (p["inherits"], p["print_settings_id"]) == (proc, proc) and MACHINE in p["compatible_printers"]
+    assert f["filament_settings_id"] == [fil] and p["enable_support"] == "1"
+
+
+def test_the_slicers_own_reason_is_shown(tmp_path):
+    from synthux.physical.slicer import _slicer_reason
+
+    (tmp_path / "result.json").write_text(json.dumps({"return_code": -17, "error_string": "process not compatible"}),
+                                          encoding="utf-8")
+    assert _slicer_reason(tmp_path) == "process not compatible" and _slicer_reason(tmp_path / "none") == ""
+
+
 @pytest.fixture()
 def setup(tmp_path):
     settings = load_settings(CFG).model_copy(update={"data_dir": tmp_path / "data"})
