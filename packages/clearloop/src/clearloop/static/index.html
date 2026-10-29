@@ -23,7 +23,9 @@ header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px
 .bar{max-width:1180px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .brand{font-weight:700;font-size:17px;display:flex;align-items:center;gap:8px}
 .brand svg{width:22px;height:22px}
-.in-proofloop .brand{display:none}
+.in-proofloop .brand,.in-proofloop #ver{display:none}
+#firstPauseHint[data-auto=on]::after{content:' Automatic: on until a loop has been swept cleanly on one of your printers.'}
+#firstPauseHint[data-auto=off]::after{content:' Automatic: off, because a loop has already been swept cleanly on one of your printers.'}
 nav{display:flex;gap:4px;flex-wrap:wrap}
 nav button{border:0;background:none;color:var(--muted);padding:7px 12px;border-radius:8px;font:inherit;cursor:pointer}
 nav button[aria-selected=true]{background:var(--soft);color:var(--ink);font-weight:600}
@@ -245,6 +247,7 @@ details summary{cursor:pointer;font-weight:600}
         <div id="benderRow"><label class="toggle"><input type="checkbox" id="sBender"><span><b>Bender fitted</b><span class="hint">Turn off if you removed the FarmBoard bender. The door still closes at the end.</span></span></label></div>
         <label class="field" id="fanRow"><span>Fan while cooling</span><select id="sFan"><option value="profile">Kit default (as FarmLoop does it)</option><option value="exhaust">Exhaust fan: vents the chamber (P2S)</option><option value="off">Off</option></select></label>
         <label class="toggle"><input type="checkbox" id="sMonitor"><span><b>Wait for ClearLoop Monitor between loops</b><span class="hint">The printer pauses after each sweep until the camera confirms the plate is empty. If anything is left, or the monitor isn't running, it keeps waiting until you press Resume.</span></span></label>
+        <label class="toggle"><input type="checkbox" id="sFirstPause"><span><b>Safety pause before the first sweep</b><span class="hint" id="firstPauseHint">Loop 1 stops after cooling, before the pusher moves, so you can check the push heights against your parts. Press Resume on the printer to carry on. Later loops don't stop.</span></span></label>
         <div class="row"><button class="btn" id="saveDefaults">Save as my defaults</button></div>
       </div>
       <div class="card">
@@ -678,7 +681,7 @@ function currentSettings() {
   return {
     profile_id: $('#sProfile').value, loops: +$('#sLoops').value || 1, release_temp: +$('#sRelease').value,
     floor_z: +$('#sFloor').value, push_offset: +$('#sDepth').value, natural_cooldown_min: +$('#sNatural').value || 0, bender_fitted: $('#sBender').checked,
-    cooldown_fan: $('#sFan').value, wait_for_monitor: $('#sMonitor').checked, part_push: partPush,
+    cooldown_fan: $('#sFan').value, wait_for_monitor: $('#sMonitor').checked, pause_first_sweep: $('#sFirstPause').dataset.mode || 'auto', part_push: partPush,
   };
 }
 function fillSettings(s, a) {
@@ -688,6 +691,8 @@ function fillSettings(s, a) {
   $('#sLoops').value = s.loops; $('#sRelease').value = s.release_temp; $('#sFloor').value = s.floor_z; $('#sDepth').value = s.push_offset;
   syncSliders();
   $('#sNatural').value = s.natural_cooldown_min; $('#sBender').checked = s.bender_fitted; $('#sFan').value = s.cooldown_fan; $('#sMonitor').checked = s.wait_for_monitor;
+  const fp = $('#sFirstPause'); fp.dataset.mode = s.pause_first_sweep || 'auto'; fp.checked = !!a.first_pause;
+  $('#firstPauseHint').dataset.auto = fp.dataset.mode === 'auto' ? (a.first_pause ? 'on' : 'off') : '';
   const prof = STATE.profiles.find(p => p.id === s.profile_id) || {};
   $('#profileHint').textContent = (prof.description || '') + (prof.builtin ? ' Built in, from public FarmLoop output.' : '');
   $('#benderRow').classList.toggle('hidden', !(prof.stage === 2 && prof.has_bender_steps));
@@ -697,7 +702,8 @@ function fillSettings(s, a) {
   $('#naturalHint').innerHTML = warp.length && !s.natural_cooldown_min ? `<b style="color:var(--warn)">${esc(warp.join(', '))} on this plate:</b> consider a natural cooldown so parts don't warp when the door opens.` : 'Door shut and fans off before the door opens. Helps ASA, ABS and PC keep their shape.';
 }
 const schedule = () => { clearTimeout(pending); pending = setTimeout(reanalyze, 350); };
-['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor'].forEach(id => $(id).addEventListener('input', schedule));
+['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor', '#sFirstPause'].forEach(id => $(id).addEventListener('input', schedule));
+$('#sFirstPause').addEventListener('input', (e) => { e.target.dataset.mode = e.target.checked ? 'on' : 'off'; $('#firstPauseHint').dataset.auto = ''; });
 // Every slider is paired with its number box; either one can be used.
 function syncSliders() { $$('input[type=range][data-num]').forEach(r => { r.value = $('#' + r.dataset.num).value; }); }
 $$('input[type=range][data-num]').forEach(r => r.addEventListener('input', () => { $('#' + r.dataset.num).value = r.value; schedule(); }));

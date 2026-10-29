@@ -59,6 +59,14 @@ class Job:
     error: str | None = None
     source: str | None = None      # the uploaded plate, when ClearLoop can turn it into a loop file
     download: str | None = None    # a file made for you (a loop file)
+    findings: list[dict[str, Any]] = field(default_factory=list)  # the top ones, to mark "not a problem"
+    printer: str | None = None     # what it was checked for, so your verdicts apply to the same setup
+    material: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Job:
+        known = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+        return cls(**known)
 
     def public(self) -> dict[str, Any]:
         data = asdict(self)
@@ -104,18 +112,73 @@ class App:
         self.shell = shell  # origin of the ProofLoop window that shows this app in a frame, if any
         self.root = (settings.data_dir / "app").resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        self.feedback_file = settings.data_dir / "feedback.json"
         self.jobs: dict[str, Job] = {}
         self.lock = threading.Lock()
         self.checks = ThreadPoolExecutor(max_workers=2, thread_name_prefix="synthux-check")
         self.browser = ThreadPoolExecutor(max_workers=1, thread_name_prefix="synthux-web")  # one site test at a time
         self.env = Environment(loader=PackageLoader("synthux", "dashboard/templates"),
                                autoescape=select_autoescape(["j2"]))
+        self._load_jobs()
+
+    # ------------------------------------------------------------------ saved jobs
+    def _save(self, job: Job) -> None:
+        """Each job is kept in its folder, so the list survives closing the app."""
+        folder = self.root / job.id
+        folder.mkdir(parents=True, exist_ok=True)
+        tmp = folder / "job.json.tmp"
+        tmp.write_text(json.dumps(asdict(job)), encoding="utf-8")
+        tmp.replace(folder / "job.json")
+
+    def _load_jobs(self, keep: int = 60) -> None:
+        saved = []
+        for f in self.root.glob("*/job.json"):
+            try:
+                saved.append(Job.from_dict(json.loads(f.read_text(encoding="utf-8"))))
+            except (OSError, ValueError, TypeError):
+                continue
+        for job in sorted(saved, key=lambda j: -j.created)[:keep]:
+            if job.status in ("queued", "running"):
+                job.status, job.error = "failed", "the app was closed before this finished; run it again"
+            self.jobs[job.id] = job
+
+    def remove(self, job_id: str) -> None:
+        with self.lock:
+            job = self.jobs.get(job_id)
+            if job is None:
+                raise FileNotFoundError(job_id)
+            if job.status in ("queued", "running"):
+                raise ValueError("wait until it has finished")
+            self.jobs.pop(job_id)
+        shutil.rmtree(self.root / job_id, ignore_errors=True)
+
+    def close(self) -> None:
+        self.checks.shutdown(wait=False, cancel_futures=True)
+        self.browser.shutdown(wait=False, cancel_futures=True)
+
+    # ------------------------------------------------------------------ your verdicts
+    def feedback(self, job_id: str, check: str, verdict: str) -> dict[str, Any]:
+        from synthux.physical import feedback
+
+        with self.lock:
+            job = self.jobs.get(job_id)
+        f = next((f for f in (job.findings if job else []) if f["check"] == check), None)
+        if job is None or f is None or not job.printer:
+            raise ValueError("that finding isn't in this job")
+        counts = feedback.record(self.feedback_file, check, job.printer, job.material or "", verdict, f["title"],
+                                 job.title)
+        f["verdict"] = verdict
+        self._save(job)
+        return counts
 
     # ------------------------------------------------------------------ page
-    def page(self) -> str:
+    def page(self, view: str = "") -> str:
+        from synthux.physical.my_printers import farm_printers
+
         data = load_yaml_file(self.settings.config_dir / "printers.yaml") or {}
         printers = [{"id": k, "label": (v.get("names") or [k])[0], "type": v.get("type", "fdm")}
                     for k, v in (data.get("printers") or {}).items()]
+        farm = farm_printers(data)  # the printers you added in ClearLoop: one list for both
         materials = list((data.get("materials") or {}).keys())
         procs = load_yaml_file(self.settings.config_dir / "processes.yaml") or {}
         process_materials = {"print": materials, **{k: list((v or {}).get("materials", {})) for k, v in procs.items()}}
@@ -133,7 +196,8 @@ class App:
             printers=printers, materials=materials, default_printer=data.get("default_printer"),
             process_materials=process_materials, slicer=slicer,
             default_material=data.get("default_material"), hosts=hosts, smart=smart, header=HEADER,
-            devices=sorted(self.settings.devices), shell=self.shell)
+            devices=sorted(self.settings.devices), shell=self.shell, farm=farm,
+            default_farm=farm[0]["id"] if farm else None, view=view if view in ("print", "web") else "")
 
     def list_jobs(self) -> list[dict[str, Any]]:
         with self.lock:
@@ -144,10 +208,12 @@ class App:
         job = Job(id=uuid.uuid4().hex[:10], kind=kind, title=title)
         with self.lock:
             self.jobs[job.id] = job
+        self._save(job)
         return job
 
     def _run(self, job: Job, work: Callable[[Job], None]) -> None:
         job.status, job.stage = "running", "starting"
+        self._save(job)
         try:
             work(job)
             job.status, job.stage = "done", "finished"
@@ -158,6 +224,10 @@ class App:
             job.status, job.error = "failed", f"{type(exc).__name__}: {exc}"
         finally:
             job.finished = time.time()
+            try:
+                self._save(job)
+            except OSError:
+                log.exception("could not save job %s", job.id)
             if job.finished - job.created >= NOTIFY_AFTER_S:
                 self._notify(job)
 
@@ -179,7 +249,7 @@ class App:
                              f"({', '.join(GCODE_SUFFIXES)})")
         job = self._new(kind, name)
         folder = self.root / job.id
-        folder.mkdir(parents=True)
+        folder.mkdir(parents=True, exist_ok=True)
         path = folder / name
         try:
             body_reader(path)
@@ -213,7 +283,7 @@ class App:
                               process=process, pull=opt.get("pull") or None)
         job.report = result["report"]
         job.title = f"{result['design']} v{result['version']}"
-        self._summarise(job, result["findings"])
+        self._summarise(job, result["findings"], result["printer"]["name"], result["material"]["name"])
         est = result["metrics"]["estimates"]
         if result["process"]["kind"] == "print":
             printer = (result["printer"].get("names") or [result["printer"]["name"]])[0]
@@ -236,6 +306,8 @@ class App:
         job.report = r["report"]
         job.title = f"{r['model']}: {'ready to print' if r['ready'] else 'fix first'}"
         everything = r["slicer_findings"] + r["design"]["findings"] + r["gcode"]["findings"]
+        self._summarise(job, sorted(everything, key=lambda f: -f["severity"]), r["printer"]["name"],
+                        r["material"]["name"])
         job.counts = {"fail": sum(f["severity"] == 4 for f in everything),
                       "major": sum(f["severity"] == 3 for f in everything), "total": len(everything)}
         job.summary = ([f"Ready to print: {r['grams']} g, {r['time']}" if r["ready"] else
@@ -259,7 +331,7 @@ class App:
                              plate=int(opt["plate"]) if (opt.get("plate") or "").isdigit() else None,
                              out=path.parent / "report")
         job.report = result["report"]
-        self._summarise(job, result["findings"])
+        self._summarise(job, result["findings"], result["printer"]["name"], result["material"]["name"])
         when = result["time"]["slicer"] or result["time"]["replay"]
         m = result["metrics"]
         if m.get("loop_file"):
@@ -283,7 +355,7 @@ class App:
             raise ValueError("loops must be between 1 and 500")
         job = self._new("gcode", f"{src.title} \u00d7 {loops} loops")
         folder = self.root / job.id
-        folder.mkdir(parents=True)
+        folder.mkdir(parents=True, exist_ok=True)
         self.checks.submit(self._run, job, lambda j: self._loop_work(j, Path(src.source), loops, folder))
         return job
 
@@ -291,13 +363,18 @@ class App:
         from synthux.physical.prepare import make_loop_file
 
         job.stage = "making the loop file with ClearLoop"
-        made = make_loop_file(plate, loops, folder)
+        made, note = make_loop_file(plate, loops, folder)
         job.download = str(made)
         self._gcode_work(job, made, {})
         job.title = made.name
+        job.summary.insert(0, f"made with {note}")
 
     @staticmethod
-    def _summarise(job: Job, findings: list[dict[str, Any]]) -> None:
+    def _summarise(job: Job, findings: list[dict[str, Any]], printer: str | None = None,
+                   material: str | None = None) -> None:
+        job.printer, job.material = printer, material
+        job.findings = [{"check": f["check"], "title": f["title"], "severity": f["severity"],
+                         "severity_name": f["severity_name"]} for f in findings[:6]]
         job.counts = {"fail": sum(f["severity"] == 4 for f in findings), "major": sum(f["severity"] == 3 for f in findings),
                       "total": len(findings)}
         job.summary = [f"{f['severity_name']}: {f['title']}" for f in findings[:4]]
@@ -350,6 +427,9 @@ class App:
             if not msg.startswith("personas"):
                 job.stage = msg
 
+        from synthux.runner.browser import ensure_chromium
+
+        ensure_chromium(settings, lambda msg: setattr(job, "stage", msg))
         save_study(settings, study, raw)
         run_id, report, _est = asyncio.run(run_quick_test(settings, self.db, study, personas=personas, repeats=repeats,
                                                           approve=lambda _e: True, on_session=on_session,
@@ -430,7 +510,8 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             path = unquote(urlsplit(self.path).path)
             try:
                 if path in ("/", "/index.html"):
-                    return self._send(app.page().encode("utf-8"))
+                    view = (parse_qs(urlsplit(self.path).query).get("view") or [""])[0]
+                    return self._send(app.page(view).encode("utf-8"))
                 if path == "/api/jobs":
                     return self._json(app.list_jobs())
                 if path.startswith("/job/"):
@@ -467,6 +548,13 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 if url.path == "/api/loop":
                     form = json.loads(self.rfile.read(length) or b"{}")
                     return self._json(app.submit_loop(str(form.get("job", "")), int(form.get("loops") or 0)).public(), 201)
+                if url.path in ("/api/feedback", "/api/remove"):
+                    form = json.loads(self.rfile.read(length) or b"{}")
+                    if url.path == "/api/remove":
+                        app.remove(str(form.get("job", "")))
+                        return self._json({"removed": True})
+                    return self._json(app.feedback(str(form.get("job", "")), str(form.get("check", "")),
+                                                   str(form.get("verdict", ""))))
                 if url.path == "/api/test":
                     form = json.loads(self.rfile.read(length) or b"{}")
                     return self._json(app.submit_test(form).public(), 201)
@@ -475,6 +563,8 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 return self._json({"error": str(exc), "needs_allow": True}, 400)
             except (ConfigError, ValueError) as exc:
                 return self._json({"error": str(exc)}, 400)
+            except FileNotFoundError:
+                return self._json({"error": "no such job"}, 404)
             except Exception as exc:  # noqa: BLE001
                 from synthux.safety.allowlist import SafetyError
 

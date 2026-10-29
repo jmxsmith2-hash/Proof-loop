@@ -131,3 +131,21 @@ def test_per_part_push_is_used_but_never_saved(tmp_path):
     saved = app.settings_store.load().defaults
     assert saved.push_offset == 20 and "part_push" not in saved.model_dump()
     assert c.post(f"/api/plates/{r['token']}/analyze", json={"part_push": {"104": "x"}}).status_code == 422
+
+
+def test_uploads_are_kept_on_disk_and_survive_a_restart(tmp_path):
+    from clearloop.service import UploadCache
+
+    cache = UploadCache(2, tmp_path / "uploads")
+    a = cache.put(b"one", "a.gcode.3mf")
+    b = cache.put(b"two", "b.gcode.3mf")
+    again = UploadCache(2, tmp_path / "uploads")  # a restart
+    assert again.raw(a) == (b"one", "a.gcode.3mf") and again.raw(b) == (b"two", "b.gcode.3mf")
+    again.put(b"three", "c.gcode.3mf")  # only the last two are kept
+    assert len(list((tmp_path / "uploads").glob("*.3mf"))) == 2
+    for bad in ("../../etc/passwd", "", a + "/x"):
+        try:
+            again.raw(bad)
+            raise AssertionError("expected KeyError")
+        except KeyError:
+            pass

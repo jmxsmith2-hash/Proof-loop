@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 import secrets
 import threading
 import time
@@ -26,10 +28,18 @@ from .vision import BedVerifier
 log = logging.getLogger(__name__)
 
 
-def loop_settings(d: Defaults | dict, part_push: dict[str, float] | None = None) -> LoopSettings:
-    """``part_push`` holds per-part push heights for one plate; they're never saved as defaults."""
+def loop_settings(
+    d: Defaults | dict, part_push: dict[str, float] | None = None, swept_before: bool = False
+) -> LoopSettings:
+    """``part_push`` holds per-part push heights for one plate; they're never saved as defaults.
+
+    ``swept_before``: a loop has already been swept cleanly on one of your printers, so the
+    automatic first-sweep safety pause is no longer needed.
+    """
     d = d if isinstance(d, Defaults) else Defaults.model_validate(d)
+    pause = d.pause_first_sweep == "on" or (d.pause_first_sweep == "auto" and not swept_before)
     return LoopSettings(
+        pause_first_sweep=pause,
         loops=d.loops,
         release_temp=d.release_temp,
         natural_cooldown_min=d.natural_cooldown_min,
@@ -60,19 +70,47 @@ def cooldown_for(app: App, printer: str | None, minutes: float | None, sweep_s: 
 
 
 class UploadCache:
-    """Recently uploaded plates, kept in memory so settings can be tweaked without re-uploading."""
+    """Recently uploaded plates, so settings can be tweaked without re-uploading.
 
-    def __init__(self, max_items: int = 8):
+    With a folder they are kept on disk (the last ``max_items``), so a plate stays available after a
+    restart and when ProofLoop hands plates between synthux and ClearLoop; without one, in memory.
+    """
+
+    TOKEN = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+    def __init__(self, max_items: int = 8, folder: str | Path | None = None):
         self.max = max_items
-        self._items: OrderedDict[str, tuple[float, bytes, str]] = OrderedDict()
+        self.folder = Path(folder) if folder else None
+        self._items: OrderedDict[str, tuple[float, bytes | None, str]] = OrderedDict()
         self._lock = threading.Lock()
+        if self.folder:
+            self.folder.mkdir(parents=True, exist_ok=True)
+            for meta in sorted(self.folder.glob("*.json"), key=lambda f: f.stat().st_mtime):
+                try:
+                    name = json.loads(meta.read_text(encoding="utf-8"))["name"]
+                except (OSError, ValueError, KeyError):
+                    continue
+                if (self.folder / f"{meta.stem}.3mf").is_file():
+                    self._items[meta.stem] = (meta.stat().st_mtime, None, name)
+            self._trim()
+
+    def _trim(self) -> None:
+        while len(self._items) > self.max:
+            token, _ = self._items.popitem(last=False)
+            if self.folder:
+                for ext in (".3mf", ".json"):
+                    (self.folder / f"{token}{ext}").unlink(missing_ok=True)
 
     def put(self, data: bytes, name: str) -> str:
         token = secrets.token_urlsafe(12)
         with self._lock:
-            self._items[token] = (time.time(), data, name)
-            while len(self._items) > self.max:
-                self._items.popitem(last=False)
+            if self.folder:
+                (self.folder / f"{token}.3mf").write_bytes(data)
+                (self.folder / f"{token}.json").write_text(json.dumps({"name": name}), encoding="utf-8")
+                self._items[token] = (time.time(), None, name)
+            else:
+                self._items[token] = (time.time(), data, name)
+            self._trim()
         return token
 
     def get(self, token: str) -> threemf.SlicedFile:
@@ -82,10 +120,16 @@ class UploadCache:
     def raw(self, token: str) -> tuple[bytes, str]:
         """The uploaded bytes and file name, e.g. to hand the plate to another tool."""
         with self._lock:
-            if token not in self._items:
+            if not self.TOKEN.match(token or "") or token not in self._items:
                 raise KeyError("that upload has expired; drop the file again")
             _, data, name = self._items[token]
             self._items.move_to_end(token)
+            if data is None:
+                try:
+                    data = (self.folder / f"{token}.3mf").read_bytes()
+                except OSError as e:
+                    self._items.pop(token, None)
+                    raise KeyError("that upload has expired; drop the file again") from e
         return data, name
 
 
@@ -96,7 +140,7 @@ class App:
         self.settings: Settings = self.settings_store.load()
         self.profiles = ProfileStore(self.data_dir / "profiles")
         self.store = Store(self.data_dir / "clearloop.db")
-        self.uploads = UploadCache()
+        self.uploads = UploadCache(40, self.data_dir / "uploads")
         self.notifier = Notifier(self.settings.notifications)
         self.connect = connect
         self.link_factory = link_factory or self._default_link

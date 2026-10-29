@@ -54,12 +54,14 @@ def test_one_window_with_both_apps(shell):
     c = client(shell)
     r = c.get("/")
     assert r.status_code == 200 and r.headers["x-frame-options"] == "DENY"
-    assert f'"synthux": "{shell.synthux_url}"' in r.text and '"clearloop": "/clearloop?proofloop=1"' in r.text
-    assert "&amp; test" in r.text and "&amp; printers" in r.text
+    assert f'"print": "{shell.synthux_url}?view=print"' in r.text and '"clearloop": "/clearloop?proofloop=1"' in r.text
+    assert f'"websites": "{shell.synthux_url}?view=web"' in r.text
+    assert "&amp; printers" in r.text and "Website" in r.text
     page = c.get("/clearloop?proofloop=1")
     assert page.status_code == 200 and "Make a loop file" in page.text and "toSynthux" in page.text
     assert c.get("/api/state").json()["version"]  # ClearLoop's API, served by the same window
-    assert c.get("/proofloop/ping").json() == {"proofloop": "0.1.0", "synthux": True, "clearloop": True}
+    assert c.get("/proofloop/ping").json() == {"proofloop": "0.2.0", "synthux": True, "clearloop": True,
+                                               "background": False}
     assert shell.synthux.shell == ORIGIN  # synthux lets only this window frame it
 
 
@@ -98,7 +100,7 @@ def test_works_with_only_one_of_them(tmp_path):
     s = Shell(8600, clearloop_data=tmp_path / "cl", connect=False, use_synthux=False)
     try:
         c = client(s)
-        assert '"synthux": null' in c.get("/").text
+        assert '"print": null' in c.get("/").text
         r = c.post("/proofloop/to-synthux", json={"token": "x"}, headers=WINDOW)
         assert r.status_code == 404 and "synthux isn't installed" in r.json()["detail"]
     finally:

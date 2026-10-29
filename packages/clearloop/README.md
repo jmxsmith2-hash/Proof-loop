@@ -153,6 +153,16 @@ The *Filament* tab keeps track of every spool you own:
 The P2S Stage 1 kit's own G-code hasn't been published. If you have that kit,
 import one of your `FL_S1_` files to use its exact moves.
 
+## Safety pause before the first sweep
+
+On a new setup the first loop pauses after the parts have cooled, just before the pusher moves
+(`M400 U1`), so you can check the push heights against your parts and press Resume. Later loops
+don't stop. It's automatic: on until a loop has been swept cleanly on one of your printers, then
+off. *Safety pause before the first sweep* in *Make a loop file* turns it on or off for a plate
+(`clearloop make --first-pause on|off|auto`). A signal just before the pause (`M104 S6`, like
+FarmBoard's own S1 to S5) tells the monitor this pause is waiting for you: it never resumes it,
+and doesn't mistake it for the end of a loop.
+
 ## The plate check (optional, fail-safe)
 
 Turn on **Wait for ClearLoop Monitor between loops** when you make a file, and
@@ -235,7 +245,8 @@ clearloop history                                               # how recent pri
 ```
 
 Settings, imported profiles, spools, usage, empty-plate pictures and the
-event log live in `~/.clearloop`. Change the location with `--data`.
+event log live in `~/.clearloop`. Change the location with `--data` (or `CLEARLOOP_DATA`, which
+synthux and ProofLoop read too).
 
 ## Before your first unattended run
 

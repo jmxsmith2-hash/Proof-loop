@@ -260,6 +260,9 @@ def analyze(sliced: SlicedFile, profile: HardwareProfile, settings: LoopSettings
             dwell_seconds(profile.bend),
             "FarmBoard T2 and its wait, as FarmLoop times it",
         )
+    if settings.pause_first_sweep:
+        step("first_pause", "Safety pause (loop 1 only)", None,
+             "the printer waits before the first sweep so you can check the pusher; press Resume")
     passes = sum(len(ln.tiers) for p in a.plan.passes for ln in p.lanes)
     step("sweep", "Sweep", a.sweep_s, f"{passes} pushes, each part at its own height")
     if use_bender and profile.safety:

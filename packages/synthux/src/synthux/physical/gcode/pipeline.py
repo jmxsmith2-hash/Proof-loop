@@ -78,6 +78,10 @@ def check_gcode(config_dir: Path | str | None, path: Path | str, *, printer: str
     path = Path(path)
     ctx, notes, chosen = analyse(config_dir, path, printer=printer, material=material, plate=plate,
                                  history=history)
+    from synthux.physical import feedback
+
+    if feedback.adjust(ctx.findings, ctx.printer["name"], ctx.material["name"], feedback.path_for(config_dir)):
+        ctx.findings.sort(key=lambda f: -f.severity)  # your false alarms count lower on this printer
     return build_result(ctx, notes, chosen, path, out=out, write_report=write_report, started=started)
 
 

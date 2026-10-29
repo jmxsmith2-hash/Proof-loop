@@ -23,23 +23,34 @@ class Notifier:
         self.configs = list(configs)
         self.farm_name = farm_name
 
-    def send(self, event: dict, image: bytes | None = None) -> None:
+    def send(self, event: dict, image: bytes | None = None, wait: bool = False) -> int:
+        """Send to every target whose level allows it, in the background. With ``wait`` (e.g. when
+        ProofLoop is about to quit), wait up to 15 s and return how many targets took it."""
+        done: list[bool] = []
+        threads = []
         for cfg in self.configs:
             if LEVELS.get(event["level"], 0) >= LEVELS[cfg.min_level]:
-                threading.Thread(target=self._deliver, args=(cfg, event, image), daemon=True).start()
+                t = threading.Thread(target=lambda c=cfg: done.append(self._deliver(c, event, image)), daemon=True)
+                t.start()
+                threads.append(t)
+        if wait:
+            for t in threads:
+                t.join(timeout=15)
+        return sum(done)
 
-    def _deliver(self, cfg, event: dict, image: bytes | None) -> None:
+    def _deliver(self, cfg, event: dict, image: bytes | None) -> bool:
         title = f"{self.farm_name}: {event.get('printer') or ''} {event['kind'].replace('_', ' ')}".strip()
         try:
             for req in requests_for(cfg, title, event, image):
                 try:
                     with urllib.request.urlopen(req, timeout=15):
-                        return
+                        return True
                 except urllib.error.HTTPError as e:
                     # ntfy servers can disable attachments: fall back to the text-only request.
                     log.info("notification via %s refused (%s); trying without the picture", cfg.kind, e.code)
         except Exception as e:  # notifications must never break monitoring
             log.warning("notification via %s failed: %s", cfg.kind, e)
+        return False
 
 
 def requests_for(cfg, title: str, event: dict, image: bytes | None) -> list[urllib.request.Request]:

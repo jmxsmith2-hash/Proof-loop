@@ -160,3 +160,67 @@ def test_plates_handed_over_by_proofloop(app):
     _wait(app, flat.id)
     with pytest.raises(ValueError):
         app.job_source(flat.id)  # plain G-code: nothing for ClearLoop to loop
+
+
+def test_jobs_are_kept_after_the_app_closes(app):
+    body = (REPO / "examples" / "gcode" / "bracket_flawed.gcode").read_bytes()
+    _, data = _req(app, "POST", "/api/check?name=bracket_flawed.gcode", body, {"X-Synthux": "1"})
+    job = _wait(app, json.loads(data)["id"])
+    from synthux.app.server import App
+
+    again = App(app.settings, app.db, 0)  # the app opened again
+    assert job["id"] in again.jobs and again.jobs[job["id"]].status == "done"
+    assert again.jobs[job["id"]].findings and again.jobs[job["id"]].printer
+    again.close()
+    status, _ = _req(app, "POST", "/api/remove", json.dumps({"job": job["id"]}).encode(), {"X-Synthux": "1"})
+    assert status == 200 and job["id"] not in app.jobs
+    third = App(app.settings, app.db, 0)
+    assert job["id"] not in third.jobs
+    third.close()
+
+
+def test_false_alarms_count_lower_next_time(app):
+    body = (REPO / "examples" / "gcode" / "bracket_flawed.gcode").read_bytes()
+    _, data = _req(app, "POST", "/api/check?name=bracket_flawed.gcode", body, {"X-Synthux": "1"})
+    job = _wait(app, json.loads(data)["id"])
+    top = next(f for f in job["findings"] if f["severity"] >= 2)
+    for _ in range(2):
+        status, counts = _req(app, "POST", "/api/feedback",
+                              json.dumps({"job": job["id"], "check": top["check"], "verdict": "wrong"}).encode(),
+                              {"X-Synthux": "1"})
+    assert status == 200 and json.loads(counts) == {"wrong": 2, "right": 0}
+    _, data = _req(app, "POST", "/api/check?name=bracket_flawed.gcode", body, {"X-Synthux": "1"})
+    again = _wait(app, json.loads(data)["id"])
+    now = next(f for f in again["findings"] if f["check"] == top["check"])
+    assert now["severity"] == top["severity"] - 1
+    status, _ = _req(app, "POST", "/api/feedback",
+                     json.dumps({"job": job["id"], "check": "nope", "verdict": "wrong"}).encode(), {"X-Synthux": "1"})
+    assert status == 400
+
+
+def test_print_and_website_views(app):
+    _, page = _req(app, "GET", "/?view=print")
+    assert b'id="g-drop"' in page and b'id="w-form"' not in page
+    _, page = _req(app, "GET", "/?view=web")
+    assert b'id="w-form"' in page and b'id="g-drop"' not in page and b'id="cad-drop"' not in page
+    _, page = _req(app, "GET", "/")
+    assert b'id="w-form"' in page and b'id="g-drop"' in page
+
+
+def test_your_clearloop_printers_come_first(app, tmp_path, monkeypatch):
+    pytest.importorskip("clearloop")
+    from synthux.physical import learn
+
+    cl = tmp_path / "clearloop"
+    cl.mkdir()
+    (cl / "settings.json").write_text(json.dumps({"printers": [{"name": "Farm 1", "model_id": "N7"},
+                                                                {"name": "Big one", "model_id": "O1D"}]}),
+                                      encoding="utf-8")
+    monkeypatch.setattr(learn, "CLEARLOOP_DIR", cl)
+    _, page = _req(app, "GET", "/")
+    assert b'<optgroup label="Your printers">' in page
+    assert b"Farm 1 (Bambu Lab P2S)" in page and b"Big one (Bambu Lab H2D)" in page
+    from synthux.physical.my_printers import default_printer
+
+    assert default_printer({"printers": {"bambu_h2d": {"names": ["Bambu Lab H2D"]}, "bambu_p2s":
+                                         {"names": ["Bambu Lab P2S"]}}, "default_printer": "x"}, cl) == "bambu_p2s"

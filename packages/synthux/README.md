@@ -61,8 +61,19 @@ settings in `packages\synthux\config` from anywhere in the repository.
 CAD file or sliced G-code on it, or paste a website address and a task; each job runs in the
 background and links to its report. It opens as its own window in Edge or Chrome, runs only
 on this computer, and adds a website to the allowlist only when you tick "This is my own site".
-A checked Bambu plate (`.gcode.3mf`) gets a **Make a loop file (ClearLoop)** button: pick the
-number of loops and it makes the loop file, checks it, and offers it for download.
+A checked Bambu plate (`.gcode.3mf`) gets a **Loop file** row: **Make it now** makes the loop
+file with your saved ClearLoop settings (profile, sweep floor, push depth, cooldown, first-sweep
+safety pause), checks it and offers it for download; inside ProofLoop, **Fine-tune in ClearLoop**
+opens the plate in ClearLoop to change them for that plate. Jobs are kept until you remove them.
+
+**Your printers:** the printers you add in ClearLoop (Monitor tab) are listed first, and CAD checks
+are for the first of them unless you pick another, so a printer is set up once for both tools.
+
+**Wrong about something?** Under each finished job you can mark a finding *Not a problem* or
+*It was right*. A check marked a false alarm at least twice for a printer and material, more often
+than it was confirmed, counts one level lower there from then on (four times: only a note), and
+says so. ClearLoop's loop-file safety checks are never lowered. Your verdicts are kept in
+`data/feedback.json`.
 
 **Being told when it's done:** checks that take over 30 seconds send a notification to the
 ntfy, Discord or webhook targets you set up in ClearLoop (so one setup covers both), or to
@@ -84,7 +95,7 @@ By hand, from this folder (`packages/synthux`):
 
 ```bash
 pip install -e ".[dev]"              # add ,anthropic for the optional Claude engine; -e ../clearloop for loop files
-python -m playwright install chromium  # skip if a Playwright Chromium is already installed
+python -m playwright install chromium  # optional: otherwise it downloads on the first website test
 
 synthux check                        # validates config, shows engines (all free by default)
 synthux demo &                       # demo shop with planted UX flaws on http://127.0.0.1:8765

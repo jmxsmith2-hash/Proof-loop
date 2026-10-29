@@ -94,3 +94,14 @@ def test_sentinels_and_hms_become_events():
     kinds = [e["message"] for e in w.store.events()]
     assert any("door opening" in m for m in kinds)
     assert "Developer Mode" in w.status
+
+
+def test_first_sweep_safety_pause_waits_for_you():
+    w, link = watch([True])
+    to(w, link, layer_num=850, nozzle_target=6.0)  # ClearLoop's signal, then its pause
+    to(w, link, gcode_state="PAUSE")
+    assert link.resumed == 0 and w.waiting_for_you and "safety pause" in w.status
+    assert w.store.events()[0]["kind"] == "safety_pause"  # no plate check, no "parts left" alarm
+    to(w, link, gcode_state="RUNNING", nozzle_target=0.0)  # you pressed Resume: the sweep runs
+    to(w, link, gcode_state="PAUSE")  # the loop-end pause after the sweep is checked as usual
+    assert link.resumed == 1

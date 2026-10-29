@@ -201,3 +201,27 @@ def test_per_part_height_can_never_go_below_the_floor_or_above_the_part():
     assert not high.ok and "pass over it" in high.problems[0]
     with pytest.raises(ProcessError):
         process(sf, STAGE2, LoopSettings(sweep=SweepSettings(part_push_z={"104": 9.0})))
+
+
+def test_first_sweep_safety_pause_only_in_loop_one():
+    g = threemf.loads(run(loops=3, pause_first_sweep=True).data).gcode
+    ends = [m.start() for m in re.finditer("; >>> CLEARLOOP END", g)]
+    assert len(ends) == 3
+    first, rest = g[ends[0] : ends[1]], g[ends[1] :]
+    assert "SAFETY PAUSE" in first and "M104 S6" in first
+    assert first.index("M104 S6") < first.index("M400 U1") < first.index("; -- sweep pass 1")
+    assert "SAFETY PAUSE" not in rest
+    assert "SAFETY PAUSE" not in threemf.loads(run(loops=2).data).gcode
+    a = analyze(load(plain(SMALL)), STAGE2, LoopSettings(loops=2, pause_first_sweep=True))
+    assert "first_pause" in [s["key"] for s in a.steps]
+
+
+def test_safety_pause_is_automatic_until_a_loop_has_swept(tmp_path):
+    from clearloop.api import make_loop_file
+    from clearloop.store import Store
+
+    r, profile, st = make_loop_file(plain(SMALL), "small.gcode.3mf", loops=2, data_dir=tmp_path)
+    assert st.pause_first_sweep and r.filename == "FL_S2_small.gcode.3mf" and st.loops == 2
+    Store(tmp_path / "clearloop.db").add_production("p2s", "FL_S2_small", 1, 2, 10.0)
+    _, _, st = make_loop_file(plain(SMALL), "small.gcode.3mf", data_dir=tmp_path)
+    assert not st.pause_first_sweep

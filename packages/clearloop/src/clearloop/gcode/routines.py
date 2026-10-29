@@ -34,6 +34,9 @@ DATE_LINE = re.compile(r"^;=+ \d{4}/\d{2}/\d{2} =+$")
 
 # P2S fan indexes, from the printer's stock end G-code template in Bambu Studio:
 # P2 = "remote part cooling fan" (aux), P3 = "chamber cooling fan" (exhaust).
+# ClearLoop's own signal, like FarmBoard's M104 S1..S5: tells the Monitor the next pause is the
+# first-sweep safety pause (wait for you), not the loop-end pause (check the plate and resume).
+SAFETY_PAUSE_SIGNAL = 6
 P2S_EXHAUST_FAN = "M106 P3 S255 ; exhaust (chamber) fan: vents the chamber while cooling"
 
 
@@ -45,6 +48,7 @@ class LoopSettings:
     bender_fitted: bool = True
     cooldown_fan: str = "profile"  # "profile" (the kit's own), "exhaust" (P2S only) or "off"
     wait_for_monitor: bool = False  # pause after each loop until ClearLoop Monitor confirms an empty plate
+    pause_first_sweep: bool = False  # pause before loop 1's sweep so you can check the pusher height
     sweep: SweepSettings = field(default_factory=SweepSettings)
 
 
@@ -136,6 +140,13 @@ def end_block(
     use_bender = settings.bender_fitted and profile.has_bender_steps
     if use_bender:
         out += profile.bend
+    if settings.pause_first_sweep and loop_no == 1:
+        out += (
+            "; SAFETY PAUSE before the first sweep on this setup: the parts are cool and the pusher is next.\n"
+            "; Check the push heights against the parts (and that nothing is in the way), then press Resume.\n"
+            f"M104 S{SAFETY_PAUSE_SIGNAL} ; ClearLoop signal for the Monitor (heaters stay off)\n"
+            "M400\nM400 U1\nM104 S0\n"
+        )
     out += sweep_gcode(plan, profile.sweep)
     if use_bender and profile.safety:
         out += profile.safety

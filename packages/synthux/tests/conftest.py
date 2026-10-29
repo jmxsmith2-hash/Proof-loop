@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
+
+# Never touch the real ClearLoop folder: loop files made in tests are kept in a temporary one.
+os.environ["CLEARLOOP_DATA"] = tempfile.mkdtemp(prefix="clearloop-test-")
 
 import pytest
 

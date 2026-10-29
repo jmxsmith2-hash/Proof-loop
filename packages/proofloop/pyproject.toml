@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofloop"
-version = "0.1.0"
+version = "0.2.0"
 description = "One window for synthux (check designs and G-code) and ClearLoop (loop files and printer monitor)"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,6 +14,9 @@ requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.110",
   "uvicorn>=0.27",
+  "qrcode>=7.4",                                                     # pairing a phone
+  "pystray>=0.19; sys_platform == 'win32' or sys_platform == 'darwin'",  # the icon next to the clock
+  "pillow>=10",
 ]
 
 [project.optional-dependencies]

@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from synthux.core.config import DeviceConfig, NetworkConfig, SafetyConfig, Settings
+from synthux.core.config import ConfigError, DeviceConfig, NetworkConfig, SafetyConfig, Settings
 from synthux.core.logging import get_logger
 from synthux.runner.types import Action, Timing
 from synthux.safety.allowlist import SafetyError, check_url, is_internal
@@ -102,6 +102,25 @@ def _fallback_chromium() -> str | None:
     return None
 
 
+def ensure_chromium(settings: Settings, on_stage=None) -> None:
+    """Website tests need Chromium; it is downloaded the first time one runs (about 150 MB, once),
+    so setup doesn't have to fetch it for people who only check CAD files and G-code."""
+    if find_chromium(settings) or _fallback_chromium():
+        return
+    import subprocess
+    import sys
+
+    if on_stage:
+        on_stage("downloading the browser for website tests (once, about 150 MB)")
+    log.info("Chromium not found: downloading it with Playwright")
+    proc = subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], capture_output=True,
+                          text=True, encoding="utf-8", errors="replace")
+    if proc.returncode != 0:
+        tail = "\n".join((proc.stderr or proc.stdout).strip().splitlines()[-5:])
+        raise ConfigError(f"couldn't download Chromium for website tests:\n{tail}\n"
+                          "Check the internet connection, or run: python -m playwright install chromium")
+
+
 class BrowserPool:
     """One Chromium process shared by all sessions; each session gets its own context."""
 
@@ -113,6 +132,7 @@ class BrowserPool:
     async def __aenter__(self) -> "BrowserPool":
         from playwright.async_api import async_playwright
 
+        await asyncio.to_thread(ensure_chromium, self.settings)
         self._pw = await async_playwright().start()
         exe = find_chromium(self.settings)
         try:

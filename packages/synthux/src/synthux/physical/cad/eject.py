@@ -20,6 +20,7 @@ and how many copies fit on one plate inside the lanes, away from the sweep's sta
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,7 @@ def _finding(kind: str, severity: int, title: str, detail: str, fix: str, where=
     return CadFinding("auto_eject", severity, title, detail, fix, where, data or {},
                       fingerprint=f"auto_eject.{kind}@{spot}")
 
-CLEARLOOP_DIR = Path.home() / ".clearloop"
+CLEARLOOP_DIR = Path(os.environ.get("CLEARLOOP_DATA") or Path.home() / ".clearloop")  # ClearLoop's --data
 P2S_SWEEP = {"lanes_x": [30.0, 70.0, 100.0, 130.0, 160.0, 190.0, 220.0], "reach": 15.0, "y_rear": 250.0,
              "rear_clearance": 10.0, "plate": [256.0, 256.0]}
 FRICTION = 0.4        # textured PEI after cooling, roughly; tipping vs sliding

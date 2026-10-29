@@ -104,19 +104,24 @@ def _setting(preset: str, key: str, value: Any, why: str) -> dict[str, Any]:
     return {"preset": preset, "key": key, "value": str(value), "label": WHERE.get(key, key), "why": why}
 
 
-def make_loop_file(sliced: Path, loops: int, out_dir: Path) -> Path:
+def make_loop_file(sliced: Path, loops: int, out_dir: Path) -> tuple[Path, str]:
+    """A ClearLoop loop file made with your saved ClearLoop settings, and a line saying which ones."""
     try:
-        from clearloop import threemf as cl_threemf
-        from clearloop.gcode.processor import process
-        from clearloop.gcode.routines import LoopSettings
-        from clearloop.profiles import ProfileStore
+        from clearloop.api import make_loop_file as clearloop_make
+        from clearloop.gcode.processor import ProcessError
     except ImportError as exc:
-        raise ConfigError('making a loop file needs ClearLoop: pip install "synthux[clearloop]"') from exc
-    sf = cl_threemf.load(sliced)
-    result = process(sf, ProfileStore().get("p2s-stage2-farmboard"), LoopSettings(loops=loops))
+        raise ConfigError("making a loop file needs ClearLoop: run ProofLoop's setup (setup.bat), "
+                          "or pip install -e packages/clearloop") from exc
+    try:
+        result, profile, st = clearloop_make(Path(sliced).read_bytes(), Path(sliced).name, loops)
+    except ProcessError as exc:
+        raise ConfigError(f"ClearLoop can't make a loop file from {Path(sliced).name}: {exc}") from exc
     path = out_dir / result.filename
     path.write_bytes(result.data)
-    return path
+    note = (f"your ClearLoop settings: {profile.name}, sweep floor Z{st.sweep.floor_z:g}, push "
+            f"{st.sweep.push_offset:g} mm below each top, cool to {st.release_temp:g} °C"
+            + (", safety pause before the first sweep" if st.pause_first_sweep else ""))
+    return path, note
 
 
 def prepare(settings: Settings, db: Database, model: Path, *, printer: str | None = None,
@@ -189,10 +194,11 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
     if loops:
         from synthux.physical.gcode.pipeline import check_gcode
 
-        loop_path = make_loop_file(sliced, loops, sliced.parent)
+        loop_path, loop_note = make_loop_file(sliced, loops, sliced.parent)
         loop_result = check_gcode(settings.config_dir, loop_path, printer=pr["name"], material=mat["name"],
                                   out=out / "loop", history=history)
         loop_result["path"] = str(loop_path)
+        loop_result["made_with"] = loop_note
 
     blocking = [f for f in cad["findings"] if f["severity"] >= 3] + \
         [f for f in gcode["findings"] if f["severity"] >= 3] + [f for f in slicer_findings if f["severity"] >= 3]

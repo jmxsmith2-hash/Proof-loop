@@ -339,6 +339,11 @@ class Store:
                 (time.time(), printer, job, loop_no, parts, grams, int(ok)),
             )
 
+    def has_good_loop(self) -> bool:
+        """Has any loop been printed and swept off cleanly on one of these printers?"""
+        with self._lock:
+            return self._db.execute("SELECT 1 FROM production WHERE ok=1 LIMIT 1").fetchone() is not None
+
     def production(self, since: float = 0) -> list[dict]:
         with self._lock:
             return [

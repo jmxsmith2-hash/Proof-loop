@@ -8,9 +8,12 @@ PY=${PYTHON:-python3}
 [ -d .venv ] || "$PY" -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -e "packages/synthux[dev]" -e "packages/clearloop[dev]" -e "packages/proofloop[dev]"
-.venv/bin/python -m playwright install chromium
+# Chromium for website tests downloads by itself the first time you test a website.
 CFG=packages/synthux/config
 [ -f $CFG/settings.yaml ] || cp $CFG/settings.example.yaml $CFG/settings.yaml
 .venv/bin/synthux check
-echo "Done. Open ProofLoop with: .venv/bin/proofloop"
+[ -n "$NO_AUTOSTART" ] || .venv/bin/proofloop autostart on
+.venv/bin/proofloop doctor || true
+echo "Done. Open ProofLoop with: .venv/bin/proofloop  (it keeps running when you close the window; it starts"
+echo "when you log in unless you ran this with NO_AUTOSTART=1). Update later with: .venv/bin/proofloop update"
 echo "(or activate with: . .venv/bin/activate)"

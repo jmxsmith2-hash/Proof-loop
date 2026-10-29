@@ -11,6 +11,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from . import __version__, printers, threemf
+from .api import pick_profile
 from .calibration import TESTS, build_test
 from .config import Defaults, Notifier, PrinterConfig, QuietHours
 from .costing import CostSettings, Times, cost
@@ -49,7 +50,7 @@ def _settings(app: App, body: dict | None) -> tuple:
     body = dict(body or {})
     part_push = _part_push(body.pop("part_push", None))
     defaults = Defaults.model_validate({**app.settings.defaults.model_dump(), **body})
-    return defaults, loop_settings(defaults, part_push)
+    return defaults, loop_settings(defaults, part_push, app.store.has_good_loop())
 
 
 def _with_push(st, part_push: dict[str, float]):
@@ -90,6 +91,7 @@ def create_app(app: App) -> FastAPI:
         out = a.as_dict()
         out["token"] = token
         out["settings"] = defaults.model_dump()
+        out["first_pause"] = st.pause_first_sweep  # what "auto" works out to right now
         out["profile"] = {
             "id": prof.id,
             "name": prof.name,
@@ -179,19 +181,15 @@ def create_app(app: App) -> FastAPI:
         return open_plate(token, app.uploads.get(token))
 
     def open_plate(token: str, sf) -> dict:
-        # Pick a profile for this printer: the saved default if it fits, otherwise the first match.
-        matching = app.profiles.for_printer(sf.info.printer_model_id)
-        if not matching:
+        profile = pick_profile(app.profiles, sf.info.printer_model_id, app.settings.defaults.profile_id)
+        if profile is None:
             return {
                 "token": token,
                 "printer": printers.model_name(sf.info.printer_model_id),
                 "printer_model_id": sf.info.printer_model_id,
                 "no_profile": True,
             }
-        pid = app.settings.defaults.profile_id
-        if pid not in {p.id for p in matching}:
-            pid = matching[0].id
-        return analysis_payload(token, {"profile_id": pid})
+        return analysis_payload(token, {"profile_id": profile.id})
 
     @api.post("/api/plates/{token}/analyze", dependencies=guard)
     def reanalyze(token: str, body: dict):

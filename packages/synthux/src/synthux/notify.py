@@ -17,7 +17,7 @@ from typing import Any
 from synthux.core.logging import get_logger
 
 log = get_logger(__name__)
-CLEARLOOP_SETTINGS = Path.home() / ".clearloop" / "settings.json"
+CLEARLOOP_SETTINGS = Path(os.environ.get("CLEARLOOP_DATA") or Path.home() / ".clearloop") / "settings.json"
 
 
 def targets() -> list[dict[str, Any]]:

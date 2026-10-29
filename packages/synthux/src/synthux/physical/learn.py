@@ -20,6 +20,7 @@ These are likely causes from what was printing, not a diagnosis.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -31,7 +32,7 @@ from synthux.core.logging import get_logger
 
 log = get_logger(__name__)
 
-CLEARLOOP_DIR = Path.home() / ".clearloop"
+CLEARLOOP_DIR = Path(os.environ.get("CLEARLOOP_DATA") or Path.home() / ".clearloop")  # ClearLoop's --data
 # Bambu printer_model_id -> synthux printer profile, for prints whose file can't be found.
 MODEL_IDS = {"N7": "bambu_p2s"}
 # First block of a Bambu HMS / print_error code: which part of the printer raised it.

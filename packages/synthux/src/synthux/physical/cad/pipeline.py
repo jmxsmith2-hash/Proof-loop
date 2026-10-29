@@ -88,6 +88,9 @@ def check_design(settings: Settings, db: Database, cad_file: Path, spec: DesignS
         ctx = run_checks(model, printer_p, material_eff, slicer, spec.use)
         process_info = {"kind": "print", "label": "3D printing", "pull": None}
     facts = collect_facts(ctx)
+    from synthux.physical import feedback
+
+    feedback.adjust(ctx.findings, printer_p["name"], material_p["name"], settings.data_dir / "feedback.json")
     ctx.findings.sort(key=lambda f: -f.severity)
     findings = [_finding_dict(f, i + 1) for i, f in enumerate(ctx.findings)]
 

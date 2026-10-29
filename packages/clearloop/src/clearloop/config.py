@@ -14,6 +14,9 @@ from . import printers
 from .costing import CostSettings
 from .filament import FilamentSettings
 
+# Settings, profiles and logs. CLEARLOOP_DATA moves it (ProofLoop sets it so every part agrees).
+DEFAULT_DATA = Path(os.environ.get("CLEARLOOP_DATA") or Path.home() / ".clearloop")
+
 
 class _Model(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -31,6 +34,8 @@ class Defaults(_Model):
     bender_fitted: bool = True
     cooldown_fan: Literal["profile", "exhaust", "off"] = "profile"
     wait_for_monitor: bool = False
+    # Pause before loop 1's sweep: "auto" = until a loop has been swept on one of your printers
+    pause_first_sweep: Literal["auto", "on", "off"] = "auto"
     loops: int = Field(1, ge=1, le=50)
 
 

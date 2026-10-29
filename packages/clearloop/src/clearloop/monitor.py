@@ -39,6 +39,8 @@ PHASE = {
     5: "door closing",
 }
 
+SAFETY_PAUSE = 6.0  # routines.SAFETY_PAUSE_SIGNAL: the first-sweep safety pause comes next
+
 SENTINEL_TEXT = {
     1: "FarmBoard reset: print starting, door closing",
     2: "print done: door opening, cooling",
@@ -99,6 +101,7 @@ class PrinterWatch:
         self._online = False
         self._gcode_state = ""
         self._sentinel = 0.0
+        self._safety_pause = False  # ClearLoop signalled the first-sweep safety pause
         self._seen_hms: set[str] = set()
         self._checking = False
         self.phase = ""
@@ -162,6 +165,10 @@ class PrinterWatch:
                 self._trays_loop.append(s.ams.tray_now)
             self._max_layer = max(self._max_layer, s.layer_num)
         t = s.nozzle_target
+        if t != self._sentinel and t == SAFETY_PAUSE and loop_job:
+            self._sentinel = t
+            self._safety_pause = True
+            self.phase = "safety pause before the first sweep"
         if t != self._sentinel:
             self._sentinel = t
             code = int(t) if t in PHASE else 0
@@ -212,7 +219,17 @@ class PrinterWatch:
             self.waiting_for_you = False
             self.status = f"printing {s.subtask_name}" if s.subtask_name else "printing"
         elif st == "PAUSE":
-            if self.loop_end_pause(s):
+            if self._safety_pause:
+                self._safety_pause = False
+                self.waiting_for_you = True
+                self.status = "safety pause: check the push heights, then press Resume on the printer"
+                self.event(
+                    "warning",
+                    "safety_pause",
+                    "first sweep on this setup: the printer is waiting for you to check the pusher, then "
+                    "press Resume (ClearLoop won't resume this one)",
+                )
+            elif self.loop_end_pause(s):
                 self._loop_printed(s)
                 self.status = "loop finished: checking the plate"
                 self._start_check("loop end")
@@ -243,6 +260,7 @@ class PrinterWatch:
     # ---- filament ---------------------------------------------------------------------
     def _new_loop(self) -> None:
         self._printed, self._trays_loop, self._max_layer = False, [], 0
+        self._safety_pause = False
 
     def _loop_printed(self, s: PrinterState) -> None:
         if not self._printed and is_loop_job(s):

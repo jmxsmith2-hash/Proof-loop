@@ -10,7 +10,9 @@
 param(
     [switch]$ForceUv,        # use uv even if Python is installed (CI uses this to test that path)
     [switch]$NoClearLoop,    # don't install ClearLoop (ProofLoop then shows synthux alone)
-    [switch]$NoShortcuts     # don't add desktop shortcuts
+    [switch]$NoShortcuts,    # don't add desktop shortcuts
+    [switch]$NoAutostart,    # don't start ProofLoop in the background when you log in
+    [switch]$WithBrowser     # download Chromium now (otherwise on the first website test)
 )
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
@@ -74,28 +76,43 @@ $venvPy = (Resolve-Path ".\.venv\Scripts\python.exe").Path
 $packages = @("-e", "packages\synthux[dev]", "-e", "packages\proofloop[dev]")
 if (-not $NoClearLoop) { $packages += @("-e", "packages\clearloop[dev]") }
 & $venvPy -m pip install @packages; Step "Installing ProofLoop (synthux and ClearLoop)"
-& $venvPy -m playwright install chromium; Step "Downloading Chromium"
+if ($WithBrowser) { & $venvPy -m playwright install chromium; Step "Downloading Chromium" }
+else { Write-Host "(Chromium for website tests downloads by itself the first time you test a website.)" }
 $synthuxConfig = "packages\synthux\config"
 if (-not (Test-Path "$synthuxConfig\settings.yaml")) { Copy-Item "$synthuxConfig\settings.example.yaml" "$synthuxConfig\settings.yaml" }
 & ".\.venv\Scripts\synthux.exe" check; Step "synthux check"
 
-function Shortcut($name, $target, $about) {
+# Shortcuts start ProofLoop with pythonw.exe: no console window, and closing ProofLoop's window
+# leaves it running in the background (icon next to the clock) so the printers stay watched.
+$pythonw = (Resolve-Path ".\.venv\Scripts\pythonw.exe").Path
+function Shortcut($folder, $name, $arguments, $about) {
     try {
         $shell = New-Object -ComObject WScript.Shell
-        $link = $shell.CreateShortcut([IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "$name.lnk"))
-        $link.TargetPath = (Resolve-Path $target).Path
+        $link = $shell.CreateShortcut([IO.Path]::Combine($folder, "$name.lnk"))
+        $link.TargetPath = $pythonw
+        $link.Arguments = $arguments
         $link.WorkingDirectory = (Get-Location).Path
         $link.WindowStyle = 7
         $link.Description = $about
         $link.Save()
-        Write-Host "Added a $name shortcut to the desktop." -ForegroundColor Green
-    } catch { Write-Host "(Could not add a desktop shortcut; double-click $target instead.)" }
+        return $true
+    } catch { return $false }
 }
 if (-not $NoShortcuts) {
-    Shortcut "ProofLoop" "ProofLoop.bat" "Check designs and G-code, make loop files, watch your printers"
+    $desktop = [Environment]::GetFolderPath("Desktop")
+    if (Shortcut $desktop "ProofLoop" "-m proofloop" "Check designs and G-code, make loop files, watch your printers") {
+        Write-Host "Added a ProofLoop shortcut to the desktop." -ForegroundColor Green
+    } else { Write-Host "(Could not add a desktop shortcut; double-click ProofLoop.bat instead.)" }
 }
+if (-not $NoAutostart) {
+    & ".\.venv\Scripts\proofloop.exe" autostart on; Step "Starting ProofLoop when you log in"
+}
+& ".\.venv\Scripts\proofloop.exe" doctor
+$global:LASTEXITCODE = 0   # the setup check only reports; things to look at don't fail the setup
 Write-Host ""
 Write-Host "Done. Double-click ProofLoop on the desktop (or ProofLoop.bat here) to open it." -ForegroundColor Green
+Write-Host "It keeps running next to the clock when you close the window, and starts when you log in"
+Write-Host "(turn that off in its menu, or with: proofloop autostart off). Update later with Update.bat."
 Write-Host "For the command line, activate it in a new PowerShell window with:"
 Write-Host "    .\.venv\Scripts\Activate.ps1"
 Write-Host "Then try:  proofloop check packages\synthux\examples\cad\phone_stand_v1.stl --design packages\synthux\examples\cad\phone_stand.yaml"

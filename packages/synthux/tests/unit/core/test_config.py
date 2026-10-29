@@ -78,3 +78,27 @@ def test_config_found_from_the_combined_repository(tmp_path, monkeypatch):
     assert find_config_dir(tmp_path) == cfg
     assert find_config_dir(tmp_path / "scripts") == cfg
     assert find_config_dir(cfg.parent / "examples") == cfg
+
+
+def test_config_found_from_anywhere_for_an_installed_checkout(tmp_path, monkeypatch):
+    monkeypatch.delenv("SYNTHUX_CONFIG_DIR", raising=False)
+    assert find_config_dir(tmp_path) == REPO / "config"  # nothing in tmp_path: synthux's own folder
+
+
+def test_browser_for_website_tests_downloads_on_first_use(monkeypatch):
+    import subprocess
+
+    from synthux.runner import browser
+
+    s = load_settings(REPO / "config")
+    monkeypatch.setattr(browser, "find_chromium", lambda settings: None)
+    monkeypatch.setattr(browser, "_fallback_chromium", lambda: None)
+    ran, stages = [], []
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", ""))
+    browser.ensure_chromium(s, stages.append)
+    assert ran and ran[0][-3:] == ["playwright", "install", "chromium"] and "once" in stages[0]
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, "", "no network"))
+    with pytest.raises(ConfigError):
+        browser.ensure_chromium(s)
+    monkeypatch.setattr(browser, "_fallback_chromium", lambda: "/opt/chromium")
+    browser.ensure_chromium(s)  # already there: nothing to do

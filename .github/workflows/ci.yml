@@ -138,20 +138,25 @@ jobs:
           .\.venv\Scripts\proofloop.exe check $ex\gcode\bracket_plate.gcode.3mf
           .\.venv\Scripts\proofloop.exe clearloop profiles
           if (-not (Test-Path ([IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "ProofLoop.lnk")))) { Write-Host "no ProofLoop shortcut"; exit 1 }
-      - name: The ProofLoop window starts and shows both apps
+          $startup = [IO.Path]::Combine([Environment]::GetFolderPath("Startup"), "ProofLoop.lnk")
+          if (-not (Test-Path $startup)) { Write-Host "ProofLoop won't start at login"; exit 1 }
+          .\.venv\Scripts\proofloop.exe doctor; if ($LASTEXITCODE -gt 1) { exit 1 }
+          $global:LASTEXITCODE = 0   # 1 = things to look at (no printers on a CI machine), not a failure
+      - name: ProofLoop starts in the background like the shortcut, and stops cleanly
         shell: pwsh
         run: |
-          $p = Start-Process .\.venv\Scripts\proofloop.exe -ArgumentList "app", "--no-window" -PassThru
-          try {
-            $ok = $false
-            foreach ($i in 1..60) {
-              try { $r = Invoke-RestMethod http://127.0.0.1:8600/proofloop/ping; if ($r.synthux -and $r.clearloop) { $ok = $true; break } } catch {}
-              Start-Sleep -Seconds 1
-            }
-            if (-not $ok) { Write-Host "ProofLoop did not start"; exit 1 }
-            $page = (Invoke-WebRequest http://127.0.0.1:8600/ -UseBasicParsing).Content
-            if ($page -notmatch "Loop files") { exit 1 }
-          } finally { Stop-Process -Id $p.Id -Force }
+          # The shortcut runs pythonw -m proofloop: it starts the background service and returns.
+          .\.venv\Scripts\proofloop.exe --no-window
+          if ($LASTEXITCODE) { Get-Content $HOME\.proofloop\proofloop.log -ErrorAction SilentlyContinue; exit 1 }
+          $r = Invoke-RestMethod http://127.0.0.1:8600/proofloop/ping
+          if (-not ($r.synthux -and $r.clearloop -and $r.background)) { Write-Host "not both apps"; exit 1 }
+          $page = (Invoke-WebRequest http://127.0.0.1:8600/ -UseBasicParsing).Content
+          if ($page -notmatch "Loop files") { exit 1 }
+          .\.venv\Scripts\proofloop.exe --no-window   # a second double-click: no second copy
+          .\.venv\Scripts\proofloop.exe status
+          .\.venv\Scripts\proofloop.exe stop
+          if (Test-Path $HOME\.proofloop\running.json) { Write-Host "didn't stop cleanly"; exit 1 }
+          try { Invoke-RestMethod http://127.0.0.1:8600/proofloop/ping -TimeoutSec 3; Write-Host "still running"; exit 1 } catch { Write-Host "stopped" }
 
   windows-no-python:
     name: windows / setup.bat on a PC without Python (uv)
@@ -169,3 +174,54 @@ jobs:
           .\.venv\Scripts\synthux.exe physical gcode packages\synthux\examples\gcode\bracket_flawed.gcode
           .\.venv\Scripts\proofloop.exe clearloop --help
           if (-not (Test-Path ([IO.Path]::Combine([Environment]::GetFolderPath("Desktop"), "ProofLoop.lnk")))) { exit 1 }
+
+  real-slicer:
+    # The STL -> slice -> verdict path with a real slicer, which isn't available where ProofLoop is
+    # developed: OrcaSlicer (portable) and Bambu Studio (installed silently) on Windows.
+    name: real slicer / ${{ matrix.slicer }}
+    runs-on: windows-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        slicer: [orca, bambu]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ProofLoop
+        run: python -m pip install -e "packages/synthux[dev]" -e "packages/clearloop[dev]" -e "packages/proofloop[dev]"
+      - name: Download the slicer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $h = @{ Authorization = "Bearer $env:GH_TOKEN"; "User-Agent" = "proofloop-ci" }
+          if ("${{ matrix.slicer }}" -eq "orca") {
+            $rel = Invoke-RestMethod https://api.github.com/repos/OrcaSlicer/OrcaSlicer/releases/latest -Headers $h
+            $asset = $rel.assets | Where-Object { $_.name -match "Windows.*portable.*\.zip$" } | Select-Object -First 1
+            if (-not $asset) { $rel.assets | ForEach-Object { $_.name }; throw "no portable Windows build in $($rel.tag_name)" }
+            Write-Host "OrcaSlicer $($rel.tag_name): $($asset.name)"
+            Invoke-WebRequest $asset.browser_download_url -OutFile orca.zip
+            Expand-Archive orca.zip -DestinationPath C:\slicer
+            $exe = Get-ChildItem C:\slicer -Recurse -Filter orca-slicer.exe | Select-Object -First 1
+          } else {
+            $rel = Invoke-RestMethod https://api.github.com/repos/bambulab/BambuStudio/releases/latest -Headers $h
+            $asset = $rel.assets | Where-Object { $_.name -match "win.*\.exe$" } | Select-Object -First 1
+            if (-not $asset) { $rel.assets | ForEach-Object { $_.name }; throw "no Windows installer in $($rel.tag_name)" }
+            Write-Host "Bambu Studio $($rel.tag_name): $($asset.name)"
+            Invoke-WebRequest $asset.browser_download_url -OutFile bambu-setup.exe
+            Start-Process .\bambu-setup.exe -ArgumentList "/S" -Wait
+            $exe = Get-ChildItem "$env:ProgramFiles\Bambu Studio" -Recurse -Filter bambu-studio.exe | Select-Object -First 1
+          }
+          if (-not $exe) { throw "the slicer program wasn't found after installing" }
+          "SYNTHUX_SLICER=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: The setup check finds it and slices a test part
+        run: proofloop doctor --slice-test
+      - name: STL to print-ready verdict, with a loop file, and the slicer-setting fixes applied
+        working-directory: packages/synthux
+        run: |
+          synthux physical prepare examples/cad/phone_stand_v1.stl --design examples/cad/phone_stand.yaml --loops 2
+          synthux physical prepare examples/cad/block_control.stl --fix

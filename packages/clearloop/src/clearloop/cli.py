@@ -10,8 +10,9 @@ import webbrowser
 from pathlib import Path
 
 from . import __version__, printers, threemf
+from .api import pick_profile, swept_before
 from .calibration import TESTS, build_test
-from .config import Defaults, SettingsStore
+from .config import DEFAULT_DATA, Defaults, SettingsStore
 from .filament import prices_for
 from .gcode.processor import ProcessError, analyze, process
 from .importer import ImportError_, import_profile
@@ -21,7 +22,6 @@ from .printer.ams import label as tray_label
 from .profiles import ProfileStore
 from .service import App, loop_settings
 
-DEFAULT_DATA = Path.home() / ".clearloop"
 ICON = {"danger": "✖", "warning": "!", "info": "i", "ok": "✓"}
 
 
@@ -47,6 +47,8 @@ def _defaults(a) -> Defaults:
         d["bender_fitted"] = False
     if getattr(a, "wait_for_monitor", False):
         d["wait_for_monitor"] = True
+    if getattr(a, "first_pause", None):
+        d["pause_first_sweep"] = a.first_pause
     return Defaults.model_validate(d)
 
 
@@ -67,21 +69,20 @@ def _pick_profile(a, sf: threemf.SlicedFile, d: Defaults):
     store = _profiles(a)
     if getattr(a, "profile_id", None):
         return store.get(a.profile_id)
-    matching = store.for_printer(sf.info.printer_model_id)
-    if not matching:
+    profile = pick_profile(store, sf.info.printer_model_id, d.profile_id)
+    if profile is None:
         raise SystemExit(
             f"no hardware profile for the {printers.model_name(sf.info.printer_model_id)} yet. Import one from a "
             "FarmLoop file: clearloop import-profile PLAIN.gcode.3mf FL_S1_PLAIN.gcode.3mf"
         )
-    by_id = {p.id: p for p in matching}
-    return by_id.get(d.profile_id, matching[0])
+    return profile
 
 
 def cmd_make(a) -> int:
     sf = threemf.load(a.input, plate=a.plate)
     d = _defaults(a)
     prof = _pick_profile(a, sf, d)
-    st = loop_settings(d, _part_push(a))
+    st = loop_settings(d, _part_push(a), swept_before(a.data))
     try:
         an = analyze(sf, prof, st)
         _print_analysis(an, prof)
@@ -308,6 +309,11 @@ def _loop_args(p: argparse.ArgumentParser) -> None:
         "--wait-for-monitor",
         action="store_true",
         help="pause after each loop until the monitor checks the plate",
+    )
+    p.add_argument(
+        "--first-pause",
+        choices=["auto", "on", "off"],
+        help="pause before the first sweep to check the pusher (auto: until a loop has swept cleanly)",
     )
 
 

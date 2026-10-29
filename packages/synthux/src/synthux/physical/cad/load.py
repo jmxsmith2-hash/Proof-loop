@@ -101,7 +101,10 @@ def load_profiles(config_dir: Path, printer: str | None, material: str | None) -
     data = load_yaml_file(Path(config_dir) / "printers.yaml")
     if not data:
         raise ConfigError(f"missing {Path(config_dir) / 'printers.yaml'}")
-    printer = printer or data.get("default_printer")
+    if not printer:
+        from synthux.physical.my_printers import default_printer
+
+        printer = default_printer(data)  # your first printer in ClearLoop, else printers.yaml's default
     material = material or data.get("default_material")
     # Slicer names ("PLA Basic", "PETG HF") and any capitalisation map to the profile
     wanted = str(material).strip().lower()
