@@ -234,3 +234,43 @@ def test_printer_found_by_name_when_the_slicer_left_out_its_id():
     sf = load(make_3mf(plate_gcode(SMALL), model_id=""))
     assert sf.info.printer_model == "Bambu Lab P2S" and sf.info.printer_model_id == "N7"
     assert printers.model_id_for("Bambu Lab H2D") == "O1D" and printers.model_id_for("Prusa MK4") == ""
+
+
+def _with_layer_changes(g: str) -> str:
+    return re.sub(r"^(G1 Z[\d.]+ F600)$", r"; CHANGE_LAYER\n\1", g, flags=re.M)
+
+
+def test_bambu_studio_2_object_ids():
+    """Bambu Studio 2 marks each object's moves with '; OBJECT_ID: N' and no stop label."""
+    g = _with_layer_changes(plate_gcode(SMALL))
+    g = re.sub(r"^; start printing object, unique label id: (\d+)$", r"; OBJECT_ID: \1", g, flags=re.M)
+    g = re.sub(r"^; stop printing object.*\n", "", g, flags=re.M)
+    # a timelapse shot inside the object's moves (it extrudes at the chute), then the prime tower
+    g = g.replace(
+        "; OBJECT_ID: 1\n",
+        "; OBJECT_ID: 1\n; SKIPPABLE_START\nG1 X250 Y250 F30000\nG1 E2\n; SKIPPABLE_END\n",
+        1,
+    )
+    g = g.replace(
+        "; CHANGE_LAYER\n", "; FEATURE: Prime tower\nG1 X230 Y230\nG1 X240 Y240 E3\n; CHANGE_LAYER\n"
+    )
+    parts = {p.label: p for p in read_parts(g)}
+    assert set(parts) == {"1", "2"}
+    assert (parts["1"].xmin, parts["1"].xmax, parts["1"].height) == (100.0, 140.0, 12.0)
+    assert (parts["2"].xmax, parts["2"].ymax, parts["2"].height) == (190.0, 80.0, 4.0)
+    assert process(load(make_3mf(g, SMALL)), STAGE2, LoopSettings()).analysis.parts
+
+
+def test_orcaslicer_without_the_machine_markers():
+    """OrcaSlicer leaves out MACHINE_START_GCODE_END / MACHINE_END_GCODE_START."""
+    g = _with_layer_changes(plate_gcode(SMALL))
+    g = g.replace("; MACHINE_START_GCODE_END\n", "").replace(
+        "; MACHINE_END_GCODE_START\n", "; FEATURE: Custom\n; filament end gcode \n"
+    )
+    lay = threemf.layout(g)
+    assert lay.ok and lay.lines[lay.start_gcode_end].startswith("; CHANGE_LAYER")
+    assert lay.lines[lay.end_gcode_start].startswith("; filament end gcode")
+    orca = process(load(make_3mf(g, SMALL)), STAGE2, LoopSettings())
+    bambu = run()
+    assert [p.as_dict() for p in orca.analysis.parts] == [p.as_dict() for p in bambu.analysis.parts]
+    assert end_block(orca.gcode) == end_block(bambu.gcode)

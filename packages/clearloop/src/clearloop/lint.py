@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from . import printers
 from .gcode.objects import read_parts
-from .threemf import EXEC_END, EXEC_START, SlicedFile
+from .threemf import EXEC_END, EXEC_START, SlicedFile, end_gcode_start, start_gcode_end
 
 M190R = re.compile(r"^\s*M190\s+R")
 DWELL = re.compile(r"^\s*(?:G4\s+([PS])(\d+(?:\.\d+)?)|M400\s+S(\d+(?:\.\d+)?))")
@@ -91,10 +91,8 @@ def lint(sf: SlicedFile) -> list[Finding]:
 
     # 2. Long waits before the print starts, with heaters on.
     for n, (a, _b) in enumerate(loops, 1):
-        start_end = next(
-            (i for i in range(a, len(lines)) if lines[i].startswith("; MACHINE_START_GCODE_END")), None
-        )
-        if start_end is None:
+        start_end = start_gcode_end(lines, a)
+        if start_end < 0:
             continue
         heat_on, waited, worst = False, 0.0, 0.0
         for ln in lines[a:start_end]:
@@ -248,9 +246,9 @@ def _loop_sweep(lines: list[str], a: int, b: int, head: str, info) -> tuple[list
     heights = dict(zip(ids, hs, strict=True)) if ids and len(ids) == len(hs) else info.object_heights
     body = lines[a : b + 1]
     parts = read_parts("\n".join(body), info.object_names, heights)
-    end_start = next((i for i in range(a, b) if lines[i].startswith("; MACHINE_END_GCODE_START")), None)
+    end_start = end_gcode_start(lines, a, b)
     pushes: list[tuple[float, float]] = []
-    if end_start is None:
+    if end_start < 0:
         return parts, pushes
     x = y = z = None
     for ln in lines[end_start:b]:

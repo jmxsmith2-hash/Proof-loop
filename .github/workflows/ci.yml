@@ -226,8 +226,8 @@ jobs:
           synthux physical prepare examples/cad/block_control.stl --fix
       - name: The setup check finds it and slices a test part
         run: proofloop doctor --slice-test
-      - name: What the slicer wrote (markers and labels; also when it worked)
-        if: always()
+      - name: What the slicer wrote (when it failed)
+        if: failure()
         shell: pwsh
         run: |
           $presets = Get-ChildItem packages\synthux\data -Recurse -Directory -ErrorAction SilentlyContinue |

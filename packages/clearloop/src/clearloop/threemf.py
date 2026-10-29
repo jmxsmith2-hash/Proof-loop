@@ -28,6 +28,10 @@ EXEC_START = "; EXECUTABLE_BLOCK_START"
 EXEC_END = "; EXECUTABLE_BLOCK_END"
 START_GCODE_END = "; MACHINE_START_GCODE_END"
 END_GCODE_START = "; MACHINE_END_GCODE_START"
+# OrcaSlicer leaves out the two MACHINE_ markers; there the first layer change ends the start
+# G-code and the last filament end G-code (written just before the machine end G-code) starts the end.
+FIRST_LAYER = "; CHANGE_LAYER"
+FILAMENT_END = "; filament end gcode"
 
 
 class PlateFileError(ValueError):
@@ -333,6 +337,33 @@ class Layout:
         return [k for k, v in names.items() if v < 0]
 
 
+def start_gcode_end(lines: list[str], a: int, b: int | None = None) -> int:
+    """Index of the line that ends the machine start G-code, at or after line ``a`` (-1 if none)."""
+    b = len(lines) if b is None else b
+    first_layer = -1
+    for i in range(max(0, a), b):
+        s = lines[i].rstrip("\r\n")
+        if s == START_GCODE_END:
+            return i
+        if s == EXEC_END:
+            break
+        if first_layer < 0 and s == FIRST_LAYER:
+            first_layer = i
+    return first_layer
+
+
+def end_gcode_start(lines: list[str], a: int, b: int) -> int:
+    """Index of the line that starts the machine end G-code, between lines ``a`` and ``b`` (-1 if none)."""
+    last_filament_end = -1
+    for i in range(max(0, a), b):
+        s = lines[i].rstrip("\r\n")
+        if s == END_GCODE_START:
+            return i
+        if s.rstrip() == FILAMENT_END:
+            last_filament_end = i
+    return last_filament_end
+
+
 def layout(gcode: str) -> Layout:
     """Find the markers of the first loop in a plate (FarmLoop files repeat the whole plate per loop)."""
     lines = gcode.splitlines(keepends=True)
@@ -344,7 +375,7 @@ def layout(gcode: str) -> Layout:
         return -1
 
     es = find(EXEC_START)
-    sge = find(START_GCODE_END, es)
-    egs = find(END_GCODE_START, sge)
-    ee = find(EXEC_END, egs)
+    ee = find(EXEC_END, es)
+    sge = start_gcode_end(lines, es, ee if ee >= 0 else None) if es >= 0 else -1
+    egs = end_gcode_start(lines, sge, ee) if sge >= 0 and ee >= 0 else -1
     return Layout(lines, es, ee, sge, egs)

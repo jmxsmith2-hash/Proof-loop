@@ -1,7 +1,9 @@
 """Where each part sits on the plate and how tall it is, read from the G-code.
 
-Bambu Studio and OrcaSlicer label every object's moves with
+OrcaSlicer (and older Bambu Studio) label every object's moves with
 ``; start printing object, unique label id: N`` / ``; stop printing object, ...``.
+Bambu Studio 2 writes ``; OBJECT_ID: N`` where an object's moves start instead, with no stop
+label: an object's moves then end at the next ``OBJECT_ID``, the prime tower, or the layer change.
 ClearLoop tracks extrusion inside each label to get the part's footprint and
 the highest Z it was printed at, then cross-checks that height against the
 slicer's own ``object max height`` header. Moves outside labels (purge line,
@@ -16,6 +18,14 @@ from dataclasses import dataclass
 _WORD = re.compile(r"([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))")
 _START = re.compile(r"^; start printing object, unique label id: (\S+)")
 _STOP = re.compile(r"^; stop printing object, unique label id: (\S+)")
+_OBJECT_ID = re.compile(r"^; OBJECT_ID: (\d+)")
+# Where a Bambu Studio 2 object's moves end (it has no stop label).
+_OBJECT_ENDS = (
+    "; CHANGE_LAYER",
+    "; FEATURE: Prime tower",
+    "; FEATURE: Wipe tower",
+    "; MACHINE_END_GCODE_START",
+)
 
 
 @dataclass
@@ -53,6 +63,7 @@ def read_parts(
     slicer_heights = slicer_heights or {}
     boxes: dict[str, list[float]] = {}
     current: str | None = None
+    skipping = False
     absolute_xyz = True
     absolute_e = True
     x = y = z = e = 0.0
@@ -61,11 +72,15 @@ def read_parts(
         if not line:
             continue
         if line[0] == ";":
-            if m := _START.match(line):
+            if m := _START.match(line) or _OBJECT_ID.match(line):
                 current = m.group(1)
-            elif _STOP.match(line):
+            elif _STOP.match(line) or line.startswith(_OBJECT_ENDS):
                 current = None
-            elif line == "; MACHINE_END_GCODE_START":
+            elif line == "; SKIPPABLE_START":  # optional moves (a timelapse shot), not the part
+                skipping = True
+            elif line == "; SKIPPABLE_END":
+                skipping = False
+            if line == "; MACHINE_END_GCODE_START":
                 break
             continue
         code = line.split(";", 1)[0]
@@ -93,7 +108,7 @@ def read_parts(
             if "E" in w:
                 de = w["E"] - e if absolute_e else w["E"]
                 e = w["E"] if absolute_e else e + w["E"]
-            if current is not None and de > 0:
+            if current is not None and de > 0 and not skipping:
                 b = boxes.setdefault(current, [nx, nx, ny, ny, nz])
                 # Arcs are bounded by their chord here; the outer walls still mark the footprint.
                 b[0] = min(b[0], x, nx)
