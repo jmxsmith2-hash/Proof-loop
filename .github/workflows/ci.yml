@@ -226,8 +226,8 @@ jobs:
           synthux physical prepare examples/cad/block_control.stl --fix
       - name: The setup check finds it and slices a test part
         run: proofloop doctor --slice-test
-      - name: What the slicer said (when it failed)
-        if: failure()
+      - name: What the slicer wrote (markers and labels; also when it worked)
+        if: always()
         shell: pwsh
         run: |
           $presets = Get-ChildItem packages\synthux\data -Recurse -Directory -ErrorAction SilentlyContinue |
@@ -242,4 +242,16 @@ jobs:
           & $env:SYNTHUX_SLICER --debug 4 --slice 0 --export-3mf t.gcode.3mf --load-settings "$m;$p" --load-filaments $f --arrange 1 --outputdir $out packages\synthux\examples\cad\block_control.stl 2>&1 | Select-Object -Last 80
           Write-Host "exit: $LASTEXITCODE"
           if (Test-Path "$out\result.json") { Get-Content "$out\result.json" }
+          $sliced = Get-ChildItem $out -Filter *.3mf | Select-Object -First 1
+          if (-not $sliced) { exit 0 }
+          Expand-Archive $sliced.FullName -DestinationPath "$out\x" -Force
+          $g = Get-ChildItem "$out\x\Metadata" -Filter plate_*.gcode | Select-Object -First 1
+          Write-Host "--- markers in $($g.Name) ---"
+          Select-String -Path $g.FullName -Pattern '^; (MACHINE|EXECUTABLE|start printing|stop printing|printing object|stop printing object|filament end|FEATURE: Custom|CHANGE_LAYER|LAYER_CHANGE)|^;(LAYER_CHANGE|TYPE:Custom)|^M62[45]|^EXCLUDE_OBJECT|^; OBJECT_ID|^;=====' |
+            Select-Object -First 60 | ForEach-Object { "$($_.LineNumber): $($_.Line)" }
+          Write-Host "--- label/exclude settings ---"
+          Select-String -Path $g.FullName -Pattern '^; [a-z_]*(label|exclude|skip)[a-z_]* = ' | ForEach-Object { $_.Line }
+          Write-Host "--- end of the print ---"
+          $all = Get-Content $g.FullName
+          $all | Select-String -Pattern '^;' | Where-Object { $_.Line -notmatch '^; [a-z_0-9]+ = ' } | Select-Object -Last 40 | ForEach-Object { "$($_.LineNumber): $($_.Line)" }
           exit 0
