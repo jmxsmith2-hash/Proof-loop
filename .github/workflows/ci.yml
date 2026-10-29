@@ -201,7 +201,7 @@ jobs:
           $h = @{ Authorization = "Bearer $env:GH_TOKEN"; "User-Agent" = "proofloop-ci" }
           if ("${{ matrix.slicer }}" -eq "orca") {
             $rel = Invoke-RestMethod https://api.github.com/repos/OrcaSlicer/OrcaSlicer/releases/latest -Headers $h
-            $asset = $rel.assets | Where-Object { $_.name -match "Windows.*portable.*\.zip$" } | Select-Object -First 1
+            $asset = $rel.assets | Where-Object { $_.name -match "Windows.*portable.*\.zip$" -and $_.name -notmatch "arm64" } | Select-Object -First 1
             if (-not $asset) { $rel.assets | ForEach-Object { $_.name }; throw "no portable Windows build in $($rel.tag_name)" }
             Write-Host "OrcaSlicer $($rel.tag_name): $($asset.name)"
             Invoke-WebRequest $asset.browser_download_url -OutFile orca.zip
@@ -209,7 +209,7 @@ jobs:
             $exe = Get-ChildItem C:\slicer -Recurse -Filter orca-slicer.exe | Select-Object -First 1
           } else {
             $rel = Invoke-RestMethod https://api.github.com/repos/bambulab/BambuStudio/releases/latest -Headers $h
-            $asset = $rel.assets | Where-Object { $_.name -match "win.*\.exe$" } | Select-Object -First 1
+            $asset = $rel.assets | Where-Object { $_.name -match "win.*\.exe$" -and $_.name -notmatch "arm64" } | Select-Object -First 1
             if (-not $asset) { $rel.assets | ForEach-Object { $_.name }; throw "no Windows installer in $($rel.tag_name)" }
             Write-Host "Bambu Studio $($rel.tag_name): $($asset.name)"
             Invoke-WebRequest $asset.browser_download_url -OutFile bambu-setup.exe

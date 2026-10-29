@@ -331,7 +331,17 @@ def _server_opts(p: argparse.ArgumentParser, window: bool = True) -> None:
     p.add_argument("--config", help="synthux's config folder (default: found automatically)")
 
 
+def _utf8_output() -> None:
+    """Windows consoles and pipes often use cp1252, which has no ✓ or ✖: write UTF-8, never crash on a character."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):  # None under pythonw, or not a text stream
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_output()
     try:
         return _main(argv)
     except BrokenPipeError:  # e.g. `proofloop status | head -1`

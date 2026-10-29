@@ -200,3 +200,16 @@ def test_tray_icon_draws_without_a_desktop():
 
     img = icon_image(64)
     assert img.size == (64, 64) and img.getpixel((32, 2))[3] > 0
+
+
+def test_setup_check_prints_on_a_windows_console(tmp_path, monkeypatch):
+    """cp1252 (old Windows consoles, pipes) has no ✓: the output is still written, not a crash."""
+    import io
+    import sys
+
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252"))
+    monkeypatch.setenv("SYNTHUX_CONFIG_DIR", str(synthux_config(tmp_path)))
+    assert main(["doctor"]) in (0, 1)
+    sys.stdout.flush()
+    assert "✓".encode() in raw.getvalue()

@@ -318,6 +318,11 @@ def _loop_args(p: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # pipes on Windows are cp1252, which has no ✓ or ✖
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     ap = argparse.ArgumentParser(prog="clearloop", description="Open-source loop files for FarmLoop hardware")
     ap.add_argument("--version", action="version", version=f"clearloop {__version__}")
     ap.add_argument(
