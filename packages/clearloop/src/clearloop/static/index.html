@@ -23,6 +23,7 @@ header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px
 .bar{max-width:1180px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .brand{font-weight:700;font-size:17px;display:flex;align-items:center;gap:8px}
 .brand svg{width:22px;height:22px}
+.in-proofloop .brand{display:none}
 nav{display:flex;gap:4px;flex-wrap:wrap}
 nav button{border:0;background:none;color:var(--muted);padding:7px 12px;border-radius:8px;font:inherit;cursor:pointer}
 nav button[aria-selected=true]{background:var(--soft);color:var(--ink);font-weight:600}
@@ -200,6 +201,7 @@ details summary{cursor:pointer;font-weight:600}
       <div class="card">
         <div class="spread"><h2 id="plateTitle">Plate</h2><span id="plateChip"></span></div>
         <dl class="kv" id="plateFacts"></dl>
+        <button class="btn hidden" id="toSynthux" type="button" title="Layer previews, flow, temperatures and the slicer settings that fix each problem">Full print check in synthux</button>
         <h3>Top view <span class="muted" style="font-weight:400">· front of the printer at the bottom</span></h3>
         <div class="anim-bar"><button class="btn" id="playSweep">▶ Play the sweep</button>
           <select id="animSpeed" aria-label="Playback speed"><option value="5">5× speed</option><option value="15" selected>15×</option><option value="40">40×</option></select>
@@ -637,16 +639,32 @@ dropZone($('#makeDrop'), $('#makeFile'), async (file) => {
   $('#makeDrop strong').textContent = 'Reading ' + file.name + '…';
   try {
     const fd = new FormData(); fd.append('file', file);
-    const res = await json('/api/plates', {method: 'POST', body: fd});
-    if (res.no_profile) { showNoProfile(res); $('#makeResult').classList.add('hidden'); }
-    else {
-      const kept = PLATE && BATCH.find(x => x.token === PLATE.token);
-      if (kept) kept.part_push = {...partPush};  // the plate leaving the screen keeps its own heights
-      partPush = {}; PLATE = res; renderPlate(res);
-    }
-  } catch (e) { $('#makeError').innerHTML = `<span class="ic danger">✖</span><div>${esc(e.message)}</div>`; $('#makeError').classList.remove('hidden'); $('#makeResult').classList.add('hidden'); }
+    showOpened(await json('/api/plates', {method: 'POST', body: fd}));
+  } catch (e) { makeError(e); }
   $('#makeDrop strong').textContent = 'Drop another plate, or click to choose';
 });
+function makeError(e) { $('#makeError').innerHTML = `<span class="ic danger">✖</span><div>${esc(e.message)}</div>`; $('#makeError').classList.remove('hidden'); $('#makeResult').classList.add('hidden'); }
+function showOpened(res) {
+  if (res.no_profile) { showNoProfile(res); $('#makeResult').classList.add('hidden'); return; }
+  const kept = PLATE && BATCH.find(x => x.token === PLATE.token);
+  if (kept) kept.part_push = {...partPush};  // the plate leaving the screen keeps its own heights
+  partPush = {}; PLATE = res; renderPlate(res);
+}
+
+// ---------- inside ProofLoop ----------
+// ProofLoop shows this page in a frame next to synthux and hands plates between them.
+const IN_PROOFLOOP = window.parent !== window && new URLSearchParams(location.search).has('proofloop');
+if (IN_PROOFLOOP) {
+  document.documentElement.classList.add('in-proofloop');
+  window.addEventListener('message', async (e) => {
+    if (e.origin !== location.origin || e.source !== window.parent || !e.data || e.data.proofloop !== 'open-plate') return;
+    show('make'); $('#makeError').classList.add('hidden'); $('#noProfile').classList.add('hidden');
+    try { showOpened(await send(`/api/plates/${encodeURIComponent(e.data.token)}/open`, {})); toast('Opened ' + (PLATE ? PLATE.file : 'the plate') + ' from synthux'); }
+    catch (err) { makeError(err); }
+  });
+  $('#toSynthux').classList.remove('hidden');
+  $('#toSynthux').onclick = () => { if (PLATE) window.parent.postMessage({proofloop: 'check-in-synthux', token: PLATE.token}, location.origin); };
+}
 
 function showNoProfile(res) {
   const el = $('#noProfile');
@@ -1392,7 +1410,7 @@ dropZone($('#checkDrop'), $('#checkFile'), async (file) => {
     out.innerHTML = `<div class="spread"><h2>${esc(r.file)}</h2>${bad ? `<span class="chip bad">${bad} problem${bad > 1 ? 's' : ''}</span>` : '<span class="chip ok">looks good</span>'}</div><p class="muted">${esc(r.printer)}</p>
       ${items(r.findings)}
       <h3 style="margin-top:16px">The print in each loop</h3>
-      ${r.print_findings ? items(r.print_findings) : '<p class="hint">Install synthux to also check the print itself (plate, layers, temperatures, flow, cooling): <code>pip install "clearloop[print-checks]"</code></p>'}`;
+      ${r.print_findings ? items(r.print_findings) : '<p class="hint">Install synthux to also check the print itself (plate, layers, temperatures, flow, cooling): run ProofLoop\'s setup, or <code>pip install -e packages/synthux</code></p>'}`;
   } catch (e) { out.innerHTML = `<div class="banner bad"><span class="ic danger">✖</span><div>${esc(e.message)}</div></div>`; }
 });
 

@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProofLoop</title>
+<link rel="icon" href="data:,">
+<style>
+:root { color-scheme: light; --bg: #f6f5f2; --card: #fcfcfb; --border: #dedcd5; --text: #0b0b0b; --muted: #6e6d68; --accent: #2a78d6; }
+@media (prefers-color-scheme: dark) { :root { color-scheme: dark; --bg: #121211; --card: #1a1a19; --border: #383835; --text: #f0efec; --muted: #9a998f; --accent: #5598e7; } }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: center; gap: 18px; padding: 0 16px; height: 48px; flex: none; background: var(--card); border-bottom: 1px solid var(--border); }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 17px; }
+.brand svg { width: 22px; height: 22px; color: var(--accent); }
+nav { display: flex; gap: 4px; height: 100%; }
+nav button { white-space: nowrap; height: 100%; padding: 0 12px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.badge { display: inline-block; min-width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+.ver { margin-left: auto; color: var(--muted); font-size: 13px; }
+iframe { flex: 1; width: 100%; border: 0; display: block; background: var(--bg); }
+.hidden { display: none !important; }
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 12px; align-items: center; max-width: calc(100% - 32px);
+  background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px; z-index: 5; }
+.toast button { background: none; border: 1px solid currentColor; color: inherit; border-radius: 8px; padding: 3px 10px; font: inherit; cursor: pointer; }
+@media (max-width: 560px) { .ver, .more { display: none; } nav button { padding: 0 8px; font-size: 14px; } header { gap: 10px; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>ProofLoop</div>
+  <nav role="tablist" aria-label="ProofLoop">
+    <button role="tab" id="tab-synthux" data-tab="synthux" aria-controls="synthux" title="synthux: check CAD designs and sliced G-code, or test a website">Check<span class="more"> &amp; test</span><span class="badge hidden"></span></button>
+    <button role="tab" id="tab-clearloop" data-tab="clearloop" aria-controls="clearloop" title="ClearLoop: loop files, printers, filament and costs">Loop files<span class="more"> &amp; printers</span><span class="badge hidden"></span></button>
+  </nav>
+  <span class="ver" id="ver"></span>
+</header>
+<iframe id="synthux" role="tabpanel" aria-labelledby="tab-synthux" title="synthux" class="hidden"></iframe>
+<iframe id="clearloop" role="tabpanel" aria-labelledby="tab-clearloop" title="ClearLoop" class="hidden"></iframe>
+<script>
+const CFG = __PROOFLOOP_CONFIG__;
+const SYNTHUX_ORIGIN = CFG.synthux ? new URL(CFG.synthux).origin : null;
+const frames = {synthux: document.getElementById("synthux"), clearloop: document.getElementById("clearloop")};
+const tabs = {synthux: document.getElementById("tab-synthux"), clearloop: document.getElementById("tab-clearloop")};
+let current = null;
+document.getElementById("ver").textContent = "v" + CFG.version;
+
+for (const name of Object.keys(frames)) {
+  if (CFG[name]) frames[name].src = CFG[name];
+  else { tabs[name].remove(); frames[name].remove(); delete frames[name]; delete tabs[name]; }
+}
+if (Object.keys(tabs).length < 2) document.querySelector("nav").classList.add("hidden");
+
+function show(name) {
+  if (!frames[name]) return;
+  current = name;
+  for (const [n, f] of Object.entries(frames)) {
+    f.classList.toggle("hidden", n !== name);
+    tabs[n].setAttribute("aria-selected", n === name);
+    tabs[n].tabIndex = n === name ? 0 : -1;
+  }
+  tabs[name].querySelector(".badge").classList.add("hidden");
+  try { localStorage.setItem("proofloop-tab", name); } catch (e) {}
+}
+for (const [n, t] of Object.entries(tabs)) {
+  t.onclick = () => { show(n); askToTell(); };
+  t.onkeydown = (e) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const names = Object.keys(tabs), next = names[(names.indexOf(n) + (e.key === "ArrowRight" ? 1 : names.length - 1)) % names.length];
+    show(next); tabs[next].focus();
+  };
+}
+let saved = null; try { saved = localStorage.getItem("proofloop-tab"); } catch (e) {}
+show(frames[saved] ? saved : Object.keys(frames)[0]);
+
+function toast(msg, action, onAction) {
+  document.querySelectorAll(".toast").forEach(t => t.remove());
+  const t = document.createElement("div"); t.className = "toast"; t.setAttribute("role", "status");
+  const span = document.createElement("span"); span.textContent = msg; t.appendChild(span);
+  if (action) { const b = document.createElement("button"); b.textContent = action; b.onclick = () => { t.remove(); onAction(); }; t.appendChild(b); }
+  document.body.appendChild(t); setTimeout(() => t.remove(), action ? 9000 : 4500);
+}
+function askToTell() { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); }
+
+async function handOff(path, body) {
+  const r = await fetch(path, {method: "POST", headers: {[CFG.header]: "1", "Content-Type": "application/json"}, body: JSON.stringify(body)});
+  let data = {}; try { data = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+
+window.addEventListener("message", async (e) => {
+  const d = e.data;
+  if (!d || typeof d !== "object" || typeof d.proofloop !== "string") return;
+  try {
+    if (frames.synthux && e.origin === SYNTHUX_ORIGIN && e.source === frames.synthux.contentWindow) {
+      if (d.proofloop === "open-in-clearloop" && frames.clearloop) {
+        const r = await handOff("/proofloop/to-clearloop", {job: d.job});
+        show("clearloop");
+        frames.clearloop.contentWindow.postMessage({proofloop: "open-plate", token: r.token}, location.origin);
+      } else if (d.proofloop === "job-finished") {
+        if (document.hidden && window.Notification && Notification.permission === "granted") {
+          const n = new Notification(String(d.title), {body: String(d.body || "")});
+          n.onclick = () => { window.focus(); show("synthux"); };
+        } else if (current !== "synthux") {
+          tabs.synthux.querySelector(".badge").classList.remove("hidden");
+          toast(String(d.title), "Show", () => show("synthux"));
+        }
+      }
+    } else if (frames.clearloop && e.origin === location.origin && e.source === frames.clearloop.contentWindow) {
+      if (d.proofloop === "check-in-synthux" && frames.synthux) {
+        const r = await handOff("/proofloop/to-synthux", {token: d.token});
+        show("synthux");
+        frames.synthux.contentWindow.postMessage({proofloop: "refresh"}, SYNTHUX_ORIGIN);
+        toast("Checking " + r.title + " in synthux");
+      }
+    }
+  } catch (err) { toast(err.message); }
+});
+</script>
+</body>
+</html>

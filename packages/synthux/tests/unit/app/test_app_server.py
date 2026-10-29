@@ -126,3 +126,37 @@ def test_long_jobs_send_a_notification(app, monkeypatch):
     _wait(app, json.loads(data)["id"])
     time.sleep(0.2)
     assert sent and sent[0][0] == "Synthux: bracket_good.gcode is done"
+
+
+def test_only_the_proofloop_window_may_frame_it(app, tmp_path):
+    conn = http.client.HTTPConnection("127.0.0.1", app.port, timeout=30)
+    conn.request("GET", "/", headers={"Host": f"127.0.0.1:{app.port}"})
+    res = conn.getresponse()
+    page = res.read()
+    assert res.getheader("X-Frame-Options") == "DENY" and b"Fine-tune in ClearLoop" in page  # the JS, hidden alone
+    assert b"const SHELL = null" in page
+
+    app.shell = "http://127.0.0.1:8600"
+    conn.request("GET", "/", headers={"Host": f"127.0.0.1:{app.port}"})
+    res = conn.getresponse()
+    page = res.read()
+    conn.close()
+    assert res.getheader("X-Frame-Options") is None
+    assert res.getheader("Content-Security-Policy") == "frame-ancestors http://127.0.0.1:8600"
+    assert b'const SHELL = "http://127.0.0.1:8600"' in page and b"<h1>Synthux</h1>" not in page
+    with pytest.raises(ValueError):
+        serve(app.settings, app.db, port=0, shell="https://example.com")
+
+
+def test_plates_handed_over_by_proofloop(app):
+    pytest.importorskip("clearloop")
+    plate = REPO / "examples" / "gcode" / "bracket_plate.gcode.3mf"
+    job = app.submit_bytes(plate.name, plate.read_bytes())
+    assert _wait(app, job.id)["can_loop"]
+    assert app.job_source(job.id) == (plate.read_bytes(), plate.name)
+    with pytest.raises(ValueError):
+        app.submit_bytes("empty.gcode.3mf", b"")
+    flat = app.submit_bytes("bracket_flawed.gcode", (REPO / "examples" / "gcode" / "bracket_flawed.gcode").read_bytes())
+    _wait(app, flat.id)
+    with pytest.raises(ValueError):
+        app.job_source(flat.id)  # plain G-code: nothing for ClearLoop to loop

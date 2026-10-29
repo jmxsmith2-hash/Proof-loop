@@ -29,6 +29,7 @@ button { margin-top: 12px; padding: 8px 16px; border-radius: 9px; border: 0; bac
 .status { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--border); }
 .status.done { color: #0a7d0a; border-color: #0a7d0a; } .status.failed { color: #c81e1e; border-color: #c81e1e; }
 .loop { margin-top: 8px; font-size: 14px; } .loop input { width: 64px; }
+button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); margin-left: 6px; }
 .status.running { color: var(--accent); border-color: var(--accent); }
 .bar { height: 4px; background: var(--border); border-radius: 2px; margin-top: 6px; overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
@@ -38,7 +39,7 @@ button { margin-top: 12px; padding: 8px 16px; border-radius: 9px; border: 0; bac
 </style>
 </head>
 <body><main>
-<h1>Synthux</h1>
+{% if not shell %}<h1>Synthux</h1>{% endif %}
 <p class="lead">Check a design before you print, check the sliced file before it goes to the printer, or let personas try a website.
   Everything runs on this computer{% if not smart %} and is free{% endif %}.</p>
 
@@ -191,7 +192,8 @@ async function refresh() {
       ${j.download ? `<a class="open" style="margin-left:14px" href="${j.download}" download>Download the loop file</a>` : ""}
       ${j.can_loop && j.status === "done" ? `<div class="loop">Make a loop file (ClearLoop):
         <input type="number" min="1" max="500" value="${LOOPS[j.id] || 5}" aria-label="Loops" id="loops-${esc(j.id)}">
-        <button type="button" data-loop="${esc(j.id)}">Make it</button></div>` : ""}</div>
+        <button type="button" data-loop="${esc(j.id)}">Make it</button>
+        ${SHELL ? `<button type="button" class="ghost" data-open-loop="${esc(j.id)}" title="Set push heights per part, cooldown, costs and batches">Fine-tune in ClearLoop</button>` : ""}</div>` : ""}</div>
       <div><span class="status ${esc(j.status)}">${esc(j.status)}</span></div></div>`;
   }).join("");
   for (const j of jobs) {
@@ -206,8 +208,20 @@ async function refresh() {
 const SEEN = {}, LOOPS = {};  // LOOPS keeps a typed loop count across refreshes
 document.getElementById("jobs").addEventListener("input", (e) => {
   if (e.target.id && e.target.id.startsWith("loops-")) LOOPS[e.target.id.slice(6)] = +e.target.value; });
+// Inside the ProofLoop window: hand plates to ClearLoop, and let the window tell you when a check is done.
+const SHELL = {{ shell|tojson }};
+if (SHELL) window.addEventListener("message", (e) => {
+  if (e.origin === SHELL && e.source === window.parent && e.data && e.data.proofloop === "refresh")
+    refresh().then(() => document.getElementById("jobs").scrollIntoView({block: "start"})); });
 function askToTell() { if (window.Notification && Notification.permission === "default") Notification.requestPermission(); }
 function tell(j) {
+  if (SHELL) {
+    window.parent.postMessage({proofloop: "job-finished", ok: j.status === "done",
+      title: `${LABEL[j.kind]}: ${j.title} ${j.status === "done" ? "is done" : "failed"}`,
+      body: j.status === "done" ? (j.summary[0] || "") : (j.error || ""),
+      report: j.report_url ? new URL(j.report_url, location.href).href : null}, SHELL);
+    return;
+  }
   if (!window.Notification || Notification.permission !== "granted" || !document.hidden) return;
   const n = new Notification(`${LABEL[j.kind]}: ${j.title} ${j.status === "done" ? "is done" : "failed"}`,
     {body: j.status === "done" ? (j.summary[0] || "") : (j.error || "")});
@@ -215,6 +229,8 @@ function tell(j) {
 }
 document.addEventListener("click", askToTell, {once: true});
 document.getElementById("jobs").addEventListener("click", async (e) => {
+  const o = e.target.closest("button[data-open-loop]");
+  if (o && SHELL) { window.parent.postMessage({proofloop: "open-in-clearloop", job: o.dataset.openLoop}, SHELL); return; }
   const b = e.target.closest("button[data-loop]"); if (!b) return;
   const loops = +document.getElementById("loops-" + b.dataset.loop).value; b.disabled = true;
   try {

@@ -91,11 +91,17 @@ def file_kind(name: str) -> str | None:
     return None
 
 
+LOCAL_ORIGIN = re.compile(r"http://(127\.0\.0\.1|localhost|\[::1\]):\d{1,5}")
+
+
 class App:
-    def __init__(self, settings: Settings, db: Database, port: int):
+    def __init__(self, settings: Settings, db: Database, port: int, shell: str | None = None):
+        if shell is not None and not LOCAL_ORIGIN.fullmatch(shell):
+            raise ValueError("the app can only be shown inside a page on this computer")
         self.settings = settings
         self.db = db
         self.port = port
+        self.shell = shell  # origin of the ProofLoop window that shows this app in a frame, if any
         self.root = (settings.data_dir / "app").resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.jobs: dict[str, Job] = {}
@@ -127,7 +133,7 @@ class App:
             printers=printers, materials=materials, default_printer=data.get("default_printer"),
             process_materials=process_materials, slicer=slicer,
             default_material=data.get("default_material"), hosts=hosts, smart=smart, header=HEADER,
-            devices=sorted(self.settings.devices))
+            devices=sorted(self.settings.devices), shell=self.shell)
 
     def list_jobs(self) -> list[dict[str, Any]]:
         with self.lock:
@@ -355,6 +361,25 @@ class App:
         job.summary = [f"{done['ok']} of {done['n']} sessions finished the task"] + [p["title"] for p in promoted[:4]]
 
     # ------------------------------------------------------------------ files
+    def job_source(self, job_id: str) -> tuple[bytes, str]:
+        """The plate a finished check was run on, to hand to ClearLoop."""
+        with self.lock:
+            job = self.jobs.get(job_id)
+        if job is None or not job.source or job.status != "done":
+            raise ValueError("that job has no checked Bambu plate to open in ClearLoop")
+        path = Path(job.source)
+        return path.read_bytes(), path.name
+
+    def submit_bytes(self, filename: str, data: bytes, options: dict[str, str] | None = None) -> Job:
+        """Check a file another tool already has (ProofLoop hands plates over from ClearLoop)."""
+        def write(dest: Path) -> int:
+            if not data:
+                raise ValueError("the file is empty")
+            dest.write_bytes(data)
+            return len(data)
+
+        return self.submit_file(filename, write, dict(options or {}))
+
     def job_file(self, job_id: str, rel: str) -> Path:
         job = self.jobs.get(job_id)
         if job is not None and job.download and rel == f"download/{Path(job.download).name}":
@@ -386,7 +411,10 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("X-Frame-Options", "DENY")
+            if app.shell:  # shown inside the ProofLoop window, and nowhere else
+                self.send_header("Content-Security-Policy", f"frame-ancestors {app.shell}")
+            else:
+                self.send_header("X-Frame-Options", "DENY")
             self.end_headers()
             self.wfile.write(body)
 
@@ -471,10 +499,12 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def serve(settings: Settings, db: Database, port: int = 8700, host: str = "127.0.0.1") -> tuple[ThreadingHTTPServer, App]:
+def serve(settings: Settings, db: Database, port: int = 8700, host: str = "127.0.0.1",
+          shell: str | None = None) -> tuple[ThreadingHTTPServer, App]:
+    """``shell`` is the origin of a ProofLoop window allowed to show the app in a frame."""
     if host not in ("127.0.0.1", "localhost", "::1"):
         raise ValueError("the app only binds to localhost")
-    app = App(settings, db, port)
+    app = App(settings, db, port, shell)
     server = ThreadingHTTPServer((host, port), make_handler(app))
     app.port = server.server_address[1]          # port 0 = any free port (tests)
     server.RequestHandlerClass = make_handler(app)

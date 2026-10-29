@@ -2,15 +2,14 @@
 #   powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
 # (or double-click setup.bat)
 #
-# Installs synthux and ClearLoop into one .venv here, so each can use the other:
-# synthux checks ClearLoop's loop files and learns from its print history; ClearLoop's
-# "Check a file" runs synthux's print checks.
+# Installs ProofLoop into one .venv here: synthux (checks designs and G-code), ClearLoop (loop
+# files, printers) and the ProofLoop window that shows both and hands plates between them.
 # Python isn't needed beforehand: when no Python 3.11+ is found, the setup fetches uv
 # (https://docs.astral.sh/uv/, a single program installed for your user only, no admin rights)
 # and uv downloads its own Python 3.12 for this folder.
 param(
     [switch]$ForceUv,        # use uv even if Python is installed (CI uses this to test that path)
-    [switch]$NoClearLoop,    # don't install ClearLoop
+    [switch]$NoClearLoop,    # don't install ClearLoop (ProofLoop then shows synthux alone)
     [switch]$NoShortcuts     # don't add desktop shortcuts
 )
 $ErrorActionPreference = "Stop"
@@ -72,14 +71,13 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 }
 $venvPy = (Resolve-Path ".\.venv\Scripts\python.exe").Path
 & $venvPy -m pip install --upgrade pip; Step "Updating pip"
-$packages = @("-e", "packages\synthux[dev]")
+$packages = @("-e", "packages\synthux[dev]", "-e", "packages\proofloop[dev]")
 if (-not $NoClearLoop) { $packages += @("-e", "packages\clearloop[dev]") }
-& $venvPy -m pip install @packages; Step "Installing synthux and ClearLoop"
+& $venvPy -m pip install @packages; Step "Installing ProofLoop (synthux and ClearLoop)"
 & $venvPy -m playwright install chromium; Step "Downloading Chromium"
 $synthuxConfig = "packages\synthux\config"
 if (-not (Test-Path "$synthuxConfig\settings.yaml")) { Copy-Item "$synthuxConfig\settings.example.yaml" "$synthuxConfig\settings.yaml" }
 & ".\.venv\Scripts\synthux.exe" check; Step "synthux check"
-$clearloop = Test-Path ".\.venv\Scripts\clearloop.exe"
 
 function Shortcut($name, $target, $about) {
     try {
@@ -94,12 +92,10 @@ function Shortcut($name, $target, $about) {
     } catch { Write-Host "(Could not add a desktop shortcut; double-click $target instead.)" }
 }
 if (-not $NoShortcuts) {
-    Shortcut "Synthux" "Synthux.bat" "Check CAD files and G-code, or test a website"
-    if ($clearloop) { Shortcut "ClearLoop" "ClearLoop.bat" "Make loop files and watch your printers" }
+    Shortcut "ProofLoop" "ProofLoop.bat" "Check designs and G-code, make loop files, watch your printers"
 }
 Write-Host ""
-Write-Host "Done. Double-click Synthux on the desktop (or Synthux.bat here) to open the app." -ForegroundColor Green
+Write-Host "Done. Double-click ProofLoop on the desktop (or ProofLoop.bat here) to open it." -ForegroundColor Green
 Write-Host "For the command line, activate it in a new PowerShell window with:"
 Write-Host "    .\.venv\Scripts\Activate.ps1"
-Write-Host "Then try:  synthux physical check packages\synthux\examples\cad\phone_stand_v1.stl --design packages\synthux\examples\cad\phone_stand.yaml"
-Write-Host "      or:  clearloop app"
+Write-Host "Then try:  proofloop check packages\synthux\examples\cad\phone_stand_v1.stl --design packages\synthux\examples\cad\phone_stand.yaml"

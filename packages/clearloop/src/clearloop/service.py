@@ -76,12 +76,17 @@ class UploadCache:
         return token
 
     def get(self, token: str) -> threemf.SlicedFile:
+        data, name = self.raw(token)
+        return threemf.loads(data, name=name)
+
+    def raw(self, token: str) -> tuple[bytes, str]:
+        """The uploaded bytes and file name, e.g. to hand the plate to another tool."""
         with self._lock:
             if token not in self._items:
                 raise KeyError("that upload has expired; drop the file again")
             _, data, name = self._items[token]
             self._items.move_to_end(token)
-        return threemf.loads(data, name=name)
+        return data, name
 
 
 class App:

@@ -42,21 +42,22 @@ behaviour.
 
 Requirements: Python 3.11+ (Windows setup fetches it for you), and Chromium for Playwright.
 
-synthux lives in the [synthux-clearloop](../../README.md) repository next to ClearLoop; the setup
+synthux lives in the [ProofLoop](../../README.md) repository next to ClearLoop; the setup
 scripts at the repository root install both into one `.venv` there.
 
 **Windows:** double-click `setup.bat` in the repository root (or run
 `powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1`). It uses Python 3.11+ if
 you have it; if not, it fetches [uv](https://docs.astral.sh/uv/) (one program, installed for your
 user only, no admin rights) and uv downloads a Python 3.12 just for this folder. Then it creates
-`.venv`, installs synthux and ClearLoop, downloads Chromium, runs `synthux check` and puts
-**Synthux** and **ClearLoop** shortcuts on the desktop. Switches: `-NoClearLoop` (synthux only;
-everything but loop files works), `-NoShortcuts`, `-ForceUv`. For the command line, open a new
-terminal in the repository folder and run `.venv\Scripts\activate`; `synthux` finds its
+`.venv`, installs synthux, ClearLoop and the ProofLoop window, downloads Chromium, runs
+`synthux check` and puts a **ProofLoop** shortcut on the desktop. Switches: `-NoClearLoop`
+(synthux only; everything but loop files works), `-NoShortcuts`, `-ForceUv`. For the command line,
+open a new terminal in the repository folder and run `.venv\Scripts\activate`; `synthux` finds its
 settings in `packages\synthux\config` from anywhere in the repository.
 **macOS / Linux:** `sh scripts/setup_unix.sh` from the repository root does the same.
 
-**The app window:** double-click **Synthux** (or `Synthux.bat`, or run `synthux app`). Drop a
+**The app window:** double-click **ProofLoop** (its *Check & test* tab is this app), or run
+`synthux app` for synthux alone. Drop a
 CAD file or sliced G-code on it, or paste a website address and a task; each job runs in the
 background and links to its report. It opens as its own window in Edge or Chrome, runs only
 on this computer, and adds a website to the allowlist only when you tick "This is my own site".

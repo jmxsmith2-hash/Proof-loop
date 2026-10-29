@@ -20,12 +20,13 @@ measured on your machine with a guided test. Nothing is guessed. See
 ## Start in three minutes
 
 ```bash
-pip install "clearloop @ git+https://github.com/jmxsmith2-hash/synthux-clearloop#subdirectory=packages/clearloop"
+pip install "clearloop @ git+https://github.com/jmxsmith2-hash/proofloop#subdirectory=packages/clearloop"
 clearloop app
 ```
 
-On Windows, `setup.bat` at the root of the [synthux-clearloop](../../README.md) repository installs
-ClearLoop together with synthux and adds a **ClearLoop** desktop shortcut.
+On Windows, `setup.bat` at the root of the [ProofLoop](../../README.md) repository installs
+ClearLoop together with synthux and adds a **ProofLoop** desktop shortcut: ClearLoop is its
+*Loop files & printers* tab, next to synthux's checks.
 
 Your browser opens ClearLoop at `http://localhost:8484`. Or run it with Docker:
 `docker compose up -d`.

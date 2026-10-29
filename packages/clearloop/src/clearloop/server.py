@@ -171,7 +171,14 @@ def create_app(app: App) -> FastAPI:
     async def upload_plate(file: UploadFile = File(...)):
         data = await read_upload(file)
         sf = threemf.loads(data, name=Path(file.filename or "plate.gcode.3mf").name)
-        token = app.uploads.put(data, sf.name)
+        return open_plate(app.uploads.put(data, sf.name), sf)
+
+    @api.post("/api/plates/{token}/open", dependencies=guard)
+    def open_uploaded(token: str):
+        """A plate put in the upload cache by another tool (ProofLoop hands plates over from synthux)."""
+        return open_plate(token, app.uploads.get(token))
+
+    def open_plate(token: str, sf) -> dict:
         # Pick a profile for this printer: the saved default if it fits, otherwise the first match.
         matching = app.profiles.for_printer(sf.info.printer_model_id)
         if not matching:

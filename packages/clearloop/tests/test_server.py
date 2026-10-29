@@ -48,6 +48,16 @@ def test_make_flow(tmp_path):
     assert threemf.loads(d.content).gcode.count("; EXECUTABLE_BLOCK_START") == 3
 
 
+
+def test_open_a_plate_another_tool_put_in_the_cache(tmp_path):
+    c, app = client(tmp_path)
+    data = plain(BUCKET)
+    token = app.uploads.put(data, "bucket.gcode.3mf")
+    assert app.uploads.raw(token) == (data, "bucket.gcode.3mf")
+    r = c.post(f"/api/plates/{token}/open").json()
+    assert r["token"] == token and r["printer"] == "P2S" and r["profile"]["id"] == "p2s-stage2-farmboard"
+    assert c.post("/api/plates/nope/open").status_code == 404
+
 def test_friendly_errors(tmp_path):
     c, _ = client(tmp_path)
     r = up(c, b"not a zip", "x.gcode")

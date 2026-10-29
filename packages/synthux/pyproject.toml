@@ -25,7 +25,7 @@ dependencies = [
 anthropic = ["anthropic>=0.40"]
 step = ["cascadio>=0.0.13"]  # read STEP files directly (otherwise export STL/3MF/OBJ from your CAD tool)
 # ClearLoop (FarmLoop auto-eject loop files): its checks run on loop files in `physical gcode`
-clearloop = ["clearloop @ git+https://github.com/jmxsmith2-hash/synthux-clearloop#subdirectory=packages/clearloop"]
+clearloop = ["clearloop @ git+https://github.com/jmxsmith2-hash/proofloop#subdirectory=packages/clearloop"]
 dev = ["pytest>=8"]
 
 [project.scripts]

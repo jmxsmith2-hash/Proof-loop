@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proofloop"
+version = "0.1.0"
+description = "One window for synthux (check designs and G-code) and ClearLoop (loop files and printer monitor)"
+readme = "README.md"
+requires-python = ">=3.11"
+# synthux and ClearLoop come from this repository (packages/synthux, packages/clearloop), never from
+# PyPI, so they are not listed here: the setup scripts install all three, and ProofLoop uses
+# whichever of the two is installed.
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.4"]
+
+[project.scripts]
+proofloop = "proofloop.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+proofloop = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E501"]
