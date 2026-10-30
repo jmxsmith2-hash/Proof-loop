@@ -93,8 +93,21 @@ Monitor*. The printer needs LAN-only mode with Developer Mode on ([setup guide](
   off. Clear the plate and press Resume. A crash or a missed message can never start a print on a
   dirty plate.
 
-ProofLoop never uploads or starts prints. It only resumes a loop file that is waiting for its plate
-check. More in [printers.md](printers.md).
+The monitor only resumes a loop file that is waiting for its plate check; it never starts one by
+itself. More in [printers.md](printers.md).
+
+## Send it to a printer, or spread a run
+
+- **Send and start**, under the Download button, copies the loop file to a printer and starts it.
+  It appears once you turn on *Printers › Monitor › Sending to printers* (off unless you turn it
+  on), and you confirm the printer each time. ProofLoop sends only to a connected, idle printer of
+  the model the plate was sliced for, with each filament slot matched to a loaded AMS tray of the
+  same type and colour (a one-filament file goes to the external spool on a printer without an AMS),
+  and only when the loop-file checks find nothing dangerous. The plate must be empty: the printer
+  starts as soon as the file arrives. A paired phone can never send.
+- **Spread over my printers**, in *Plan a production run*, shares the loops between the printers
+  that can print the plate, so they finish together, and says why the others are left out. **Keep
+  it as a queue** puts the jobs under *Printers › Overview* ([queue](printers.md#queue)).
 
 ## Check any loop file
 

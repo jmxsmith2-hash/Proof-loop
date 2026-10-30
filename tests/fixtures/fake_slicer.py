@@ -94,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
             if feature == "Internal solid infill":
                 body.append("; stop printing object, unique label id: 1")
     grams = total * FIL_AREA / 1000 * float(first(filament.get("filament_density"), 1.24))
-    head = ["; HEADER_BLOCK_START", "; BambuStudio 02.02.00.00 (proofloop web test stand-in)",
+    head = ["; HEADER_BLOCK_START", "; BambuStudio 02.02.00.00 (ProofLoop test stand-in)",
             "; model printing time: 30m 0s; total estimated time: 33m 0s", f"; total layer number: {len(zs)}",
             f"; total filament length [mm] : {total:.2f}", f"; total filament weight [g] : {grams:.2f}",
             "; model label id: 1", f"; object max height: {top:.2f}", f"; max_z_height: {top:.2f}",

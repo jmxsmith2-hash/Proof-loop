@@ -1,17 +1,16 @@
-"""The ProofLoop window: Check, Loop files, Printers and Website tests in one page, handing plates around.
+"""The ProofLoop window: Check, Loop files and Printers in one page, handing plates around.
 
-One process runs everything. The loop-file and printer page is served here (its API is mounted at
-``/`` and the page is shown at ``/loop``); the check and website-test page runs on a private port
-and lets only this window frame it. Plates move between them through ``/proofloop/to-loop`` and
-``/proofloop/to-check``; those, and the window's own settings (phone access, start at login, quit),
-answer only the ProofLoop window.
+One process and one server run everything: the window at ``/``, the Check page and its API under
+``/check``, and the Loop files & Printers page at ``/loop`` with its API mounted at ``/``. Plates
+move between the tabs through ``/proofloop/to-loop`` and ``/proofloop/to-check``; those, Check's
+uploads, and the window's own settings (phone access, start at login, quit) answer only the
+ProofLoop window.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -37,7 +36,7 @@ class Shell:
         service=None,
         link_factory=None,  # how the monitor talks to a printer (tests pass a fake one)
     ):
-        from proofloop.app.check_server import serve
+        from proofloop.app.checks import Checks
         from proofloop.core.config import load_settings
         from proofloop.core.db import Database
         from proofloop.monitor.service import App
@@ -48,18 +47,12 @@ class Shell:
         self.monitor = App(home(), connect=connect, link_factory=link_factory)
         settings = load_settings(Path(config) if config else None)
         self.results_db = Database(settings.db_path)
-        self.checks_server, self.checks = serve(settings, self.results_db, port=0, shell=self.origin)
-        threading.Thread(target=self.checks_server.serve_forever, daemon=True, name="proofloop-checks").start()
+        self.checks = Checks(settings, self.results_db)
         self.api = self._build()
-
-    @property
-    def checks_url(self) -> str:
-        return f"http://127.0.0.1:{self.checks.port}/"
 
     def page(self) -> str:
         config = {
-            "check": f"{self.checks_url}?view=print",
-            "web": f"{self.checks_url}?view=web",
+            "check": "/check",
             "loop": "/loop?proofloop=1",
             "version": __version__,
             "header": HEADER,
@@ -82,8 +75,6 @@ class Shell:
         }
 
     def close(self) -> None:
-        self.checks_server.shutdown()
-        self.checks_server.server_close()
         self.checks.close()
         self.results_db.close()
         self.monitor.shutdown()
@@ -127,6 +118,13 @@ class Shell:
         def status(request: Request):
             window_only(request)  # it holds the phone pairing code
             return self.status()
+
+        @api.get("/proofloop/guide")
+        def guide(request: Request):
+            from proofloop.app import guide
+
+            window_only(request)
+            return guide.summary(self)
 
         @api.get("/proofloop/doctor", response_class=HTMLResponse)
         def doctor_page():
@@ -193,8 +191,11 @@ class Shell:
                 raise HTTPException(400, str(e)) from e
             return {"job": job.id, "title": job.title}
 
+        from proofloop.app import checks
         from proofloop.app.loop_server import STATIC as LOOP_STATIC
         from proofloop.app.loop_server import create_app
+
+        checks.register(api, self.checks, window_only)
 
         @api.get("/loop", response_class=HTMLResponse)
         def loop_page():

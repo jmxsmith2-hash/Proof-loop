@@ -1,32 +1,20 @@
 # Model names and prices. Swap freely. Prices are USD per million tokens.
 anthropic:
   roles:
-    actor: claude-haiku-5-5       # cheap: one call per browser step
-    persona: claude-haiku-5-5     # cheap: persona writing, questionnaires
-    judge: claude-opus-5-5        # strong: reviewing issues, replay checks
-    grouper: claude-opus-5-5      # strong: merging duplicate issues
-    reporter: claude-opus-5-5     # strong: report and calibration text
+    persona: claude-haiku-5-5     # persona writing and product predictions
   prices:
     claude-haiku-5-5: {input: 0.10, output: 0.50}
     claude-sonnet-5-5: {input: 2.00, output: 10.00}
     claude-opus-5-5: {input: 4.00, output: 20.00}
   effort:                         # how hard the model thinks (low | medium | high | xhigh | max); less = cheaper
-    actor: low                    # one quick decision per step
     persona: low
-    grouper: low
-    judge: medium
-    reporter: medium
 
 ollama:                           # free, runs on your machine (https://ollama.com)
   base_url: http://127.0.0.1:11434
   roles:
-    actor: qwen2.5vl:7b
     persona: qwen2.5vl:7b
-    judge: qwen2.5vl:7b
-    grouper: qwen2.5vl:7b
-    reporter: qwen2.5vl:7b
   prices: {}                      # local models cost nothing
 
 heuristic:                        # built-in rule engine; no model, no cost
-  roles: {actor: rules, persona: rules, judge: rules, grouper: rules, reporter: rules}
+  roles: {persona: rules}
   prices: {}

@@ -113,7 +113,7 @@ def slice_box(*, x0: float, y0: float, w: float, d: float, h: float, first: floa
                           labels=False)
     head = [
         "; HEADER_BLOCK_START",
-        "; BambuStudio 02.02.00.00 (synthux example)",
+        "; BambuStudio 02.02.00.00 (ProofLoop example)",
         "; model printing time: 7m 20s; total estimated time: 10m 5s",
         f"; total layer number: {len(layers)}",
         f"; total filament length [mm] : {total_e:.2f}",
@@ -178,7 +178,7 @@ def bambu_plate(boxes: list[tuple] = PLATE_BOXES, nozzle_c: int = 220, bed_c: in
     grams = total_e * FIL_AREA / 1000 * 1.24
     head = [
         "; HEADER_BLOCK_START",
-        "; BambuStudio 02.02.00.00 (synthux example)",
+        "; BambuStudio 02.02.00.00 (ProofLoop example)",
         "; model printing time: 24m 10s; total estimated time: 27m 30s",
         f"; total layer number: {len(layers)}",
         f"; total filament length [mm] : {total_e:.2f}",

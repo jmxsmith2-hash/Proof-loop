@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ "Website tests" if view == "web" else "Check" }} · ProofLoop</title>
+<title>Check · ProofLoop</title>
 <link rel="icon" href="{{ favicon }}">
 <style>{{ theme_css }}</style>
 <style>
@@ -15,7 +15,6 @@
 .cards .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .check { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; color: var(--ink-2); margin-top: 10px; }
 .check input { margin-top: 3px; }
-#w-go { margin-top: 14px; }
 .btn.small { padding: 3px 10px; font-size: 13px; font-weight: 500; }
 .err { color: var(--bad); font-size: 13px; margin-top: 8px; min-height: 1em; }
 .job { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
@@ -33,14 +32,12 @@
 </style>
 </head>
 <body><main>
-{% if not shell %}<div class="brand">{{ icon }}ProofLoop</div>{% endif %}
-<p class="lead">{% if view == "web" %}Let personas try your website: they see only the screen, like people, and you get a report with replays.
-  {% elif view == "print" %}Check a design before you print, or check the sliced file before it goes to the printer.
-  {% else %}Check a design before you print, check the sliced file before it goes to the printer, or let personas try a website.
-  {% endif %}Everything runs on this computer{% if not smart %} and is free{% endif %}.</p>
+<div class="brand" id="brand">{{ icon }}ProofLoop</div>
+<p class="lead">Check a design before you print, or check the sliced file before it goes to the printer. Everything runs on
+  this computer and is free.</p>
 
 <div class="cards">
-  {% if view != "web" %}<section class="card" aria-labelledby="cad-h">
+  <section class="card" aria-labelledby="cad-h">
     <h2 id="cad-h">CAD design</h2>
     <p>STL, 3MF, OBJ, PLY, GLB from Fusion, Tinkercad or Blender. Checks it for printing, moulding or machining, and how people would hold it.</p>
     <div class="drop" id="cad-drop" tabindex="0" role="button" aria-label="Choose a CAD file"><strong>Drop a CAD file here</strong><small>or click to choose</small></div>
@@ -76,34 +73,14 @@
     </div>
     {% if farm %}<p class="hosts">Your printers come from Printers › Monitor: add one there and it shows here too.</p>{% endif %}
     <div class="err" id="g-err" role="alert"></div>
-  </section>{% endif %}
-
-  {% if view != "print" %}<section class="card" aria-labelledby="w-h">
-    <h2 id="w-h">Website</h2>
-    <p>Personas see only the screen, like people. They try your task and you get a report with replays.</p>
-    <form id="w-form">
-      <label for="w-url">Page to start on</label><input type="url" id="w-url" required placeholder="https://staging.example.com/">
-      <label for="w-task">What should a person do there?</label><input type="text" id="w-task" required placeholder="Find the opening hours">
-      <label for="w-done">Text that shows it worked</label><input type="text" id="w-done" required placeholder="Open today">
-      <div class="row">
-        <div><label for="w-n">Personas</label><input type="number" id="w-n" value="5" min="1" max="20"></div>
-        <div><label for="w-device">Device</label><select id="w-device"><option value="">Each persona's own</option>{% for d in devices %}<option>{{ d }}</option>{% endfor %}</select></div>
-      </div>
-      <label class="check"><input type="checkbox" id="w-find"> It's about finding information (also checks how buried it is)</label>
-      <label class="check"><input type="checkbox" id="w-allow"> This is my own site: add it to the allowlist (payments, emails and deletes stay blocked)</label>
-      {% if smart %}<label class="check"><input type="checkbox" id="w-smart"> Smart mode: Claude on hard screens and for judging (costs a little; limited by run.max_cost_usd)</label>{% endif %}
-      <button type="submit" class="btn primary" id="w-go">Start the test</button>
-      <div class="err" id="w-err" role="alert"></div>
-      <div class="hosts">Allowed now: {{ hosts|join(', ') }}</div>
-    </form>
-  </section>{% endif %}
+  </section>
 </div>
 
 <h2>Jobs</h2>
 <div class="card" id="jobs"><p class="muted" id="nojobs">Nothing yet. Results appear here and are kept until you remove them.</p></div>
 </main>
 <script>
-const H = {"{{ header }}": "1"};
+const H = {"X-ProofLoop": "1"}, P = {{ prefix|tojson }};  // the window's header; the API lives under P
 function uploader(kind) {
   const drop = document.getElementById(kind + "-drop"), input = document.getElementById(kind + "-file"),
         err = document.getElementById(kind + "-err");
@@ -121,8 +98,8 @@ function uploader(kind) {
       if (document.getElementById("cad-eject").checked) q.set("auto_eject", "1"); }
     else { pick("g-printer", "printer"); pick("g-material", "material"); }
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/check?" + q.toString());
-    xhr.setRequestHeader("{{ header }}", "1");
+    xhr.open("POST", P + "/api/check?" + q.toString());
+    xhr.setRequestHeader("X-ProofLoop", "1");
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     drop.querySelector("strong").textContent = "Uploading " + file.name + "...";
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) drop.querySelector("strong").textContent =
@@ -140,8 +117,7 @@ function uploader(kind) {
   ["dragleave", "drop"].forEach(t => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
   drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) send(f); });
 }
-const VIEW = {{ view|tojson }};  // "print", "web" or "" (everything)
-{% if view != "web" %}uploader("cad"); uploader("g");
+uploader("cad"); uploader("g");
 const MATERIALS = {{ process_materials|tojson }}, DEFAULT_MATERIAL = {{ default_material|tojson }};
 document.getElementById("cad-process").addEventListener("change", (e) => {
   const proc = e.target.value, sel = document.getElementById("cad-material");
@@ -156,33 +132,18 @@ window.addEventListener("drop", (e) => { if (e.target.closest(".drop")) return; 
   const f = e.dataTransfer.files[0]; if (!f) return;
   const g = /\.(gcode|gco)$|\.gcode\.3mf$/i.test(f.name);
   document.getElementById(g ? "g-drop" : "cad-drop").dispatchEvent(new DragEvent("drop", {dataTransfer: e.dataTransfer, bubbles: false})); });
-{% endif %}
-{% if view != "print" %}document.getElementById("w-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const err = document.getElementById("w-err"), go = document.getElementById("w-go"); err.textContent = ""; go.disabled = true;
-  const body = {url: document.getElementById("w-url").value, tasks: [document.getElementById("w-task").value],
-    successes: [document.getElementById("w-done").value], personas: +document.getElementById("w-n").value,
-    device: document.getElementById("w-device").value, find: document.getElementById("w-find").checked,
-    allow: document.getElementById("w-allow").checked, smart: !!(document.getElementById("w-smart") || {}).checked};
-  try {
-    const r = await fetch("/api/test", {method: "POST", headers: {...H, "Content-Type": "application/json"}, body: JSON.stringify(body)});
-    const data = await r.json();
-    if (!r.ok) { err.textContent = data.error; if (data.needs_allow) document.getElementById("w-allow").focus(); }
-  } catch (x) { err.textContent = "Could not start the test"; }
-  go.disabled = false; refresh();
-});{% endif %}
+
 
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
-const LABEL = {cad: "CAD", gcode: "G-code", web: "Website"}, STATUS = {done: "ok", failed: "bad", running: "info"};
+const LABEL = {cad: "CAD", gcode: "G-code"}, STATUS = {done: "ok", failed: "bad", running: "info"};
 async function refresh() {
   let jobs = [];
-  try { jobs = await (await fetch("/api/jobs")).json(); } catch (e) { return; }
-  if (VIEW) jobs = jobs.filter(j => (j.kind === "web") === (VIEW === "web"));
+  try { jobs = await (await fetch(P + "/api/jobs")).json(); } catch (e) { return; }
   const box = document.getElementById("jobs");
   if (!jobs.length) { box.innerHTML = '<p class="muted" id="nojobs">Nothing yet. Results appear here and are kept until you remove them.</p>';
     clearTimeout(window._t); window._t = setTimeout(refresh, 5000); return; }
   box.innerHTML = jobs.map(j => {
-    const counts = j.counts.total !== undefined && j.kind !== "web"
+    const counts = j.counts.total !== undefined
       ? ` · ${j.counts.fail ? `<b class="fail">${j.counts.fail} will fail</b> · ` : ""}${j.counts.major || 0} major, ${j.counts.total} in total` : "";
     const done = j.status === "done" || j.status === "failed";
     const verdicts = j.status === "done" && j.printer && j.findings.length ? `<details class="verdicts"><summary>Wrong about something?</summary>
@@ -218,8 +179,9 @@ async function refresh() {
 const SEEN = {}, LOOPS = {};  // LOOPS keeps a typed loop count across refreshes
 document.getElementById("jobs").addEventListener("input", (e) => {
   if (e.target.id && e.target.id.startsWith("loops-")) LOOPS[e.target.id.slice(6)] = +e.target.value; });
-// Inside the ProofLoop window: hand plates to Loop files, and let the window tell you when a check is done.
-const SHELL = {{ shell|tojson }};
+// Inside the window (same origin): plates go to Loop files, and the window says when a check is done.
+const SHELL = window.parent !== window ? location.origin : null;
+if (SHELL) document.getElementById("brand").classList.add("hidden");
 if (SHELL) window.addEventListener("message", (e) => {
   if (e.origin === SHELL && e.source === window.parent && e.data && e.data.proofloop === "refresh")
     refresh().then(() => document.getElementById("jobs").scrollIntoView({block: "start"})); });
@@ -243,7 +205,7 @@ document.getElementById("jobs").addEventListener("click", async (e) => {
   if (v || rm) {
     const body = v ? {job: v.dataset.job, check: v.dataset.check, verdict: v.dataset.verdict} : {job: rm.dataset.remove};
     if (rm && !confirm("Remove this job and its report?")) return;
-    try { const r = await fetch(v ? "/api/feedback" : "/api/remove", {method: "POST", headers: {...H, "Content-Type": "application/json"},
+    try { const r = await fetch(P + (v ? "/api/feedback" : "/api/remove"), {method: "POST", headers: {...H, "Content-Type": "application/json"},
       body: JSON.stringify(body)}); if (!r.ok) alert((await r.json()).error); } catch (x) { alert("That didn't work"); }
     refresh(); return;
   }
@@ -252,7 +214,7 @@ document.getElementById("jobs").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-loop]"); if (!b) return;
   const loops = +document.getElementById("loops-" + b.dataset.loop).value; b.disabled = true;
   try {
-    const r = await fetch("/api/loop", {method: "POST", headers: {...H, "Content-Type": "application/json"},
+    const r = await fetch(P + "/api/loop", {method: "POST", headers: {...H, "Content-Type": "application/json"},
       body: JSON.stringify({job: b.dataset.loop, loops})});
     if (!r.ok) alert((await r.json()).error);
   } catch (x) { alert("Could not make the loop file"); }

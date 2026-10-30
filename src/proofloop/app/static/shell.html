@@ -23,7 +23,20 @@ nav button:focus-visible, .more > button:focus-visible { outline-offset: -3px; }
 .ver { margin-left: auto; color: var(--muted); font-size: 13px; }
 .strip { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 16px; margin: 0; border-radius: 0; border-bottom: 1px solid var(--line); font-size: 14px; flex: none; }
 .strip button { padding: 4px 12px; font-size: 14px; }
-iframe { flex: 1; width: 100%; border: 0; display: block; background: var(--bg); }
+.work { flex: 1; display: flex; min-height: 0; }
+iframe { flex: 1; min-width: 0; border: 0; display: block; background: var(--bg); }
+#guide { flex: none; width: 380px; overflow: auto; padding: 16px 18px; background: var(--panel); border-left: 1px solid var(--line); }
+#guide h2 { font-size: 18px; margin: 0; }
+#guide ol { list-style: none; margin: 12px 0 0; padding: 0; }
+#guide li { display: flex; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+#guide li .ic { width: 24px; height: 24px; font-size: 12.5px; }
+#guide li.todo .ic { background: var(--soft); color: var(--ink); }
+#guide li.done b { color: var(--muted); font-weight: 600; text-decoration: line-through; text-decoration-color: var(--line); }
+#guide li.done .hint, #guide li.done button { display: none; }
+#guide li button { margin-top: 8px; padding: 5px 12px; font-size: 14px; }
+.meter { height: 6px; border-radius: 4px; background: var(--soft); overflow: hidden; margin: 8px 0 2px; }
+.meter i { display: block; height: 100%; background: var(--ok); transition: width .4s; }
+@media (max-width: 760px) { #guide { position: fixed; inset: 50px 0 0 0; width: auto; z-index: 8; border-left: 0; } }
 dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); max-width: min(440px, calc(100vw - 32px)); padding: 18px 20px; }
 dialog::backdrop { background: #0006; }
 dialog h2 { font-size: 18px; margin: 0 0 6px; }
@@ -44,10 +57,10 @@ dialog p { margin: 6px 0; }
     <button role="tab" id="tab-printers" data-tab="printers" aria-controls="loop" title="Your printers: status, plate checks, print history, filament">Printers</button>
   </nav>
   <div class="more">
-    <button type="button" id="moreBtn" aria-haspopup="true" aria-expanded="false"><span id="moreLabel">More</span> ▾<span class="badge hidden"></span></button>
+    <button type="button" id="moreBtn" aria-haspopup="true" aria-expanded="false">More ▾</button>
     <div class="menu hidden" id="moreMenu" role="menu">
-      <button type="button" role="menuitem" data-tab="web"><span><b>Website tests</b><small>Personas try your website, like people do</small></span></button>
       <button type="button" role="menuitem" id="phoneBtn" class="hidden"><span><b>Phone</b><small>See your printers on your phone, over your Wi-Fi</small></span></button>
+      <button type="button" role="menuitem" id="guideBtn"><span><b>Get set up</b><small id="guideMenuNote">The few things to do before your printers run unattended</small></span></button>
       <button type="button" role="menuitem" id="doctorBtn"><span><b>Setup check</b><small>Is everything ProofLoop needs working?</small></span></button>
     </div>
   </div>
@@ -63,9 +76,17 @@ dialog p { margin: 6px 0; }
   <span class="hidden" id="autostartHint">It doesn't start when you log in yet, so after a restart nothing watches the printers. <button type="button" class="btn primary" id="autostartYes">Start when I log in</button></span>
   <button type="button" class="btn" id="bgOk">OK</button>
 </div>
+<div class="work">
 <iframe id="check" role="tabpanel" aria-labelledby="tab-check" title="Check" class="hidden"></iframe>
 <iframe id="loop" role="tabpanel" title="Loop files and Printers" class="hidden"></iframe>
-<iframe id="web" role="tabpanel" title="Website tests" class="hidden"></iframe>
+<aside id="guide" class="hidden" aria-labelledby="guideTitle">
+  <div class="spread"><h2 id="guideTitle">Get set up</h2><button type="button" class="linkbtn" id="guideClose">Close</button></div>
+  <div class="meter" aria-hidden="true"><i id="guideBar" style="width:0"></i></div>
+  <p class="hint" id="guideProgress" role="status"></p>
+  <ol id="guideSteps"></ol>
+  <p class="hint">You can open this again from <b>More › Get set up</b>.</p>
+</aside>
+</div>
 
 <dialog id="phoneDlg" aria-labelledby="phoneTitle">
   <h2 id="phoneTitle">Your printers on your phone</h2>
@@ -90,39 +111,34 @@ dialog p { margin: 6px 0; }
 
 <script>
 const CFG = __PROOFLOOP_CONFIG__;
-const CHECK_ORIGIN = new URL(CFG.check).origin;  // Check and Website tests: a page on a private port
 const $ = (id) => document.getElementById(id);
-const frames = {check: $("check"), loop: $("loop"), web: $("web")};
-const FRAME = {check: "check", loopfiles: "loop", printers: "loop", web: "web"};  // tab -> frame
-const NAMES = {check: "Check", loopfiles: "Loop files", printers: "Printers", web: "Website tests"};
+const frames = {check: $("check"), loop: $("loop")};
+const FRAME = {check: "check", loopfiles: "loop", printers: "loop"};  // tab -> frame
 const tabs = [...document.querySelectorAll("nav [role=tab]")];
 const store = {get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }};
 let current = null, loopReady = false, loopWant = null;
 $("ver").textContent = "v" + CFG.version;
 frames.check.src = CFG.check;
-frames.web.src = CFG.web;
 frames.loop.src = CFG.loop;
 frames.loop.addEventListener("load", () => { loopReady = true; if (loopWant) frames.loop.contentWindow.postMessage(loopWant, location.origin); });
 
 function badge(tab, on) {
-  const el = tab === "web" ? document.querySelector(".more .badge") : document.querySelector(`#tab-${tab} .badge`);
+  const el = document.querySelector(`#tab-${tab} .badge`);
   if (el) el.classList.toggle("hidden", !on);
 }
 
-function show(tab, sub) {
+function show(tab, sub, anchor) {
   if (!FRAME[tab]) return;
   current = tab;
   for (const [name, f] of Object.entries(frames)) f.classList.toggle("hidden", name !== FRAME[tab]);
   for (const t of tabs) {
     const on = t.dataset.tab === tab;
     t.setAttribute("aria-selected", on);
-    t.tabIndex = on || (tab === "web" && t === tabs[0]) ? 0 : -1;
+    t.tabIndex = on ? 0 : -1;
   }
   frames.loop.setAttribute("aria-labelledby", tab === "printers" ? "tab-printers" : "tab-loopfiles");
-  $("moreBtn").classList.toggle("on", tab === "web");
-  $("moreLabel").textContent = tab === "web" ? NAMES.web : "More";
   if (FRAME[tab] === "loop") {  // one page for both: it shows the sections of the tab you chose
-    loopWant = {proofloop: "part", part: tab, tab: sub || null};
+    loopWant = {proofloop: "part", part: tab, tab: sub || null, anchor: anchor || null};
     if (loopReady) frames.loop.contentWindow.postMessage(loopWant, location.origin);
   }
   badge(tab, false);
@@ -139,7 +155,7 @@ for (const t of tabs) {
 const saved = store.get("proofloop-tab");
 show(FRAME[saved] ? saved : "check");
 
-// ---- More: Website tests, phone access, setup check
+// ---- More: phone access, setup check
 function menu(open) {
   $("moreMenu").classList.toggle("hidden", !open);
   $("moreBtn").setAttribute("aria-expanded", open);
@@ -152,7 +168,6 @@ $("moreMenu").addEventListener("keydown", (e) => {
   if (e.key === "Escape") { menu(false); $("moreBtn").focus(); }
   if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus(); }
 });
-$("moreMenu").querySelector('[data-tab="web"]').onclick = () => { menu(false); show("web"); };
 $("doctorBtn").onclick = () => { menu(false); window.open("/proofloop/doctor", "_blank", "noopener"); };
 
 function toast(msg, action, onAction) {
@@ -212,6 +227,45 @@ $("phoneToggle").onclick = async () => {
   try { STATUS = await call("/proofloop/phone", {on: !(STATUS.phone && STATUS.phone.on)}); }
   catch (e) { $("phoneErr").textContent = e.message; }
   $("phoneToggle").disabled = false; renderPhone(); loadStatus();
+
+// ---- first-run guide: the steps tick themselves off while you work through them
+let guideTimer = null;
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+function renderGuide(g) {
+  $("guideBar").style.width = Math.round(100 * g.done / g.total) + "%";
+  $("guideProgress").textContent = g.complete ? "All set: your printers can run unattended." : `${g.done} of ${g.total} done`;
+  $("guideMenuNote").textContent = g.complete ? "All done" : `${g.done} of ${g.total} done`;
+  let n = 0;
+  $("guideSteps").innerHTML = g.steps.map((s, i) => {
+    const num = s.optional ? "+" : ++n;
+    const button = !s.go ? "" : s.go.call === "autostart" ? `<button type="button" class="btn primary" data-call="autostart">Turn it on</button>`
+      : `<button type="button" class="btn" data-step="${i}">Show me</button>`;
+    return `<li class="${s.done ? "done" : "todo"}"><span class="ic ${s.done ? "ok" : ""}">${s.done ? "✓" : num}</span>
+      <div><b>${esc(s.title)}</b>${s.optional ? ' <span class="chip">optional</span>' : ""}<div class="hint">${esc(s.detail)}</div>${button}</div></li>`;
+  }).join("");
+  $("guideSteps").onclick = async (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.call === "autostart") {
+      try { STATUS = await call("/proofloop/autostart", {on: true}); toast("ProofLoop will start when you log in"); } catch (err) { toast(err.message); }
+      return loadGuide();
+    }
+    const go = g.steps[+b.dataset.step].go;
+    show(go.tab, go.section, go.anchor);
+  };
+}
+async function loadGuide() {
+  try { const g = await call("/proofloop/guide"); renderGuide(g); return g; } catch (e) { return null; }
+}
+function openGuide(open) {
+  $("guide").classList.toggle("hidden", !open);
+  clearInterval(guideTimer);
+  if (open) { loadGuide(); guideTimer = setInterval(loadGuide, 3000); }
+  else store.set("proofloop-guide-closed", "1");
+}
+$("guideBtn").onclick = () => { menu(false); openGuide(true); };
+$("guideClose").onclick = () => openGuide(false);
+loadGuide().then(g => { if (g && !g.complete && !store.get("proofloop-guide-closed")) openGuide(true); });
 };
 $("phoneForget").onclick = async () => {
   if (!confirm("Unpair every phone and make a new code?")) return;
@@ -220,13 +274,53 @@ $("phoneForget").onclick = async () => {
 };
 loadStatus();
 
+// ---- first-run guide: the steps tick themselves off while you work through them
+let guideTimer = null;
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+function renderGuide(g) {
+  $("guideBar").style.width = Math.round(100 * g.done / g.total) + "%";
+  $("guideProgress").textContent = g.complete ? "All set: your printers can run unattended." : `${g.done} of ${g.total} done`;
+  $("guideMenuNote").textContent = g.complete ? "All done" : `${g.done} of ${g.total} done`;
+  let n = 0;
+  $("guideSteps").innerHTML = g.steps.map((s, i) => {
+    const num = s.optional ? "+" : ++n;
+    const button = !s.go ? "" : s.go.call === "autostart" ? `<button type="button" class="btn primary" data-call="autostart">Turn it on</button>`
+      : `<button type="button" class="btn" data-step="${i}">Show me</button>`;
+    return `<li class="${s.done ? "done" : "todo"}"><span class="ic ${s.done ? "ok" : ""}">${s.done ? "✓" : num}</span>
+      <div><b>${esc(s.title)}</b>${s.optional ? ' <span class="chip">optional</span>' : ""}<div class="hint">${esc(s.detail)}</div>${button}</div></li>`;
+  }).join("");
+  $("guideSteps").onclick = async (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.call === "autostart") {
+      try { STATUS = await call("/proofloop/autostart", {on: true}); toast("ProofLoop will start when you log in"); } catch (err) { toast(err.message); }
+      return loadGuide();
+    }
+    const go = g.steps[+b.dataset.step].go;
+    show(go.tab, go.section, go.anchor);
+  };
+}
+async function loadGuide() {
+  try { const g = await call("/proofloop/guide"); renderGuide(g); return g; } catch (e) { return null; }
+}
+function openGuide(open) {
+  $("guide").classList.toggle("hidden", !open);
+  clearInterval(guideTimer);
+  if (open) { loadGuide(); guideTimer = setInterval(loadGuide, 3000); }
+  else store.set("proofloop-guide-closed", "1");
+}
+$("guideBtn").onclick = () => { menu(false); openGuide(true); };
+$("guideClose").onclick = () => openGuide(false);
+loadGuide().then(g => { if (g && !g.complete && !store.get("proofloop-guide-closed")) openGuide(true); });
+
 // ---- plates handed between the tabs, and finished checks
 window.addEventListener("message", async (e) => {
   const d = e.data;
   if (!d || typeof d !== "object" || typeof d.proofloop !== "string") return;
   try {
-    const from = ["check", "web"].find(n => e.origin === CHECK_ORIGIN && e.source === frames[n].contentWindow);
-    if (from) {
+    if (e.origin !== location.origin) return;
+    if (e.source === frames.check.contentWindow) {
+      const from = "check";
       if (d.proofloop === "open-in-loop-files") {
         const r = await call("/proofloop/to-loop", {job: d.job});
         show("loopfiles", "make");
@@ -240,11 +334,11 @@ window.addEventListener("message", async (e) => {
           toast(String(d.title), "Show", () => show(from));
         }
       }
-    } else if (e.origin === location.origin && e.source === frames.loop.contentWindow) {
+    } else if (e.source === frames.loop.contentWindow) {
       if (d.proofloop === "check-plate") {
         const r = await call("/proofloop/to-check", {token: d.token});
         show("check");
-        frames.check.contentWindow.postMessage({proofloop: "refresh"}, CHECK_ORIGIN);
+        frames.check.contentWindow.postMessage({proofloop: "refresh"}, location.origin);
         toast("Checking " + r.title);
       } else if (d.proofloop === "show" && (d.part === "loopfiles" || d.part === "printers")) {
         show(d.part, typeof d.tab === "string" ? d.tab : null);  // a link to a section of the other tab

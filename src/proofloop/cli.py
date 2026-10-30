@@ -5,7 +5,6 @@
     proofloop check COMMAND ...    design, gcode, prepare (slice), learn, printed, history, review, new
     proofloop loop PLATE [...]     make a loop file from a sliced plate; also: check, cost, calibrate, profiles
     proofloop printers COMMAND     history, spools, serve (Loop files & Printers alone, e.g. in Docker)
-    proofloop web COMMAND ...      website tests: test, run, report, personas, calibrate, dashboard, demo
     proofloop service              run in the background with a tray icon (what the shortcut and login start)
     proofloop app                  run in this terminal instead, until Ctrl+C
     proofloop stop | status        quit the background ProofLoop / is it running?
@@ -72,7 +71,7 @@ def _port_free(port: int) -> bool:
 
 
 def _open_window(url: str) -> None:
-    from proofloop.app.check_server import open_window
+    from proofloop.app.window import open_window
 
     open_window(url, home() / "window")  # its own window in Edge or Chrome, else a browser tab
 
@@ -283,7 +282,7 @@ def cmd_check(args: list[str]) -> int:
     from proofloop.check.cli import app
 
     if args and not args[0].startswith("-") and args[0] not in CHECK_COMMANDS:
-        from proofloop.app.check_server import file_kind
+        from proofloop.app.checks import file_kind
 
         kind = file_kind(Path(args[0]).name)
         if kind is None:
@@ -292,12 +291,6 @@ def cmd_check(args: list[str]) -> int:
             return 2
         args = ["gcode" if kind == "gcode" else "design", *args]
     return _typer(app, args, "proofloop check")
-
-
-def cmd_web(args: list[str]) -> int:
-    from proofloop.web.cli import app
-
-    return _typer(app, args, "proofloop web")
 
 
 def _server_opts(p: argparse.ArgumentParser, window: bool = True) -> None:
@@ -337,12 +330,10 @@ def _main(argv: list[str] | None = None) -> int:
         from proofloop.monitor.cli import main as printers_main
 
         return printers_main(argv[1:])
-    if argv and argv[0] == "web":
-        return cmd_web(argv[1:])
 
     ap = argparse.ArgumentParser(
         prog="proofloop", description="Check designs, make loop files and watch your printers",
-        epilog="Each part has its own commands: proofloop check|loop|printers|web --help",
+        epilog="Each part has its own commands: proofloop check|loop|printers --help",
     )
     ap.add_argument("--version", action="version", version=f"proofloop {__version__}")
     sub = ap.add_subparsers(dest="cmd")
@@ -368,7 +359,6 @@ def _main(argv: list[str] | None = None) -> int:
     sub.add_parser("check", help="check a CAD file or sliced G-code before you print")
     sub.add_parser("loop", help="make a loop file from a sliced plate, or check or cost one")
     sub.add_parser("printers", help="print history and filament; serve Loop files & Printers alone")
-    sub.add_parser("web", help="website tests: personas use your site like people do")
 
     if not argv or (argv[0].startswith("-") and argv[0] not in ("-h", "--help", "--version")):
         argv = ["open", *argv]  # plain `proofloop` (with options) opens the window

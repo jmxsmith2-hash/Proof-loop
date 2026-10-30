@@ -3,11 +3,8 @@
 ```bash
 pip install -e ".[all,dev]"
 ruff check src tests tools examples
-pytest -q --ignore=tests/browser --ignore=tests/e2e     # everything but the browser, a few minutes
-pytest -q tests/browser                                 # real Chromium against the demo shop (~3 min)
-pytest -q tests/e2e                                     # whole website-test pipeline on both demo sites,
-                                                        # and the CAD examples (~10 min)
-PROOFLOOP_LIVE=1 ANTHROPIC_API_KEY=... pytest tests/e2e/test_demo_app_live.py   # the same bar on Claude (costs money)
+pytest -q                     # everything, a few minutes
+pytest -q --ignore=tests/e2e  # without the CAD examples end to end
 ```
 
 The tests never touch your real `~/.proofloop`: every test gets an empty folder of its own
@@ -16,19 +13,11 @@ The tests never touch your real `~/.proofloop`: every test gets an empty folder 
 | Folder | Tests |
 |---|---|
 | `tests/core`, `tests/personas` | settings and paths, the database, models and cost, notifications, persona generation |
-| `tests/check` | CAD checks, the print-ready verdict (with a stand-in slicer, `tests/fixtures/fake_slicer.py`), G-code, learning |
+| `tests/check` | CAD checks, the print-ready verdict (with a stand-in slicer, `tests/fixtures/fake_slicer.py`), G-code, learning, the `check` commands |
 | `tests/loopfiles` | making, checking and costing loop files on synthetic plates that mirror real P2S slices (`tests/plates.py`) |
 | `tests/monitor` | the monitor's rule, the plate check, the journal, filament |
-| `tests/app` | the window, the background service, phone pairing, plates handed between tabs, the two page servers |
-| `tests/web`, `tests/cli` | website tests: runner, judge, aggregation, calibration, safety, report, dashboard, commands |
-| `tests/browser`, `tests/e2e` | real Chromium; the end-to-end runs |
-
-The website-test end-to-end runs use the demo sites in `src/proofloop/web/demo`. The demo shop
-plants a hidden button, a confusing form, a slow page and an error with no explanation, next to two
-clean control flows; the test requires every planted flaw to be found and **no promoted finding
-that isn't planted**. Pinecone Home plants a newsletter pop-up that comes back on every page, a
-return policy buried three pages deep and a menu link that does nothing, next to a cookie banner
-that stays closed and a sign-up form with a dropdown and a terms checkbox.
+| `tests/app` | the window, the background service, phone pairing, plates handed between tabs, Check and Loop files & Printers on the window's server |
+| `tests/e2e` | the CAD examples end to end: every planted flaw found, the fixed version and the control part clean |
 
 Check the loop files against the real public FarmLoop P2S files too:
 
@@ -43,12 +32,14 @@ example parts and G-code.
 
 ## CI
 
-- **Light install** on Python 3.11 to 3.13: everything but website tests must work without
-  Playwright or the on-screen text reader (that's what Docker runs), with ruff.
+CI runs once per change: on pull requests and on pushes to `main` (a newer push to a pull request
+cancels the run it replaces). Start it by hand from the Actions tab with **Run workflow**.
+
+- **Tests** on Python 3.11 to 3.13 with the plain install (what Docker runs), with ruff.
 - **Evidence**: the built-in P2S profile against the public FarmLoop files it was learned from.
-- **Everything** on Windows and Linux: every test, including the browser and end-to-end ones; a
-  UTF-8 check, because Windows reads text in another encoding by default; the command line, run
-  from the repository root.
+- **Everything** on Windows and Linux: every test, with `[all]` as setup installs it; a UTF-8
+  check, because Windows reads text in another encoding by default; the command line, run from the
+  repository root.
 - **`setup.bat` on a clean Windows machine**, once with Python and once without (the uv path). It
   checks the shortcut, start at login and the setup check, then starts ProofLoop in the background
   the way the shortcut does and stops it again.
@@ -58,6 +49,6 @@ example parts and G-code.
 
 ## History
 
-ProofLoop joined two earlier projects: synthux (design checks and website tests) and ClearLoop
-(loop files and the printer monitor). Their history is kept: `git log --follow` on a file shows its
-commits from before the move.
+ProofLoop joined two earlier projects: synthux (design checks, and website tests, since removed)
+and ClearLoop (loop files and the printer monitor). Their history is kept: `git log --follow` on a
+file shows its commits from before the move.

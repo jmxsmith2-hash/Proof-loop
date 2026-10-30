@@ -1,8 +1,9 @@
-# Printers: watched, counted, never started
+# Printers: watched, counted, started only when you say
 
-The **Printers** tab watches your Bambu Lab printers on your local network. It never uploads or
-starts a print: it reads status, checks the plate with the camera after each loop, resumes a loop
-file that is waiting for that check, and records how every print ended. Add printers under
+The **Printers** tab watches your Bambu Lab printers on your local network: it reads status, checks
+the plate with the camera after each loop, resumes a loop file that is waiting for that check, and
+records how every print ended. It starts a print only when you send one and confirm it (see
+[Sending to printers](#sending-to-printers)); nothing starts by itself. Add printers under
 *Printers › Monitor*; the printer needs LAN-only mode with Developer Mode on
 ([setup guide](bambu-setup.md)).
 
@@ -11,6 +12,34 @@ file that is waiting for that check, and records how every print ended. Add prin
 One screen with every printer's run (loop 7 of 10, done around 09:24 based on its measured loop
 times), parts made today, this week and this month, stopped loops, filament used, spools running
 low and anything waiting for you.
+
+## Queue
+
+*Plan a production run* (under *Loop files › Make a loop file*) can spread the loops you need over
+the printers that can print the plate: the model it was sliced for, the filament loaded (each slot
+matched to an AMS tray of the same type and colour), and connected. Each loop goes to the printer
+that would finish it first, counting when the printer is free (the time left on its current print)
+and its own loop time (the plate's print and fixed steps, plus the cooldown measured on that
+printer), so the printers finish at about the same time. A run of more than 50 loops on one printer
+becomes several files. Printers left out say why.
+
+**Keep it as a queue** stores the plan with a copy of the plate. The *Queue* card on the Overview
+lists each job (printer, loops, waiting, sent or downloaded). When a printer with a job waiting
+comes free, ProofLoop tells you once, in the event log and through your notification targets.
+Nothing starts by itself: you **Send and start** a job (with sending turned on, and confirmed) or
+**Download** it and send it yourself.
+
+## Sending to printers
+
+Off unless you turn it on (*Monitor › Sending to printers*). Then a loop file can go straight to a
+printer and start, from *Make a loop file* or the queue, after you confirm the printer. Before
+anything is sent, ProofLoop checks that the printer is connected and idle (not printing, preparing
+or paused), that it is the model the plate was sliced for, that every filament slot has a matching
+spool loaded, and that the loop-file checks find nothing dangerous. The file is copied over the
+printer's own FTPS (port 990, the LAN access code) and started over MQTT, the way Bambu Studio
+sends a print on your network; it is recorded first, so filament counting and the print journal
+know it. The plate must be empty: the printer starts as soon as the file arrives. Watch the first
+send to each printer. A paired phone can never send, or change this setting.
 
 ## Monitor
 
@@ -28,7 +57,7 @@ low and anything waiting for you.
   the printer paused and its heaters off.
 - **Notifications.** ntfy, Discord or any JSON webhook, each with its lowest level. When parts are
   left behind, the camera picture arrives with the ntfy or Discord notification. These same
-  targets get a notice when a long check under *Check* or a website test has finished, and when
+  targets get a notice when a long check under *Check* has finished, and when
   ProofLoop stops or restarts.
 
 ### Print history

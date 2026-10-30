@@ -8,7 +8,6 @@ PY=${PYTHON:-python3}
 [ -d .venv ] || "$PY" -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -e ".[all]"
-# Chromium for website tests downloads by itself the first time you test a website.
 [ -n "$NO_AUTOSTART" ] || .venv/bin/proofloop autostart on
 .venv/bin/proofloop doctor || true
 echo "Done. Open ProofLoop with: .venv/bin/proofloop  (it keeps running when you close the window; it starts"

@@ -1,4 +1,4 @@
-"""What the ``proofloop check`` and ``proofloop web`` commands share: settings, the database, smart mode."""
+"""What the ``proofloop check`` commands share: settings and the database."""
 
 from __future__ import annotations
 
@@ -20,14 +20,6 @@ def settings_or_exit(config: Path | None) -> Settings:
         typer.secho(f"Configuration error: {exc}", fg="red", err=True)
         raise typer.Exit(2) from None
     setup_logging(settings.log_level)
-    return settings
-
-
-def smart(settings: Settings, wanted: bool, batch: bool = False) -> Settings:
-    if not wanted:
-        return settings
-    settings, note = settings.smart(batch=batch)
-    typer.secho(note, fg="cyan" if "smart mode" in note else "yellow")
     return settings
 
 

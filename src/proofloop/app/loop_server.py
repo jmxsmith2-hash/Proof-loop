@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -30,6 +31,8 @@ from proofloop.loopfiles.lint import lint
 from proofloop.loopfiles.print_checks import print_checks
 from proofloop.monitor.costing import CostSettings, Times, cost
 from proofloop.monitor.filament import prices_for, requirements
+from proofloop.monitor.queue import spread
+from proofloop.monitor.send import SendError
 from proofloop.monitor.service import App, cooldown_for, loop_settings
 from proofloop.monitor.tracking import register_job
 
@@ -60,7 +63,8 @@ def _with_push(st, part_push: dict[str, float]):
     return replace(st, sweep=replace(st.sweep, part_push_z=dict(part_push)))
 
 
-def create_app(app: App) -> FastAPI:
+def create_app(app: App, allow_send: bool = True) -> FastAPI:
+    """``allow_send=False`` for phone access: a paired phone can watch, never start a print."""
     api = FastAPI(title="ProofLoop", version=__version__)
 
     def auth(authorization: str | None = Header(default=None), request: Request = None):
@@ -153,6 +157,8 @@ def create_app(app: App) -> FastAPI:
             ],
             "printers": {k: v for k, v in printers.MODEL_IDS.items()},
             "monitor": [monitor_card(w) for w in app.watches.values()],
+            "send_to_printer": app.settings.send_to_printer and allow_send,
+            "can_send": allow_send,
             "notifications": [n.model_dump(exclude={"token"}) for n in app.settings.notifications],
             "quiet_hours": app.settings.quiet_hours.model_dump(),
             "costs": app.settings.costs.model_dump(),
@@ -197,21 +203,122 @@ def create_app(app: App) -> FastAPI:
     def reanalyze(token: str, body: dict):
         return analysis_payload(token, body)
 
-    @api.post("/api/plates/{token}/download", dependencies=guard)
-    def download(token: str, body: dict):
-        sf = app.uploads.get(token)
+    def made_file(sf, body: dict):
+        """The loop file, recorded (for filament counting and the journal) before it leaves ProofLoop."""
         defaults, st = _settings(app, body)
         r = process(sf, profile(defaults.profile_id), st)
         register_job(app.store, r.filename, [(sf, st.loops, len(r.analysis.parts))], defaults.profile_id)
         app.journal.keep_file(r.filename, r.data)
+        return r
+
+    def send_made(name: str, confirm, r) -> dict:
+        if not allow_send:
+            raise HTTPException(403, "files can't be sent to printers from here")
+        if not name or confirm != name:
+            raise HTTPException(400, "confirm the printer to send it to")
+        made = threemf.loads(r.data, name=r.filename)
+        danger = [f.title for f in lint(made) if f.level == "danger"]
+        try:
+            return app.send(name, r.filename, r.data, made, danger)
+        except SendError as e:
+            raise HTTPException(409, str(e)) from e
+        except KeyError as e:
+            raise HTTPException(404, f"no printer called {name!r}") from e
+
+    def file_response(r) -> Response:
         return Response(
             r.data,
             media_type="application/octet-stream",
-            headers={
-                "Content-Disposition": f'attachment; filename="{r.filename}"',
-                "X-ProofLoop-Filename": r.filename,
-            },
+            headers={"Content-Disposition": f'attachment; filename="{r.filename}"', "X-ProofLoop-Filename": r.filename},
         )
+
+    @api.post("/api/plates/{token}/download", dependencies=guard)
+    def download(token: str, body: dict):
+        return file_response(made_file(app.uploads.get(token), body))
+
+    @api.post("/api/plates/{token}/send", dependencies=guard)
+    def send(token: str, body: dict):
+        """Make the loop file, as Download does, and send it to a printer you confirmed."""
+        body = dict(body)
+        name, confirm = str(body.pop("printer", "") or ""), body.pop("confirm", None)
+        if not allow_send:
+            raise HTTPException(403, "files can't be sent to printers from here")
+        if not name or confirm != name:
+            raise HTTPException(400, "confirm the printer to send it to")
+        # Recorded before the printer starts, so filament counting and the monitor recognise it.
+        return send_made(name, confirm, made_file(app.uploads.get(token), body))
+
+    # ---- spread a run over your printers, and the queue --------------------------------
+    def plan_for(sf, parts, settings: dict) -> dict:
+        try:
+            parts = int(parts or 0)
+        except (TypeError, ValueError):
+            parts = 0
+        if not 1 <= parts <= 100000:
+            raise HTTPException(422, "say how many parts you need (1 to 100000)")
+        defaults, st = _settings(app, {**(settings or {}), "loops": 1})
+        prof = profile(defaults.profile_id)
+        an = analyze(sf, prof, st)
+        if not an.ok:
+            raise HTTPException(422, "fix the problems with this plate first")
+        known = sum(s.get("seconds") or 0 for s in an.steps)
+        return spread(app, sf, prof.printer_model_id, known, len(an.parts), parts)
+
+    @api.post("/api/plates/{token}/spread", dependencies=guard)
+    def spread_run(token: str, body: dict):
+        return plan_for(app.uploads.get(token), body.get("parts"), body.get("settings") or {})
+
+    @api.get("/api/queue", dependencies=guard)
+    def queue():
+        return app.queue.runs()
+
+    @api.post("/api/queue", dependencies=guard)
+    def queue_add(body: dict):
+        token = str(body.get("token", ""))
+        sf = app.uploads.get(token)
+        plan = plan_for(sf, body.get("parts"), body.get("settings") or {})
+        data, name = app.uploads.raw(token)
+        try:
+            return app.queue.add(name, data, body.get("settings") or {}, plan)
+        except ValueError as e:
+            raise HTTPException(409, str(e)) from e
+
+    def queued_file(rid: str, jid: str):
+        run, job = app.queue.get(rid), app.queue.job(rid, jid)
+        data, name = app.queue.plate(rid)
+        return job, made_file(threemf.loads(data, name=name), {**run["settings"], "loops": job["loops"]})
+
+    @api.post("/api/queue/{rid}/{jid}/download", dependencies=guard)
+    def queue_download(rid: str, jid: str):
+        job, r = queued_file(rid, jid)
+        app.queue.mark(rid, jid, status="downloaded", file=r.filename, at=time.time())
+        return file_response(r)
+
+    @api.post("/api/queue/{rid}/{jid}/send", dependencies=guard)
+    def queue_send(rid: str, jid: str, body: dict):
+        job = app.queue.job(rid, jid)
+        if not allow_send:
+            raise HTTPException(403, "files can't be sent to printers from here")
+        if body.get("confirm") != job["printer"]:
+            raise HTTPException(400, "confirm the printer to send it to")
+        job, r = queued_file(rid, jid)
+        result = send_made(job["printer"], body.get("confirm"), r)
+        app.queue.mark(rid, jid, status="sent", file=r.filename, at=time.time())
+        return result
+
+    @api.delete("/api/queue/{rid}", dependencies=guard)
+    def queue_remove(rid: str):
+        app.queue.get(rid)
+        app.queue.remove(rid)
+        return {"removed": rid}
+
+    @api.put("/api/send-to-printer", dependencies=guard)
+    def put_send(body: dict):
+        if not allow_send:
+            raise HTTPException(403, "this can only be changed in the ProofLoop window")
+        app.settings.send_to_printer = bool(body.get("on"))
+        app.save_settings()
+        return {"send_to_printer": app.settings.send_to_printer}
 
     @api.post("/api/plates/{token}/changes", dependencies=guard)
     def plate_changes(token: str, body: dict):

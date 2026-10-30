@@ -11,6 +11,7 @@ header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px
 .bar{max-width:1180px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .in-proofloop .brand,.in-proofloop #ver,.in-proofloop nav .group{display:none}
 .in-proofloop header{position:static}
+.flash{outline:3px solid var(--accent);outline-offset:4px;border-radius:var(--radius);transition:outline-color .3s}
 .navgroup{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
 nav .group{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--muted);padding-right:4px}
 @media (max-width:700px){nav{flex-direction:column;align-items:flex-start;gap:2px}.bar{gap:8px}}
@@ -114,6 +115,7 @@ input[type=number]{max-width:140px}
       <div class="card"><div class="spread"><h2>Parts made</h2><span class="hint">last 14 days, good loops only</span></div><div class="svgwrap" id="ovChart"></div><p class="hint" id="ovPerPrinter"></p></div>
     </div>
     <div class="grid" style="align-content:start">
+      <div class="card"><div class="spread"><h2>Queue</h2><span class="hint">nothing starts by itself</span></div><div id="queueOut"></div></div>
       <div class="card"><div class="spread"><h2>Spools running low</h2><a href="#" data-goto="filament" class="linkbtn">All spools</a></div><div id="ovLow"></div></div>
       <div class="card"><div class="spread"><h2>Latest</h2><a href="#" data-goto="monitor" class="linkbtn">Monitor</a></div><ul class="list" id="ovEvents"></ul></div>
     </div>
@@ -161,8 +163,10 @@ input[type=number]{max-width:140px}
           <label class="field" style="margin:0"><span>Parts needed</span><input type="number" id="planQty" min="1" max="100000" placeholder="e.g. 40"></label>
           <label class="field" style="margin:0;flex:1;min-width:180px"><span>Cooldown time from</span><select id="planPrinter"></select></label>
           <button class="btn" id="planApply" disabled>Use these loops</button>
+          <button class="btn hidden" id="spreadBtn" title="Share the loops between the printers that can print this plate">Spread over my printers</button>
         </div>
         <p id="planOut" class="hint" style="margin-top:10px">Enter how many parts you need. ProofLoop works out the loops and, once the Monitor has timed your cooldowns, when the run will finish.</p>
+        <div id="spreadOut"></div>
       </div>
       <div class="card">
         <div class="spread"><h2>What ProofLoop adds to your file</h2><button class="btn" id="showChanges">Show the G-code</button></div>
@@ -209,6 +213,11 @@ input[type=number]{max-width:140px}
       <div class="card">
         <button class="btn primary big" id="download" style="width:100%;justify-content:center">Download loop file</button>
         <p class="hint" id="downloadHint" style="margin-top:10px">Send it with Bambu Studio (open the file, then <em>Print plate</em>), Bambu Handy or Bambuddy. Keep the <span class="mono">FL_S2_</span> name: FarmBoard kits look for it.</p>
+        <div id="sendBox" class="hidden" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+          <label class="field" style="margin-bottom:8px"><span>Or send it to a printer and start it</span>
+            <div class="row"><select id="sendPrinter" style="flex:1;width:auto"></select><button type="button" class="btn" id="sendBtn">Send and start</button></div></label>
+          <p class="hint">Only to a connected, idle printer of the model the plate was sliced for, with the right filament loaded, and only if the loop-file checks pass. You confirm each time.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -427,7 +436,7 @@ input[type=number]{max-width:140px}
 <!-- ============ MONITOR ============ -->
 <section data-panel="monitor" class="hidden">
   <h1>Monitor</h1>
-  <p class="sub">ProofLoop watches your printers on the local network and checks the plate with the camera after each loop. It never starts prints; it only resumes a loop file that is waiting for its plate check.</p>
+  <p class="sub">ProofLoop watches your printers on the local network and checks the plate with the camera after each loop. On its own it only resumes a loop file that is waiting for its plate check; it starts a print only when you send one and confirm it.</p>
   <div id="monitorEmpty" class="banner info hidden"><span class="ic info">i</span><div>No printers yet. Add one below. The printer needs <b>LAN-only mode</b> with <b>Developer Mode</b> on; its IP, serial number and access code are on the printer's screen.</div></div>
   <div class="grid" id="printerCards" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))"></div>
   <div class="grid two" style="margin-top:16px">
@@ -475,6 +484,10 @@ input[type=number]{max-width:140px}
           <label class="field"><span>Send</span><select name="min_level"><option value="error">Only problems</option><option value="warning" selected>Problems and warnings</option><option value="info">Everything</option></select></label>
           <div class="row"><button class="btn primary">Save</button><button type="button" class="btn" id="notifyClear">Turn off</button></div>
         </form>
+      </div>
+      <div class="card hidden" id="sendCard">
+        <h2>Sending to printers</h2>
+        <label class="toggle"><input type="checkbox" id="sendToggle"><span><b>Let ProofLoop send loop files to printers and start them</b><span class="hint">Off unless you turn it on. Then <em>Make a loop file</em> can copy a file to a printer and start it, after you confirm the printer, and only when the printer is connected, idle, the right model, with the right filament loaded, and the file passes the loop-file checks. Watch the first send to each printer.</span></span></label>
       </div>
     </div>
   </div>
@@ -586,6 +599,7 @@ async function loadState() {
   const opts = STATE.profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
   $('#calProfile').innerHTML = opts; $('#calProfile').value = STATE.defaults.profile_id;
   renderProfiles();
+  renderSend();
 }
 
 // ---------- make ----------
@@ -613,7 +627,15 @@ if (IN_PROOFLOOP) {
   document.documentElement.classList.add('in-proofloop');
   window.addEventListener('message', async (e) => {
     if (e.origin !== location.origin || e.source !== window.parent || !e.data) return;
-    if (e.data.proofloop === 'part' && PARTS[e.data.part]) { setPart(e.data.part, e.data.tab); return; }
+    if (e.data.proofloop === 'part' && PARTS[e.data.part]) {
+      setPart(e.data.part, e.data.tab);
+      const el = typeof e.data.anchor === 'string' && document.getElementById(e.data.anchor);
+      if (el) {  // the first-run guide points at the exact spot
+        el.scrollIntoView({block: 'center', behavior: 'smooth'});
+        el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1800);
+      }
+      return;
+    }
     if (e.data.proofloop !== 'open-plate') return;
     show('make'); $('#makeError').classList.add('hidden'); $('#noProfile').classList.add('hidden');
     try { showOpened(await send(`/api/plates/${encodeURIComponent(e.data.token)}/open`, {})); toast('Opened ' + (PLATE ? PLATE.file : 'the plate') + ' from Check'); }
@@ -708,7 +730,7 @@ function renderPlate(a, keepSettings) {
   items.push(['ok', '✓', 'Bed wait uses M190 S, never M190 R (that faults on a P2S).']);
   if (a.profile.stage === 2) items.push(['ok', '✓', 'FarmBoard triggers and switch gestures are copied exactly from FarmLoop\'s own output for this kit.']);
   $('#checks').innerHTML = items.map(([k, i, t]) => `<li><span class="ic ${k}">${i}</span><div>${esc(t)}</div></li>`).join('');
-  $('#download').disabled = !a.ok;
+  $('#download').disabled = !a.ok; $('#sendBtn').disabled = !a.ok;
   $('#download').textContent = a.ok ? 'Download loop file' : 'Fix the problems above first';
 }
 
@@ -766,6 +788,35 @@ $('#download').onclick = async () => {
     const name = await saveBlob(r, 'loop.gcode.3mf'); toast('Saved ' + name); }
   catch (e) { toast(e.message); }
 };
+// ---------- send to a printer (only when turned on, never from a phone) ----------
+function renderSend() {
+  const on = !!(STATE && STATE.send_to_printer), mons = (STATE && STATE.monitor) || [];
+  $('#sendCard').classList.toggle('hidden', !(STATE && STATE.can_send));
+  $('#sendToggle').checked = on;
+  $('#sendBox').classList.toggle('hidden', !on || !mons.length);
+  $('#spreadBtn').classList.toggle('hidden', !mons.length);
+  const keep = $('#sendPrinter').value;
+  $('#sendPrinter').innerHTML = mons.map(m => {
+    const st = (m.printer.gcode_state || '').toLowerCase(), online = m.printer.online;
+    return `<option value="${esc(m.name)}">${esc(m.name)} · ${online ? (st || 'connected') : 'not connected'}</option>`;
+  }).join('');
+  if (keep) $('#sendPrinter').value = keep;
+}
+$('#sendToggle').onchange = async () => {
+  try { const r = await send('/api/send-to-printer', {on: $('#sendToggle').checked}, 'PUT'); STATE.send_to_printer = r.send_to_printer; renderSend();
+    toast(r.send_to_printer ? 'ProofLoop can send loop files to your printers now' : 'Sending to printers is off'); }
+  catch (e) { $('#sendToggle').checked = !$('#sendToggle').checked; toast(e.message); }
+};
+$('#sendBtn').onclick = async () => {
+  const printer = $('#sendPrinter').value, s = currentSettings();
+  if (!PLATE || !printer) return;
+  if (!confirm(`Start ${PLATE.file} (${s.loops} loop${s.loops > 1 ? 's' : ''}) on ${printer}?\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
+  $('#sendBtn').disabled = true;
+  try { const r = await send(`/api/plates/${PLATE.token}/send`, {...s, printer, confirm: printer}); toast(`Started ${r.file} on ${r.printer}`); }
+  catch (e) { toast(e.message); }
+  $('#sendBtn').disabled = false;
+};
+
 $('#saveDefaults').onclick = async () => { try { STATE.defaults = await send('/api/defaults', currentSettings(), 'PUT'); toast('Saved as your defaults'); } catch (e) { toast(e.message); } };
 
 
@@ -837,6 +888,56 @@ function renderPlan() {
 }
 ['#planQty', '#planPrinter'].forEach(id => $(id).addEventListener('input', renderPlan));
 $('#planApply').onclick = () => { $('#sLoops').value = $('#planApply').dataset.loops; syncSliders(); reanalyze(); toast('Loops set to ' + $('#planApply').dataset.loops); };
+
+// ---------- spread a run over your printers, and the queue ----------
+let SPREAD = null;
+const when = (s) => s == null ? '—' : new Date(Date.now() + s * 1000).toLocaleString([], {weekday: 'short', hour: '2-digit', minute: '2-digit'});
+$('#spreadBtn').onclick = async () => {
+  const qty = +$('#planQty').value;
+  if (!PLATE || !qty) { toast('Enter how many parts you need first'); return; }
+  try { SPREAD = await send(`/api/plates/${PLATE.token}/spread`, {parts: qty, settings: currentSettings()}); renderSpread(); }
+  catch (e) { toast(e.message); }
+};
+function renderSpread() {
+  const s = SPREAD;
+  if (!s) { $('#spreadOut').innerHTML = ''; return; }
+  const out = s.left_out.length ? `<p class="hint">Left out: ${s.left_out.map(x => `${esc(x.printer)} (${esc(x.why)})`).join(', ')}.</p>` : '';
+  if (!s.rows.length) { $('#spreadOut').innerHTML = `<div class="banner warn" style="margin-top:10px"><span class="ic warning">!</span><div>No printer can print this plate right now.${out}</div></div>`; return; }
+  $('#spreadOut').innerHTML = `<div class="tw" style="margin-top:10px"><table><tr><th>Printer</th><th class="n">Loops</th><th class="n">Parts</th><th>Starts</th><th>Finishes</th><th>Cooldown</th></tr>
+    ${s.rows.map(r => `<tr><td>${esc(r.printer)}</td><td class="n">${r.loops}${r.files > 1 ? ` <span class="hint">(${r.files} files)</span>` : ''}</td><td class="n">${r.parts}</td>
+      <td>${r.starts_in_s ? 'in ' + fmtDur(r.starts_in_s) : 'now'}</td><td>${when(r.finish_s)}</td><td class="hint">${esc(r.cooldown)}</td></tr>`).join('')}</table></div>
+    <p class="hint">${s.loops} loops, ${s.parts} parts, done around <b>${when(s.finish_s)}</b>${s.cooldown_known ? '' : ' plus the cooldowns, which no printer has timed yet'}.</p>${out}
+    <button class="btn primary" id="keepQueue">Keep it as a queue</button>
+    <p class="hint">ProofLoop tells you when each printer is free for its next job. You send or download each one; nothing starts by itself.</p>`;
+  $('#keepQueue').onclick = async () => {
+    try { await send('/api/queue', {token: PLATE.token, parts: +$('#planQty').value, settings: currentSettings()}); toast('Queued: see Printers › Overview'); SPREAD = null; renderSpread(); refreshQueue(); }
+    catch (e) { toast(e.message); }
+  };
+}
+async function refreshQueue() {
+  let runs = [];
+  try { runs = await json('/api/queue'); } catch (e) { return; }
+  const sendOn = !!(STATE && STATE.send_to_printer);
+  const label = {waiting: '<span class="chip">waiting</span>', sent: '<span class="chip ok">sent</span>', downloaded: '<span class="chip info">downloaded</span>'};
+  $('#queueOut').innerHTML = runs.length ? runs.map(run => `<div style="padding:8px 0;border-top:1px solid var(--line)">
+      <div class="spread"><b>${esc(run.plate)}</b><span><span class="hint">${run.parts} parts</span> <button class="linkbtn" data-qremove="${esc(run.id)}">Remove</button></span></div>
+      ${run.jobs.map(j => `<div class="spread" style="margin-top:4px"><span>${esc(j.printer)} · ${j.loops} loop${j.loops > 1 ? 's' : ''} ${label[j.status] || ''}</span>
+        <span class="row">${j.status === 'waiting' && sendOn ? `<button class="btn" data-qsend="${esc(run.id)}/${esc(j.id)}" data-printer="${esc(j.printer)}">Send and start</button>` : ''}
+        ${j.status === 'waiting' ? `<button class="btn" data-qget="${esc(run.id)}/${esc(j.id)}">Download</button>` : ''}</span></div>`).join('')}
+    </div>`).join('') : '<p class="hint">Nothing queued. Under <a href="#" data-goto="make">Make a loop file</a>, plan a run and spread it over your printers.</p>';
+}
+$('#queueOut').addEventListener('click', async (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  try {
+    if (b.dataset.qremove) { if (!confirm('Remove this run from the queue?')) return; await json('/api/queue/' + b.dataset.qremove, {method: 'DELETE'}); }
+    if (b.dataset.qget) { const name = await saveBlob(await api(`/api/queue/${b.dataset.qget}/download`, {method: 'POST'}), 'loop.gcode.3mf'); toast('Saved ' + name); }
+    if (b.dataset.qsend) {
+      if (!confirm(`Start this job on ${b.dataset.printer}?\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
+      const r = await send(`/api/queue/${b.dataset.qsend}/send`, {confirm: b.dataset.printer}); toast(`Started ${r.file} on ${r.printer}`);
+    }
+  } catch (err) { toast(err.message); }
+  refreshQueue();
+});
 
 // ---------- what ProofLoop adds ----------
 $('#showChanges').onclick = async () => {
@@ -1333,6 +1434,7 @@ $('#makeFilOut').addEventListener('click', (e) => { const b = e.target.closest('
 
 // ---------- overview ----------
 async function refreshOverview() {
+  refreshQueue();
   try {
     const o = await json('/api/overview'), cur = STATE.costs?.currency || '';
     const att = [];
@@ -1411,6 +1513,7 @@ async function refreshMonitor() {
     if (q && document.activeElement?.form !== qf) { qf.enabled.checked = q.enabled; qf.start.value = q.start; qf.end.value = q.end; }
     const nt = STATE.notifications[0];
     if (nt) { const f = $('#notifyForm'); f.kind.value = nt.kind; f.url.value = nt.url; f.min_level.value = nt.min_level; }
+    renderSend();
   } catch (e) { toast(e.message); }
 }
 $('#outcomes').addEventListener('click', async (e) => {

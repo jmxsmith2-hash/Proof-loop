@@ -111,6 +111,7 @@ class Settings(_Model):
     printers: list[PrinterConfig] = Field(default_factory=list)
     notifications: list[Notifier] = Field(default_factory=list)
     app_token: str | None = None  # optional: require this token for the app's API
+    send_to_printer: bool = False  # let ProofLoop copy a loop file to a printer and start it (you confirm each time)
 
 
 class SettingsStore:
