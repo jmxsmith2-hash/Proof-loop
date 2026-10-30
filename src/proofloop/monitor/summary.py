@@ -2,7 +2,7 @@
 
 Parts and loops made, failures and the likely cause (the layer, the printer's HMS alerts), plates
 with parts left behind, what's waiting for you now, filament used and spools running low, and where
-the queue stands. ``summary(app)`` returns it as data with a ready-to-read ``text``; the window
+the queue and your orders stand. ``summary(app)`` returns it as data with a ready-to-read ``text``; the window
 shows it on the Overview, ``proofloop summary`` prints it, assistants read it through
 ``proofloop mcp``, and with *Morning summary* set it arrives through your notification targets
 once a day.
@@ -93,6 +93,16 @@ def summary(app, hours: float = 12, since: float | None = None) -> dict[str, Any
     queue["next"] = [{"printer": j["printer"], "plate": run["plate"], "loops": j["loops"]}
                      for run, j in jobs if j["status"] == "waiting"][:5]
 
+    from proofloop.monitor.orders import progress
+
+    orders = [progress(app, o, now) for o in app.orders.all() if o["status"] == "open"]
+    for o in orders:
+        if o["on_time"] is False:
+            attention.append({"printer": None, "what": "order_late", "when": None,
+                              "message": f"the order for {o['customer']} will be {o['late_by_days']} day"
+                                         f"{'s' if o['late_by_days'] != 1 else ''} late ({o['made']} of "
+                                         f"{o['quantity']} made)"})
+
     out = {
         "since": since, "until": now, "hours": round((now - since) / HOUR, 1),
         "parts": sum(p["parts"] for p in printers), "loops": sum(p["loops"] for p in printers),
@@ -101,6 +111,8 @@ def summary(app, hours: float = 12, since: float | None = None) -> dict[str, Any
         "filament": {"used_g": round(sum(by_material.values()), 1), "by_material": by_material, "low": low,
                      "unassigned_g": unmatched},
         "queue": queue,
+        "orders": [{k: o[k] for k in ("id", "customer", "plate", "quantity", "made", "due", "eta", "on_time",
+                                      "late_by_days")} for o in orders],
     }
     out["headline"] = _headline(out)
     out["text"] = _text(out)
@@ -145,6 +157,10 @@ def _text(s: dict) -> str:
                                                   else x["spool"] for x in fil["low"]) + ".")
     if fil["unassigned_g"]:
         lines.append(f"{fil['unassigned_g']:g} g of filament isn't matched to a spool yet (Filament).")
+    if s["orders"]:
+        lines.append("Orders: " + "; ".join(
+            f"{o['customer']} {o['made']}/{o['quantity']}" + (f", due {o['due']}" if o["due"] else "")
+            + (" (late)" if o["on_time"] is False else "") for o in s["orders"]) + ".")
     q = s["queue"]
     if q["waiting"] or q["printing"]:
         lines.append(f"Queue: {q['printing']} printing, {q['waiting']} waiting.")

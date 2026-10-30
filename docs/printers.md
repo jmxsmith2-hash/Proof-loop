@@ -21,6 +21,17 @@ what is waiting for you now, filament used and spools running low, and where the
 *Send it to me every day at* and choose a time: it then goes to all your notification targets once a
 day, covering the time since the last one. `proofloop summary` prints it (`--json` for programs).
 
+## Orders
+
+*Printers › Orders* keeps what people asked for: a customer, how many parts of a sliced plate, a due
+date and, if you like, a price per part. Taking an order plans its run over the printers that can
+print the plate and puts it in the queue (nothing starts by itself). From then on each order shows
+how many parts are made, when it will be ready (each printer's remaining loops at its own measured
+loop time) and whether that's before the due date, with what it earns and costs (from your prices
+under *Costs*). It's marked made when its last job finishes, and you're told. Late orders show up in
+the summary under what needs you. `proofloop printers orders` lists them (`--json` for programs),
+and an assistant can take and read orders too ([with Claude](assistants.md)).
+
 ## Queue
 
 *Plan a production run* (under *Loop files › Make a loop file*) can spread the loops you need over

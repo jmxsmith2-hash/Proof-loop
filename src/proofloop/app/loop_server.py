@@ -329,6 +329,71 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
         app.save_settings()
         return {"at": app.settings.summary_at}
 
+    # ---- orders -----------------------------------------------------------------------
+    @api.get("/api/orders", dependencies=guard)
+    def list_orders():
+        from proofloop.monitor.orders import progress
+
+        out = [progress(app, o) for o in app.orders.all()]
+        return sorted(out, key=lambda o: (o["status"] != "open", o["due"] or "9999", o["created"]))
+
+    @api.post("/api/orders", dependencies=guard)
+    def add_order(body: dict):
+        """Plan the run for an order, keep it as a queue (nothing starts), and follow it."""
+        from proofloop.monitor.orders import due_ts, progress
+
+        token = str(body.get("token", ""))
+        sf = app.uploads.get(token)
+        qty = body.get("quantity")
+        try:
+            if body.get("due"):
+                due_ts(str(body["due"]))
+        except ValueError as e:
+            raise HTTPException(422, "give the due date as YYYY-MM-DD") from e
+        settings = body.get("settings") or {}
+        plan = plan_for(sf, qty, settings)
+        data, name = app.uploads.raw(token)
+        price = body.get("price_each")
+        try:
+            price = None if price in (None, "") else float(price)
+            defaults, st = _settings(app, {**settings, "loops": 1})
+            per_part = plate_cost(sf, profile(defaults.profile_id), st, 1, {}, setup=False)["totals"]["per_part"]
+            run = app.queue.add(name, data, settings, plan)
+            order = app.orders.add(str(body.get("customer") or ""), name, int(qty), body.get("due") or None, run,
+                                   plan, price, per_part, str(body.get("notes") or ""))
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return progress(app, order)
+
+    @api.patch("/api/orders/{oid}", dependencies=guard)
+    def change_order(oid: str, body: dict):
+        from proofloop.monitor.orders import due_ts, progress
+
+        changes = {k: body[k] for k in ("customer", "due", "price_each", "notes", "status") if k in body}
+        if changes.get("status") not in (None, "open", "done", "cancelled"):
+            raise HTTPException(422, "status is open, done or cancelled")
+        try:
+            if changes.get("due"):
+                due_ts(changes["due"])
+            return progress(app, app.orders.update(oid, **changes))
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(422, "give the due date as YYYY-MM-DD") from e
+
+    @api.delete("/api/orders/{oid}", dependencies=guard)
+    def remove_order(oid: str, keep_run: bool = False):
+        try:
+            gone = app.orders.remove(oid)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+        if not keep_run:
+            try:
+                app.queue.remove(gone["run"])
+            except KeyError:
+                pass
+        return {"removed": oid}
+
     @api.put("/api/send-to-printer", dependencies=guard)
     def put_send(body: dict):
         if not allow_send:

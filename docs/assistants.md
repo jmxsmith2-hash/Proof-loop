@@ -7,6 +7,7 @@
 - "Make this part ready to print": it checks the part, changes the design (in an OpenSCAD file it
   edits the code), checks again, and repeats until nothing major is left.
 - "Make a loop file for 40 of these and spread it over my printers."
+- "Sam wants 60 brackets by Friday at $3 each: take the order. Will it be ready in time?"
 - "Why did printer 2 stop last night?" It reads the print history: the layer, the HMS alerts, the
   plate check.
 - "What happened overnight?", "How much PLA is left, and what should I reorder?"
@@ -44,6 +45,7 @@ it starts when you log in. Everything else works without it.
 | `prepare_print` | Check the design, slice it with Bambu Studio or OrcaSlicer, check the G-code, optionally apply the fixes and make a loop file. |
 | `make_loop_file`, `check_loop_file`, `cost_plate` | Make a loop file with your saved settings (written next to the plate); check any loop file; what a plate costs and earns. |
 | `plan_run` | Spread a run over the printers that can print it; with `keep`, put it in the queue. |
+| `take_order`, `orders` | Take an order (customer, how many, due date, price): planned into the queue, with when it will be ready; list the orders and whether each is on time. |
 | `farm_status`, `summary`, `print_history`, `filament` | Every printer now; what happened (parts, failures, what needs you); how prints ended; spools and what's low. |
 | `setup_check` | The setup check. |
 

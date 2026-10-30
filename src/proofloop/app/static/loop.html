@@ -103,7 +103,8 @@ input[type=number]{max-width:140px}
     <div class="navgroup" data-part="printers"><span class="group">Printers</span>
       <button role="tab" data-tab="overview">Overview</button>
       <button role="tab" data-tab="monitor">Monitor</button>
-      <button role="tab" data-tab="filament">Filament</button></div>
+      <button role="tab" data-tab="filament">Filament</button>
+      <button role="tab" data-tab="orders">Orders</button></div>
     <div class="navgroup" data-part="loopfiles"><span class="group">Loop files</span>
       <button role="tab" data-tab="make" aria-selected="true">Make a loop file</button>
       <button role="tab" data-tab="check">Check a file</button>
@@ -138,6 +139,30 @@ input[type=number]{max-width:140px}
       <div class="card"><div class="spread"><h2>Queue</h2><span class="hint">nothing starts by itself</span></div><div id="queueOut"></div></div>
       <div class="card"><div class="spread"><h2>Spools running low</h2><a href="#" data-goto="filament" class="linkbtn">All spools</a></div><div id="ovLow"></div></div>
       <div class="card"><div class="spread"><h2>Latest</h2><a href="#" data-goto="monitor" class="linkbtn">Monitor</a></div><ul class="list" id="ovEvents"></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ ORDERS ============ -->
+<section data-panel="orders" class="hidden">
+  <h1>Orders</h1>
+  <p class="sub">What someone asked for, by when. Taking an order plans its run over your printers and puts it in the queue; ProofLoop then follows it and tells you whether it will be ready in time. Nothing starts by itself.</p>
+  <div class="grid two">
+    <div class="card"><div class="spread"><h2>Open orders</h2><label class="row hint"><input type="checkbox" id="ordersAll"> show finished</label></div><div id="ordersOut"></div></div>
+    <div class="card">
+      <h2>New order</h2>
+      <form id="orderForm">
+        <label class="drop" id="orderDrop"><strong>Drop the sliced plate</strong><small id="orderPlate">.gcode.3mf: the plain slice of the part</small><input type="file" id="orderFile" accept=".3mf" hidden></label>
+        <div class="row" style="margin-top:12px">
+          <label class="field" style="flex:1;min-width:160px"><span>Customer</span><input type="text" name="customer" placeholder="Sam's shop" required></label>
+          <label class="field" style="width:110px"><span>Parts</span><input type="number" name="quantity" min="1" value="40" required></label></div>
+        <div class="row">
+          <label class="field" style="flex:1;min-width:150px"><span>Due</span><input type="date" name="due"></label>
+          <label class="field" style="flex:1;min-width:120px"><span>Price per part</span><input type="number" name="price_each" min="0" step="0.01" placeholder="optional"></label></div>
+        <label class="field"><span>Notes</span><input type="text" name="notes" placeholder="colour, packaging…"></label>
+        <button class="btn primary" id="orderAdd" disabled>Take the order</button>
+        <p class="hint">Uses your saved loop-file settings; the queue gets one job per printer that can print the plate.</p>
+      </form>
     </div>
   </div>
 </section>
@@ -584,7 +609,7 @@ async function saveBlob(resp, fallback) { const name = resp.headers.get('X-Proof
 // ---------- tabs ----------
 // The sections belong to two tabs of the ProofLoop window: Loop files and Printers. On their own
 // (a phone, proofloop printers serve) both groups are shown.
-const PARTS = {loopfiles: ['make', 'check', 'costs', 'calibrate', 'profiles'], printers: ['overview', 'monitor', 'filament']};
+const PARTS = {loopfiles: ['make', 'check', 'costs', 'calibrate', 'profiles'], printers: ['overview', 'monitor', 'filament', 'orders']};
 const partOf = (tab) => Object.keys(PARTS).find(p => PARTS[p].includes(tab));
 let PART = null;  // inside the window: the tab chosen there
 const lastIn = {};
@@ -606,6 +631,7 @@ function show(tab) {
   if (tab === 'costs') { coolOptions(); bindCosts(); refreshCost(); }
   if (tab === 'filament') loadFil();
   if (tab === 'overview') refreshOverview();
+  if (tab === 'orders') refreshOrders();
 }
 $$('nav button').forEach(b => b.onclick = () => show(b.dataset.tab));
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) { e.preventDefault(); show(g.dataset.goto); } });
@@ -1467,6 +1493,53 @@ $('#makeFilOut').addEventListener('change', async (e) => { const s = e.target.cl
   try { await send('/api/filament/assign', {printer: $('#fPrinter').value || '', key: s.dataset.pick, spool: s.value || null}, 'PUT'); refreshPlateFil(); refreshCost(); } catch (err) { toast(err.message); } });
 $('#makeFilOut').addEventListener('click', (e) => { const b = e.target.closest('[data-setloops]'); if (!b) return;
   $('#sLoops').value = b.dataset.setloops; syncSliders(); reanalyze(); toast('Loops set to ' + b.dataset.setloops); });
+
+// ---------- orders ----------
+let ORDER_TOKEN = null;
+dropZone($('#orderDrop'), $('#orderFile'), async (file) => {
+  $('#orderPlate').textContent = 'Reading ' + file.name + '…';
+  try { const fd = new FormData(); fd.append('file', file); const r = await json('/api/plates', {method: 'POST', body: fd});
+    ORDER_TOKEN = r.token; $('#orderPlate').textContent = `${file.name} · ${(r.parts || []).length} parts per plate`; $('#orderAdd').disabled = false;
+  } catch (e) { $('#orderPlate').textContent = e.message; ORDER_TOKEN = null; $('#orderAdd').disabled = true; }
+});
+$('#orderForm').onsubmit = async (e) => {
+  e.preventDefault(); const f = e.target; if (!ORDER_TOKEN) return;
+  $('#orderAdd').disabled = true;
+  try {
+    const o = await send('/api/orders', {token: ORDER_TOKEN, customer: f.customer.value, quantity: +f.quantity.value, due: f.due.value || null, price_each: f.price_each.value || null, notes: f.notes.value});
+    toast(`Order for ${o.customer} taken: ${o.on_time === false ? 'it will be late' : o.eta ? 'ready ' + when(o.eta) : 'queued'}`);
+    f.reset(); ORDER_TOKEN = null; $('#orderPlate').textContent = '.gcode.3mf: the plain slice of the part'; refreshOrders();
+  } catch (err) { toast(err.message); $('#orderAdd').disabled = false; }
+};
+const when = (ts) => new Date(ts * 1000).toLocaleString([], {weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+async function refreshOrders() {
+  let orders = [];
+  try { orders = await json('/api/orders'); } catch (e) { return; }
+  if (!$('#ordersAll').checked) orders = orders.filter(o => o.status === 'open');
+  const cur = STATE?.costs?.currency || '';
+  $('#ordersOut').innerHTML = orders.length ? orders.map(o => {
+    const chip = o.status === 'cancelled' ? '<span class="chip">cancelled</span>' : o.complete ? '<span class="chip ok">made</span>'
+      : o.on_time === false ? `<span class="chip bad">late by ${o.late_by_days} day${o.late_by_days === 1 ? '' : 's'}</span>` : o.on_time ? '<span class="chip ok">on time</span>' : '<span class="chip info">in the queue</span>';
+    const m = o.money, money = [m.revenue != null ? `${cur}${m.revenue.toFixed(2)} in` : '', m.cost != null ? `${cur}${m.cost.toFixed(2)} cost` : '', m.profit != null ? `<b>${cur}${m.profit.toFixed(2)} profit</b>` : ''].filter(Boolean).join(' · ');
+    return `<div class="run"><div class="spread"><b>${esc(o.customer)}</b>${chip}</div>
+      <div class="hint">${o.quantity} × ${esc(o.plate)}${o.due ? ' · due ' + esc(new Date(o.due + 'T12:00').toLocaleDateString([], {weekday: 'short', month: 'short', day: 'numeric'})) : ''}${o.notes ? ' · ' + esc(o.notes) : ''}</div>
+      <div class="meter"><i style="width:${o.pct}%"></i></div>
+      <div class="spread"><span><b>${o.made}</b> of ${o.quantity} made</span><span class="hint">${o.complete ? 'all made' : o.eta ? 'ready around <b>' + when(o.eta) + '</b>' : o.queued ? '' : 'its queue was removed'}</span></div>
+      ${money ? `<div class="hint">${money}</div>` : ''}
+      <div class="row" style="margin-top:6px">${o.status === 'open' ? `<button class="linkbtn" data-ordergo="overview">Queue</button> <button class="linkbtn" data-order="${esc(o.id)}" data-set="done">Mark made</button> <button class="linkbtn" data-order="${esc(o.id)}" data-set="cancelled">Cancel</button>` : ''} <button class="linkbtn" data-order="${esc(o.id)}" data-set="remove">Remove</button></div></div>`;
+  }).join('') : '<p class="hint">No orders yet. Take one on the right: drop the sliced plate, say how many and by when.</p>';
+}
+$('#ordersAll').addEventListener('change', refreshOrders);
+$('#ordersOut').addEventListener('click', async (e) => {
+  const g = e.target.closest('[data-ordergo]'); if (g) { show(g.dataset.ordergo); return; }
+  const b = e.target.closest('[data-order]'); if (!b) return;
+  try {
+    if (b.dataset.set === 'remove') { if (!confirm('Remove this order, and its jobs from the queue?')) return; await json('/api/orders/' + b.dataset.order, {method: 'DELETE'}); }
+    else await send('/api/orders/' + b.dataset.order, {status: b.dataset.set}, 'PATCH');
+  } catch (err) { toast(err.message); }
+  refreshOrders();
+});
+setInterval(() => { if (!$('[data-panel=orders]').classList.contains('hidden')) refreshOrders(); }, 10000);
 
 // ---------- overview ----------
 async function refreshSummary() {

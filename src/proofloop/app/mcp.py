@@ -93,6 +93,14 @@ TOOLS = [
           "finish together. With keep=true it's kept as a queue the person sends from the window; nothing starts.",
           {"path": PATH, "parts": {"type": "integer", "minimum": 1, "maximum": 100000}, "keep": {"type": "boolean"}},
           ["path", "parts"], read_only=False),
+    _tool("orders", "The orders: customer, parts made of how many, due date, when it will be ready, whether "
+          "that's on time, and what it earns.", {"all": {"type": "boolean", "description": "Include finished ones."}}),
+    _tool("take_order", "Take an order: N parts of a sliced plate for a customer, by a due date. Plans the run over "
+          "the printers and puts it in the queue (nothing starts); says when it will be ready and if that's on time.",
+          {"path": PATH, "customer": {"type": "string"}, "quantity": {"type": "integer", "minimum": 1},
+           "due": {"type": "string", "description": "YYYY-MM-DD"},
+           "price_each": {"type": "number", "minimum": 0}, "notes": {"type": "string"}},
+          ["path", "customer", "quantity"], read_only=False),
     _tool("farm_status", "Every printer right now: online, what it's printing, loop N of M, when it finishes, "
           "and anything waiting for the person; plus the queue.", {}),
     _tool("summary", "What happened on the printers: parts and loops made, failures with layer and HMS codes, "
@@ -311,19 +319,38 @@ class Server:
         return self._run("loop", "cost", self._file(path), *(["--loops", str(loops)] if loops else [])), []
 
     def t_plan_run(self, path: str, parts: int, keep: bool = False):
+        token, name = self._upload(path)
+        req = json.dumps({"token": token, "parts": parts, "settings": {}}).encode()
+        plan = self._api(f"/api/plates/{token}/spread", req, "application/json")
+        out = {"plate": name, "plan": plan, "kept": None}
+        if keep:
+            out["kept"] = self._api("/api/queue", req, "application/json")
+            out["note"] = "Kept as a queue under Printers › Overview. Nothing starts until the person sends each job."
+        return out, []
+
+    def _upload(self, path: str) -> tuple[str, str]:
         p = Path(self._file(path))
         boundary = uuid.uuid4().hex
         body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{p.name}\"\r\n"
                 "Content-Type: application/octet-stream\r\n\r\n").encode() + p.read_bytes() + \
             f"\r\n--{boundary}--\r\n".encode()
-        plate = self._api("/api/plates", body, f"multipart/form-data; boundary={boundary}", timeout=120)
-        req = json.dumps({"token": plate["token"], "parts": parts, "settings": {}}).encode()
-        plan = self._api(f"/api/plates/{plate['token']}/spread", req, "application/json")
-        out = {"plate": p.name, "plan": plan, "kept": None}
-        if keep:
-            out["kept"] = self._api("/api/queue", req, "application/json")
-            out["note"] = "Kept as a queue under Printers › Overview. Nothing starts until the person sends each job."
-        return out, []
+        return self._api("/api/plates", body, f"multipart/form-data; boundary={boundary}", timeout=120)["token"], p.name
+
+    def t_orders(self, all: bool = False):  # noqa: A002 - the tool's own argument name
+        try:
+            orders = self._api("/api/orders")
+        except ToolError:
+            orders = self._run("printers", "orders", "--all")
+        return {"orders": [o for o in orders if all or o["status"] == "open"]}, []
+
+    def t_take_order(self, path: str, customer: str, quantity: int, due: str | None = None,
+                     price_each: float | None = None, notes: str = ""):
+        token, _ = self._upload(path)
+        body = json.dumps({"token": token, "customer": customer, "quantity": quantity, "due": due,
+                           "price_each": price_each, "notes": notes}).encode()
+        order = self._api("/api/orders", body, "application/json")
+        return {**order, "note": "In the queue under Printers › Overview. Nothing starts until the person sends "
+                                 "each job from the ProofLoop window."}, []
 
     def t_farm_status(self):
         o = self._api("/api/overview")

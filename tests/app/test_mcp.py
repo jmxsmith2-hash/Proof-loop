@@ -162,3 +162,13 @@ def test_the_improve_part_prompt():
     assert 'design name "phone stand"' in text
     assert "Don't send anything to a printer" in text
     assert replies[2]["error"]["code"] == -32603
+
+
+def test_taking_an_order_through_the_assistant(running):
+    app, s = running
+    r = call(s, "take_order", path=str(PLATE), customer="Sam", quantity=20, due="2031-06-01", price_each=3)
+    o = r["structuredContent"]
+    assert not r.get("isError") and o["customer"] == "Sam" and o["on_time"] is True and "Nothing starts" in o["note"]
+    listed = call(s, "orders")["structuredContent"]["orders"]
+    assert [x["id"] for x in listed] == [o["id"]] and listed[0]["money"]["revenue"] == 60.0
+    assert not any(w.link.sent for w in app.watches.values())

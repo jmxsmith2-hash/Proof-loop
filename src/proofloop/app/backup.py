@@ -5,6 +5,7 @@ log and measured timings, from ``printers.db``) plus these from ProofLoop's fold
 
 - ``results.db``: design checks and what Check has learned;
 - ``feedback.json``: the findings you marked *Not a problem*;
+- ``orders.json``: your orders;
 - ``references/``: the pictures of each printer's empty plate;
 - ``queue/``: queued runs, with their plates;
 - ``config/``: your YAML options.
@@ -31,7 +32,7 @@ from proofloop.core.settings import Settings
 from proofloop.loopfiles.profiles import HardwareProfile
 
 FOLDERS = ("references", "queue", "config")
-FILES = (RESULTS_DB, "feedback.json")
+FILES = (RESULTS_DB, "feedback.json", "orders.json")
 MAX_RESTORE = 2 * 1024**3  # what a backup may unpack to
 
 
@@ -51,8 +52,9 @@ def make(app) -> bytes:
         z.writestr("backup.json", json.dumps(data))
         if (root / RESULTS_DB).is_file():
             z.writestr(RESULTS_DB, _copy_db(root / RESULTS_DB))
-        if (root / "feedback.json").is_file():
-            z.write(root / "feedback.json", "feedback.json")
+        for name in ("feedback.json", "orders.json"):
+            if (root / name).is_file():
+                z.write(root / name, name)
         for folder in FOLDERS:
             for f in sorted((root / folder).rglob("*")) if (root / folder).is_dir() else []:
                 if f.is_file() and f.name != "last-diff.png" and not f.name.endswith(".tmp"):
@@ -132,8 +134,9 @@ def restore(app, raw: bytes) -> dict:
     if z is not None:
         if RESULTS_DB in members:
             _restore_db(results, root / RESULTS_DB)
-        if "feedback.json" in members:
-            (root / "feedback.json").write_bytes(z.read(members["feedback.json"]))
+        for name in ("feedback.json", "orders.json"):
+            if name in members:
+                (root / name).write_bytes(z.read(members[name]))
         for folder in FOLDERS:
             names = [n for n in members if n.startswith(folder + "/")]
             if not names:

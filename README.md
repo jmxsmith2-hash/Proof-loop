@@ -10,7 +10,7 @@ ProofLoop opens as one window with three tabs:
 |---|---|
 | **Check** | Checks CAD files (STL, 3MF, OBJ, STEP or OpenSCAD, from Fusion, Blender, Tinkercad or code) and sliced G-code before you print. It can slice headlessly for a print-ready verdict, turns each problem into the slicer setting that fixes it, and checks parts for moulding and CNC. [More](docs/check.md) |
 | **Loop files** | Makes loop files for FarmLoop auto-eject hardware: a push height for each part, a cooldown that's safe, a first-sweep safety pause. Checks any loop file, costs a plate, and makes calibration prints. [More](docs/loop-files.md) |
-| **Printers** | Watches your printers: live status, a camera check that the plate is empty before the next loop, print history, filament and spools. [More](docs/printers.md) |
+| **Printers** | Watches your printers: live status, a camera check that the plate is empty before the next loop and a failure watch during the print, print history, filament and spools, and orders with whether each will be ready in time. [More](docs/printers.md) |
 
 Under **More** there are **Get set up**, **Phone** and **Setup check**.
 
@@ -121,6 +121,7 @@ proofloop check prepare part.stl --loops 5   # design check, slice, G-code check
 proofloop loop plate.gcode.3mf --loops 5     # make a loop file (--first-pause on|off|auto)
 proofloop loop check FL_S2_plate.gcode.3mf   # check any loop file
 proofloop printers history                   # how recent prints ended
+proofloop printers orders                    # your orders, and whether each will be ready in time
 proofloop doctor [--printer-test ...]        # check the setup (--slice-test, --send-test too)
 proofloop summary [--hours 24]               # what happened on your printers
 proofloop try                                # three pretend printers: try everything without hardware

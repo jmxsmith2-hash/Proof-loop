@@ -20,6 +20,7 @@ from proofloop.loopfiles.gcode.sweep import SweepSettings
 from proofloop.loopfiles.profiles import ProfileStore
 from proofloop.monitor.filament import Inventory, Spool
 from proofloop.monitor.journal import PrintJournal
+from proofloop.monitor.orders import Orders
 from proofloop.monitor.queue import Queue
 from proofloop.monitor.spoolman import Spoolman
 from proofloop.monitor.store import Store
@@ -144,6 +145,7 @@ class App:
         self.store = Store(self.data_dir / PRINTERS_DB)
         self.uploads = UploadCache(40, self.data_dir / "uploads")
         self.queue = Queue(self.data_dir / "queue")
+        self.orders = Orders(self.data_dir / "orders.json")
         self.notifier = Notifier(self.settings.notifications)
         self.connect = connect
         self.link_factory = link_factory or self._default_link
@@ -273,6 +275,11 @@ class App:
                     job["printer"], "error", "queue_stopped",
                     f"{job['printer']} stopped {run['plate']} ({loops}): {job.get('why') or 'stopped'}. "
                     "It's back under Printers › Overview to send again."))
+        from proofloop.monitor.orders import finished
+
+        for o in finished(self):
+            self._emit(self.store.add_event(None, "info", "order_done",
+                                            f"Order for {o['customer']} is made: {o['quantity']} × {o['plate']}."))
         for run, job in self.queue.ready(self):
             self._emit(self.store.add_event(
                 job["printer"], "warning", "queue_ready",
