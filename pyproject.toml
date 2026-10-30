@@ -30,6 +30,7 @@ dependencies = [
     "uvicorn>=0.27",
     "python-multipart>=0.0.9",
     "paho-mqtt>=2.0",
+    "cryptography>=42",  # the pretend printers' certificates (proofloop try)
     "qrcode>=7.4",                                                         # pairing a phone
     "pystray>=0.19; sys_platform == 'win32' or sys_platform == 'darwin'",  # the icon next to the clock
 ]
@@ -38,7 +39,7 @@ dependencies = [
 step = ["cascadio>=0.0.13"]  # read STEP files directly (otherwise export STL/3MF/OBJ from your CAD tool)
 anthropic = ["anthropic>=0.40"]  # optional: Claude for personas and product predictions
 all = ["proofloop[step]"]
-dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.4", "cryptography>=42"]  # cryptography: the pretend printer's certificate
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.4"]
 
 [project.scripts]
 proofloop = "proofloop.cli:main"

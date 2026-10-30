@@ -56,8 +56,10 @@ def _tool(name: str, description: str, props: dict, required: list[str] | None =
 
 PATH = {"type": "string", "description": "Absolute path to the file on this computer."}
 TOOLS = [
-    _tool("check_part", "Check a CAD part (STL, 3MF, OBJ, STEP) before printing: printability, strength, fit, "
-          "stability, and for auto-eject, whether the pusher can clear it. Returns findings with fixes, and renders.",
+    _tool("check_part", "Check a CAD part (STL, 3MF, OBJ, STEP, or OpenSCAD .scad code) before printing: "
+          "printability, strength, fit, stability, and for auto-eject, whether the pusher can clear it. Returns "
+          "findings with fixes and the numbers behind them, and renders. Give the same `design` name each time to "
+          "see what changed since the last version.",
           {"path": PATH,
            "design": {"type": "string", "description": "A design name (versions are compared) or a design YAML path."},
            "printer": {"type": "string"}, "material": {"type": "string", "description": "PLA, PETG, ABS, TPU..."},
@@ -103,6 +105,25 @@ TOOLS = [
 ]
 
 
+PROMPTS = [{
+    "name": "improve_part", "title": "Make a part ready to print",
+    "description": "Check a part, fix what's found in its design, and check again until it's ready to print.",
+    "arguments": [{"name": "path", "description": "The part: absolute path to an STL, 3MF, STEP or .scad file",
+                   "required": True},
+                  {"name": "goal", "description": "What it's for, and anything that must not change", "required": False}],
+}]
+IMPROVE = """Make the part at {path} ready to print{goal}.
+
+1. Check it with check_part, using design name "{name}" every time, so each round is compared with the last.
+2. Look at the renders. For each finding of severity 3 or 4, change the design so it goes away, starting with
+   the worst: use its `fix`, `location` and `measured` numbers. If it's an OpenSCAD file, edit the code; for a
+   mesh, say exactly what to change in the CAD tool, and stop there.
+3. Check again. Keep going until `ready` is true, or a round fixes nothing (then say why).
+4. Finish with what you changed and why, what's left (minor findings and notes), and the estimates
+   (grams, hours). Don't send anything to a printer: that's done in the ProofLoop window.
+"""
+
+
 class ToolError(Exception):
     pass
 
@@ -121,13 +142,17 @@ class Server:
             if method == "initialize":
                 asked = (msg.get("params") or {}).get("protocolVersion")
                 result = {"protocolVersion": asked if asked in PROTOCOLS else PROTOCOLS[0],
-                          "capabilities": {"tools": {"listChanged": False}},
+                          "capabilities": {"tools": {"listChanged": False}, "prompts": {"listChanged": False}},
                           "serverInfo": {"name": "proofloop", "title": "ProofLoop", "version": __version__},
                           "instructions": INSTRUCTIONS}
             elif method == "ping":
                 result = {}
             elif method == "tools/list":
                 result = {"tools": TOOLS}
+            elif method == "prompts/list":
+                result = {"prompts": PROMPTS}
+            elif method == "prompts/get":
+                result = self.prompt(msg.get("params") or {})
             elif method == "tools/call":
                 params = msg.get("params") or {}
                 result = self.call(params.get("name", ""), params.get("arguments") or {})
@@ -136,6 +161,18 @@ class Server:
         except Exception as e:  # noqa: BLE001 - the server must answer, whatever happens
             return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(e)}}
         return {"jsonrpc": "2.0", "id": mid, "result": result}
+
+    def prompt(self, params: dict) -> dict:
+        if params.get("name") != "improve_part":
+            raise ValueError(f"no prompt called {params.get('name')!r}")
+        args = params.get("arguments") or {}
+        path = str(args.get("path") or "").strip()
+        if not path:
+            raise ValueError("give the path of the part")
+        goal = str(args.get("goal") or "").strip()
+        text = IMPROVE.format(path=path, goal=f" ({goal})" if goal else "", name=Path(path).stem.replace("_", " "))
+        return {"description": PROMPTS[0]["description"],
+                "messages": [{"role": "user", "content": {"type": "text", "text": text}}]}
 
     def call(self, name: str, args: dict) -> dict:
         fn = getattr(self, f"t_{name}", None)

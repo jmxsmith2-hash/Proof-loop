@@ -19,6 +19,7 @@ def busy_night(app):
                            "total_layers": 120, "hms": [{"code": "0300-0D00-0001-000B", "level": "error"}]})
     app.store.add_outcome({"printer": "a", "job": "FL_S2_bracket", "outcome": "finished", "eject": "parts_left"})
     app.store.add_event("a", "error", "plate_not_clear", "parts left on the plate (loop end). The printer is waiting.")
+    app.store.add_event("b", "error", "check_failed", "plate not checked (loop end): camera: timed out.")
     app.store.add_event("a", "info", "loop", "cooling")
     app.store.add_usage(grams=120.0, kind="loop", printer="a", material="PLA", color="#F2F2F2")
 
@@ -31,7 +32,8 @@ def test_the_summary_counts_the_night_and_says_what_needs_you(tmp_path):
     s = summary(app)
     assert (s["parts"], s["loops"], s["failed_loops"]) == (28, 7, 1)
     assert s["headline"] == "28 parts in 7 loops in the last 12 hours; 2 things need you."
-    assert [a["what"] for a in s["attention"]] == ["waiting", "plate_not_clear"]
+    # a waiting printer has one line, not one more for the event that made it wait
+    assert [(a["printer"], a["what"]) for a in s["attention"]] == [("a", "waiting"), ("b", "check_failed")]
     f = s["failures"][0]
     assert (f["printer"], f["layer"], f["hms"]) == ("b", 41, ["0300-0D00-0001-000B"])
     assert s["parts_left"][0]["printer"] == "a"

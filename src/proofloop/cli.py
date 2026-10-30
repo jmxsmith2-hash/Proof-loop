@@ -12,6 +12,7 @@
     proofloop phone on|off|forget  phone access on your network
     proofloop doctor               check the setup (--slice-test, --send-test)
     proofloop summary              what happened on your printers (--hours, --json)
+    proofloop try                  try everything with three pretend printers (no hardware needed)
     proofloop mcp                  ProofLoop for assistants such as Claude (--config prints the setup)
     proofloop update               get the newest ProofLoop (--check to only look)
 """
@@ -286,6 +287,21 @@ def cmd_summary(a) -> int:
     return 0
 
 
+def cmd_try(a) -> int:
+    """ProofLoop with three pretend printers: everything works, nothing is real."""
+    from proofloop.app import pretend_farm
+
+    if running(a.port):
+        print(f"The pretend farm is already open at http://127.0.0.1:{a.port}/")
+        if a.window:
+            _open_window(f"http://127.0.0.1:{a.port}/")
+        return 0
+    if not _port_free(a.port):
+        print(f"Port {a.port} is used by another program. Try: proofloop try --port {a.port + 1}", file=sys.stderr)
+        return 2
+    return pretend_farm.run(a.port, a.window, a.fresh, _open_window)
+
+
 def cmd_mcp(a) -> int:
     from proofloop.app import mcp
 
@@ -406,6 +422,10 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--hours", type=float, default=12)
     p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p = sub.add_parser("try", help="try everything with three pretend printers (your real data isn't touched)")
+    p.add_argument("--port", type=int, default=8610)
+    p.add_argument("--no-window", dest="window", action="store_false", help="don't open the window")
+    p.add_argument("--fresh", action="store_true", help="start the pretend farm over")
     p = sub.add_parser("mcp", help="ProofLoop for assistants such as Claude (Model Context Protocol, stdio)")
     p.add_argument("--config", action="store_true", help="print the entry for Claude Desktop's config, and the "
                    "command for Claude Code")
@@ -422,7 +442,7 @@ def _main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     return {"open": cmd_open, "service": cmd_service, "app": cmd_app, "stop": cmd_stop, "status": cmd_status,
             "autostart": cmd_autostart, "phone": cmd_phone, "doctor": cmd_doctor, "update": cmd_update,
-            "summary": cmd_summary, "mcp": cmd_mcp}[a.cmd](a)
+            "summary": cmd_summary, "mcp": cmd_mcp, "try": cmd_try}[a.cmd](a)
 
 
 if __name__ == "__main__":

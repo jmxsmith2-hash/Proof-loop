@@ -18,8 +18,13 @@ nav .group{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;font-w
 #firstPauseHint[data-auto=on]::after{content:' Automatic: on until a loop has been swept cleanly on one of your printers.'}
 #firstPauseHint[data-auto=off]::after{content:' Automatic: off, because a loop has already been swept cleanly on one of your printers.'}
 nav{display:flex;gap:6px 18px;flex-wrap:wrap}
-nav button{border:0;background:none;color:var(--muted);padding:7px 12px;border-radius:8px;font:inherit;cursor:pointer}
-nav button[aria-selected=true]{background:var(--soft);color:var(--ink);font-weight:600}
+nav button{border:0;background:none;color:var(--muted);padding:7px 13px;border-radius:9px;font:inherit;font-weight:500;cursor:pointer;transition:background-color .15s,color .15s}
+nav button:hover{color:var(--ink);background:color-mix(in srgb,var(--soft) 70%,transparent)}
+nav button[aria-selected=true]{background:var(--soft);color:var(--ink);font-weight:600;box-shadow:inset 0 0 0 1px var(--line)}
+section[data-panel]:not(.hidden){animation:pl-in .22s var(--ease)}
+.summary{background:linear-gradient(180deg,color-mix(in srgb,var(--info-soft) 55%,var(--panel)),var(--panel) 70%)}
+.summary #sumSchedule{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.summary select{width:auto}
 input[type=number]{max-width:140px}
 .inline{display:flex;gap:8px;align-items:center}
 .slide{display:grid;grid-template-columns:minmax(0,1fr) 84px auto;gap:10px;align-items:center}
@@ -58,7 +63,7 @@ input[type=number]{max-width:140px}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .sw.big{width:30px;height:30px;border-radius:8px;margin:0;flex:none}
 .meter{height:8px;border-radius:5px;background:var(--soft);overflow:hidden;margin:6px 0}
-.meter i{display:block;height:100%;background:var(--accent);border-radius:5px}
+.meter i{display:block;height:100%;background:linear-gradient(90deg,color-mix(in srgb,var(--accent) 75%,#fff),var(--accent));border-radius:5px;transition:width .6s var(--ease)}
 .spool{padding:12px 0;border-top:1px solid var(--line)}
 .spool:first-child{border-top:0}
 .spool-top{display:flex;gap:10px;align-items:center}
@@ -78,7 +83,7 @@ input[type=number]{max-width:140px}
 .filrow{padding:8px 0;border-top:1px solid var(--line)}
 .filrow:first-child{border-top:0}
 .filrow select{max-width:320px}
-.run{padding:10px 0;border-top:1px solid var(--line)}
+.run{padding:12px 0;border-top:1px solid var(--line)}
 .run:first-child{border-top:0}
 .thumb{width:100%;border-radius:8px;border:1px solid var(--line);background:var(--soft);aspect-ratio:4/3;object-fit:cover}
 .num{font-variant-numeric:tabular-nums}
@@ -111,7 +116,7 @@ input[type=number]{max-width:140px}
   <div class="card summary" id="ovSummary">
     <div class="spread"><h2>While you were away</h2>
       <span class="row"><select id="sumHours" aria-label="Period"><option value="12">last 12 hours</option><option value="24">last 24 hours</option><option value="168">last 7 days</option></select></span></div>
-    <p class="lead" id="sumHeadline">…</p>
+    <p class="lead" id="sumHeadline"><span class="skeleton" style="width:60%"></span></p>
     <div id="sumBody"></div>
     <div class="row hint" id="sumSchedule"><label class="row" style="gap:6px"><input type="checkbox" id="sumDaily"> Send it to me every day at</label>
       <input type="time" id="sumAt" value="07:30" style="width:auto"><span>through your notification targets</span></div>
@@ -1475,8 +1480,8 @@ async function refreshOverview() {
     if (o.filament.unmatched) att.push(`<div class="banner warn"><span class="ic warning">!</span><div>${o.filament.unmatched} loop${o.filament.unmatched > 1 ? 's' : ''} used filament that isn't matched to a spool. <a href="#" data-goto="filament">Match it</a></div></div>`);
     $('#ovAttention').innerHTML = att.join('');
     $('#ovKpis').innerHTML = [['Parts today', o.today.parts], ['Loops today', o.today.loops], ['Parts, 7 days', o.week.parts], ['Parts, 30 days', o.month.parts],
-      ['Stopped loops, 7 days', o.week.failed, o.week.failed ? 'bad' : ''], ['Filament, 7 days', G(o.filament.used_g['7']) + (o.filament.used_cost['7'] ? ' · ' + cur + o.filament.used_cost['7'].toFixed(2) : '')]]
-      .map(([k, v, c]) => `<div class="kpi ${c || ''}"><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join('');
+      ['Stopped, 7 days', o.week.failed, o.week.failed ? 'bad' : ''], ['Filament, 7 days', G(o.filament.used_g['7']), '', o.filament.used_cost['7'] ? cur + o.filament.used_cost['7'].toFixed(2) + ' worth' : '']]
+      .map(([k, v, c, sub]) => `<div class="kpi ${c || ''}"><small>${esc(k)}</small><b>${esc(v)}</b>${sub ? `<span class="kpi-sub">${esc(sub)}</span>` : ''}</div>`).join('');
     $('#ovRuns').innerHTML = o.runs.length ? o.runs.map(r => {
       const pct = r.loops ? Math.min(100, (Math.max(0, r.loop_no - 1) / r.loops) * 100) : 0;
       return `<div class="run"><div class="spread"><b>${esc(r.printer)}</b>${r.waiting_for_you ? '<span class="chip bad">waiting for you</span>' : r.online ? '<span class="chip ok">online</span>' : '<span class="chip">offline</span>'}</div>

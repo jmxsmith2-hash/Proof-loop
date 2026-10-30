@@ -66,8 +66,11 @@ def summary(app, hours: float = 12, since: float | None = None) -> dict[str, Any
         if p["waiting_for_you"]:
             attention.append({"printer": p["printer"], "what": "waiting", "message": p["status"] or "waiting for you"})
             seen.add((p["printer"], "waiting"))
-    for e in events:  # newest first: one line per printer and kind
+    waiting = {p["printer"] for p in printers if p["waiting_for_you"]}
+    for e in events:  # newest first: one line per printer and kind; a waiting printer already has its line
         key = (e["printer"], e["kind"])
+        if e["printer"] in waiting:
+            continue
         if e["level"] in ("error", "warning") and e["kind"] in NEEDS_YOU and key not in seen:
             seen.add(key)
             attention.append({"printer": e["printer"], "what": e["kind"], "when": e["ts"], "message": e["message"]})

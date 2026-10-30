@@ -18,9 +18,9 @@ from proofloop.app.loop_server import create_app  # noqa: E402
 from proofloop.core.settings import PrinterConfig, VerifyConfig  # noqa: E402
 from proofloop.loopfiles import threemf  # noqa: E402
 from proofloop.monitor.printer.bambu import BambuPrinter  # noqa: E402
+from proofloop.monitor.printer.pretend import FakePrinter  # noqa: E402
 from proofloop.monitor.send import SendError, upload  # noqa: E402
 from proofloop.monitor.service import App  # noqa: E402
-from tests.fake_printer import FakePrinter  # noqa: E402
 from tests.monitor.test_vision import jpeg, plate  # noqa: E402
 
 PLATE = Path(__file__).resolve().parents[2] / "examples" / "gcode" / "bracket_plate.gcode.3mf"

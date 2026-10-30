@@ -35,7 +35,7 @@ from proofloop.core.paths import config_file
 log = get_logger(__name__)
 
 MAX_UPLOAD = 1024 * 1024 * 1024          # 1 GB: large Bambu project files
-CAD_SUFFIXES = (".stl", ".3mf", ".obj", ".ply", ".glb", ".gltf", ".off", ".step", ".stp")
+CAD_SUFFIXES = (".stl", ".3mf", ".obj", ".ply", ".glb", ".gltf", ".off", ".step", ".stp", ".scad")
 GCODE_SUFFIXES = (".gcode", ".gcode.3mf", ".gco", ".bgcode")
 PREFIX = "/check"
 

@@ -134,3 +134,17 @@ def test_the_official_mcp_client_can_use_it():
     r = asyncio.run(go())
     error = getattr(r, "is_error", None) if hasattr(r, "is_error") else r.isError  # renamed in SDK 2
     assert not error and json.loads(r.content[0].text)["ready"]
+
+
+def test_the_improve_part_prompt():
+    replies = rpc(Server(), {"jsonrpc": "2.0", "id": 1, "method": "prompts/list"},
+                  {"jsonrpc": "2.0", "id": 2, "method": "prompts/get",
+                   "params": {"name": "improve_part", "arguments": {"path": "/parts/phone_stand.scad",
+                                                                    "goal": "holds a phone at 60 degrees"}}},
+                  {"jsonrpc": "2.0", "id": 3, "method": "prompts/get", "params": {"name": "nope"}})
+    assert replies[0]["result"]["prompts"][0]["name"] == "improve_part"
+    text = replies[1]["result"]["messages"][0]["content"]["text"]
+    assert "/parts/phone_stand.scad ready to print (holds a phone at 60 degrees)" in text
+    assert 'design name "phone stand"' in text
+    assert "Don't send anything to a printer" in text
+    assert replies[2]["error"]["code"] == -32603

@@ -3,7 +3,8 @@
 Every finding has an ``id`` that names the check that found it (``stability``, ``overhang``,
 ``first_layer_temp``...) and stays the same between versions and runs, a ``severity`` (1 note,
 2 minor, 3 major, 4 will fail), what to change (``fix``) and, when there is one, where it is
-(``location`` in mm, or ``layer``) and a picture of it (``image``, a file path). ``ready`` is true
+(``location`` in mm, or ``layer``), the numbers behind it (``measured``) and a picture of it (``image``,
+a file path). ``ready`` is true
 when nothing major or worse is left. Paths are absolute.
 """
 
@@ -37,6 +38,8 @@ def finding(f: dict[str, Any], folder: Path) -> dict[str, Any]:
     for key in ("location", "layer", "loop_no", "fingerprint"):
         if f.get(key) not in (None, {}):
             out[key] = f[key]
+    if f.get("data"):
+        out["measured"] = {k: v for k, v in f["data"].items() if isinstance(v, (int, float, str, bool, list))}
     if f.get("settings"):
         out["slicer_settings"] = f["settings"]
     if f.get("image"):

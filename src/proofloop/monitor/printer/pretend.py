@@ -10,23 +10,69 @@ It runs what ProofLoop talks to on a real printer, each on a free port:
 - A camera: one JPEG over HTTP, used as the printer's ``snapshot_url``.
 
 Like a printer, it starts a file it holds when told ``project_file``, and pauses and resumes when
-told. Everything else (layers, loop-end pauses, finishing, failing) the test reports with ``report``.
+told. Tests drive the rest with ``report``. With ``simulate`` (``proofloop try``), it prints the file
+itself, faster than real life, by walking its G-code: a layer at each ``; CHANGE_LAYER``, the
+FarmBoard steps at each ``M104 S1``-``S5``, and a pause at each ``M400 U1``, where it waits for
+ProofLoop to check the plate and resume. Now and then a part stays on the plate; then a pretend
+person clears it and presses Resume after a while, as you would.
 """
 
 from __future__ import annotations
 
 import datetime
+import io
 import json
+import random
+import re
 import socket
 import ssl
 import struct
 import tempfile
 import threading
 import time
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 WHITE_PLA = [{"id": "0", "tray": [{"id": "0", "tray_type": "PLA", "tray_color": "F2F2F2FF", "remain": 80}]}]
+
+
+def plate_picture(parts_left: bool = False, seed: int = 1) -> bytes:
+    """What a camera sees of a textured PEI plate from above, empty or with a part left on it."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+
+    rng = np.random.default_rng(seed)
+    yy, xx = np.mgrid[0:480, 0:640]
+    base = 90 + rng.normal(0, 4, (480, 640)) + 25 * np.sin(xx / 37.0) * np.cos(yy / 53.0)
+    img = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8)).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    draw.rectangle((0, 0, 640, 70), fill=(30, 30, 30))  # the toolhead, outside the plate area
+    if parts_left:
+        draw.rectangle((300, 250, 340, 290), fill=(230, 230, 230))
+    buf = io.BytesIO()
+    img.save(buf, "JPEG", quality=85)
+    return buf.getvalue()
+
+
+def steps(gcode: str) -> list[tuple[str, int]]:
+    """What a printer does while it runs this G-code, in order: ("layers", total), ("layer", n),
+    ("signal", 1..6) for the FarmBoard's M104 S1-S6, ("pause", 0) for M400 U1."""
+    out, layer = [], 0
+    for line in gcode.splitlines():
+        if line.startswith("; total layer number:"):
+            out.append(("layers", int(line.rsplit(":", 1)[1])))
+            layer = 0
+        elif line.startswith("; CHANGE_LAYER"):
+            layer += 1
+            out.append(("layer", layer))
+        elif line.startswith("M400 U1"):
+            out.append(("pause", 0))
+        else:
+            m = re.match(r"M104 S([1-6])\b", line)
+            if m:
+                out.append(("signal", int(m.group(1))))
+    return out
 
 
 def _certificate(folder: Path) -> tuple[Path, Path]:
@@ -56,8 +102,14 @@ def _server() -> socket.socket:
 
 
 class FakePrinter:
-    def __init__(self, serial: str = "01P00A000000001", access_code: str = "12345678"):
+    def __init__(self, serial: str = "01P00A000000001", access_code: str = "12345678", simulate: bool = False,
+                 layer_s: float = 0.25, step_s: float = 4.0, parts_left: float = 0.0, person_s: float = 25.0):
         self.serial, self.access_code = serial, access_code
+        self.simulate, self.layer_s, self.step_s = simulate, layer_s, step_s
+        self.parts_left, self.person_s = parts_left, person_s  # chance a part stays; how soon you clear it
+        self._rng = random.Random(serial)
+        self._resumed = threading.Event()
+        self._job: threading.Thread | None = None
         self._tmp = tempfile.TemporaryDirectory()
         self.tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         self.tls.load_cert_chain(*_certificate(Path(self._tmp.name)))
@@ -66,7 +118,7 @@ class FakePrinter:
                             "ams": {"ams": WHITE_PLA, "tray_now": "255"}}
         self.files: dict[str, bytes] = {}
         self.commands: list[dict] = []  # every command ProofLoop sent, in order
-        self.picture = b""  # what the camera shows
+        self.picture = plate_picture() if simulate else b""  # what the camera shows
         self.logins: list[tuple[str, str]] = []
         self._clients: list[ssl.SSLSocket] = []
         self._lock = threading.Lock()
@@ -205,10 +257,56 @@ class FakePrinter:
                 return
             self.report(gcode_state="RUNNING", subtask_name=cmd.get("subtask_name", ""), gcode_file=name,
                         layer_num=1, print_error=0)
+            if self.simulate:
+                self._job = threading.Thread(target=self._print, args=(name, cmd.get("param", "")), daemon=True)
+                self._job.start()
         elif what == "pause":
             self.report(gcode_state="PAUSE")
         elif what == "resume":
             self.report(gcode_state="RUNNING")
+            self._resumed.set()
+
+    # ---- printing, when simulating --------------------------------------------------------------
+    def _print(self, name: str, param: str) -> None:
+        try:
+            with zipfile.ZipFile(io.BytesIO(self.files[name])) as z:
+                path = param if param in z.namelist() else next(n for n in z.namelist() if n.endswith(".gcode"))
+                gcode = z.read(path).decode("utf-8", "replace")
+        except (KeyError, StopIteration, zipfile.BadZipFile):
+            self.report(gcode_state="FAILED", print_error=0x0500C010)
+            return
+        todo = steps(gcode)
+        layers = next((n for kind, n in todo if kind == "layers"), 1)
+        self.report(ams={"tray_now": "0"}, total_layer_num=layers)
+        for i, (kind, n) in enumerate(todo):
+            if self._stop.is_set():
+                return
+            if kind == "layers":
+                layers = n
+                self.report(total_layer_num=n, layer_num=0)
+            elif kind == "layer":
+                left = sum(1 for k, _ in todo[i:] if k == "layer")
+                self.report(layer_num=n, mc_remaining_time=max(1, round(left * 60 * self.layer_s / 60)),
+                            mc_percent=min(99, round(100 * (len(todo) - left) / len(todo))))
+                time.sleep(self.layer_s)
+            elif kind == "signal":
+                self.report(nozzle_target_temper=n)
+                time.sleep(self.step_s)
+            elif kind == "pause":
+                self._pause()
+        self.report(gcode_state="FINISH", mc_remaining_time=0, mc_percent=100, nozzle_target_temper=0,
+                    ams={"tray_now": "255"})
+
+    def _pause(self) -> None:
+        """The file waits here for the plate check: ProofLoop resumes it, or a pretend person does."""
+        left = self._rng.random() < self.parts_left
+        self.picture = plate_picture(parts_left=left)
+        self._resumed.clear()
+        self.report(gcode_state="PAUSE", mc_remaining_time=0)
+        if not self._resumed.wait(self.person_s if left else self.person_s * 4):
+            self.picture = plate_picture()  # you cleared the plate and pressed Resume
+            self.report(gcode_state="RUNNING")
+        self.picture = plate_picture()
 
     # ---- FTPS ------------------------------------------------------------------------------
     def _accept_ftp(self) -> None:

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -57,6 +58,7 @@ class Shell:
             "version": __version__,
             "header": HEADER,
             "service": self.service is not None,
+            "pretend": bool(os.environ.get("PROOFLOOP_PRETEND")),  # proofloop try
         }
         # JSON inside <script>: "<" escaped so no value can close the tag
         blob = json.dumps(config).replace("<", "\\u003c")
