@@ -185,9 +185,13 @@ jobs:
           "PROOFLOOP_SLICER=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: STL to print-ready verdict, with a loop file, and the slicer-setting fixes applied
         run: |
+          # Exit 1 means it ran and found something to fix (phone_stand_v1 has planted flaws); 2 means it couldn't run.
           proofloop check prepare examples/cad/phone_stand_v1.stl --design examples/cad/phone_stand.yaml --loops 2
-          if ($LASTEXITCODE) { exit 1 }
-          proofloop check prepare examples/cad/block_control.stl --fix
+          if ($LASTEXITCODE -gt 1) { exit 1 }
+          proofloop check prepare examples/cad/block_control.stl --fix --json > prepare.json
+          if ($LASTEXITCODE -gt 1) { exit 1 }
+          Get-Content prepare.json | ConvertFrom-Json | Select-Object kind, ready, slicer, grams | Format-List
+          exit 0
       - name: The setup check finds it and slices a test part
         run: proofloop doctor --slice-test
       - name: What the slicer wrote (when it failed)

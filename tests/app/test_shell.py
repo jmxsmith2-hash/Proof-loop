@@ -93,7 +93,8 @@ def test_command_line(capsys, tmp_path, home, monkeypatch):
     assert main(["check", str(REPO / "examples" / "gcode" / "bracket_good.gcode.3mf")]) == 0
     assert "no problems found in the G-code" in capsys.readouterr().out
     cad = REPO / "examples" / "cad"
-    assert main(["check", str(cad / "phone_stand_v1.stl"), "--design", str(cad / "phone_stand.yaml")]) == 0
+    # It ran and found the planted flaws: exit 1 (2 would mean it couldn't check).
+    assert main(["check", str(cad / "phone_stand_v1.stl"), "--design", str(cad / "phone_stand.yaml")]) == 1
     assert "Phone stand" in capsys.readouterr().out
     assert main(["loop", "profiles"]) == 0
     assert "p2s" in capsys.readouterr().out.lower()

@@ -195,6 +195,11 @@ def cmd_status(a) -> int:
     from proofloop.app import autostart
 
     r = _ask(a.port, "/proofloop/status")
+    if a.json:
+        from proofloop.core.output import emit
+
+        emit({"running": bool(r), "starts_at_login": autostart.enabled(), **(r or {})})
+        return 0 if r else 1
     if not r:
         print("ProofLoop isn't running.")
     else:
@@ -248,7 +253,12 @@ def cmd_doctor(a) -> int:
     from proofloop.app.doctor import BAD, checks, text
 
     results = checks(None, slice_test=a.slice_test, send_test=a.send_test, port=a.port)
-    print(text(results))
+    if a.json:
+        from proofloop.core.output import emit
+
+        emit({"ok": not any(r["level"] == BAD for r in results), "checks": results})
+    else:
+        print(text(results))
     return 1 if any(r["level"] == BAD for r in results) else 0
 
 
@@ -344,6 +354,7 @@ def _main(argv: list[str] | None = None) -> int:
     _server_opts(sub.add_parser("app", help="run in this terminal until Ctrl+C (no tray)"))
     for name, text in (("stop", "quit the background ProofLoop"), ("status", "is ProofLoop running?")):
         sub.add_parser(name, help=text).add_argument("--port", type=int, default=DEFAULT_PORT)
+    sub.choices["status"].add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p = sub.add_parser("autostart", help="start in the background when you log in")
     p.add_argument("what", choices=["on", "off", "status"], nargs="?", default="status")
     p = sub.add_parser("phone", help="phone access on your network")
@@ -352,6 +363,7 @@ def _main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("doctor", help="check that everything ProofLoop needs is there and working")
     p.add_argument("--slice-test", action="store_true", help="also slice a small example part with your slicer")
     p.add_argument("--send-test", action="store_true", help="also send a test notice to your notification targets")
+    p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p = sub.add_parser("update", help="get the newest ProofLoop from GitHub")
     p.add_argument("--check", action="store_true", help="only say whether there is an update")

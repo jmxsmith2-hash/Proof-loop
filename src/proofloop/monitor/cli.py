@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 import time
 import webbrowser
 
 from proofloop import __version__
+from proofloop.core.output import emit
 from proofloop.core.paths import PRINTERS_DB, home
 from proofloop.monitor.printer.ams import label as tray_label
 from proofloop.monitor.service import App
@@ -20,7 +20,7 @@ def cmd_history(a) -> int:
 
     rows = Store(home() / PRINTERS_DB).outcomes(limit=a.limit)
     if a.json:
-        print(json.dumps(rows, indent=2))
+        emit(rows)
         return 0
     if not rows:
         print("No prints recorded yet: ProofLoop records every print on the printers it watches.")
@@ -39,6 +39,10 @@ def cmd_spools(a) -> int:
     app = App(home(), connect=False)
     low = app.settings.filament.low_g
     spools = app.inventory.all(archived=a.all)
+    if a.json:
+        emit({"spools": [sp.as_dict(low) | {"forecast": app.inventory.forecast(sp)} for sp in spools],
+              "summary": app.inventory.summary()})
+        return 0
     if not spools:
         print("No spools yet: add them under Printers › Filament in the window.")
         return 0
@@ -89,6 +93,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("spools", help="list your filament spools and what's left on them")
     p.add_argument("--all", action="store_true", help="include archived spools")
+    p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p.set_defaults(fn=cmd_spools)
 
     p = sub.add_parser("serve", help="serve Loop files & Printers alone (Docker, an always-on computer)")
