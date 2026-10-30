@@ -103,6 +103,6 @@ def test_cli_process_option(tmp_path):
     cfg.mkdir(parents=True)  # empty: the built-in config files are used
     out = CliRunner().invoke(app, ["design", str(stl), "--process", "injection", "--material", "PP",
                                    "-n", "2", "-o", str(tmp_path / "r"), "-c", str(cfg)])
-    assert out.exit_code == 0, out.output
+    assert out.exit_code == 1, out.output  # the window needs a side action: something to fix first
     assert "Injection moulding, pull Z, PP" in out.output and "side action" in out.output
     assert "check printed" not in out.output and (tmp_path / "r" / "index.html").is_file()

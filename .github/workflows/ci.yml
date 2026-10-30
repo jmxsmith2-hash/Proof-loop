@@ -27,8 +27,10 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           cache: pip
-      - run: python -m pip install -e ".[dev]"
+      - run: python -m pip install -e ".[dev]" -c constraints.txt
       - run: ruff check src tests tools examples
+      - name: Types (mypy; pyproject.toml lists the modules not checked yet)
+        run: python -m mypy src
       - run: python -m pytest -q
 
   evidence:
@@ -63,10 +65,17 @@ jobs:
       - name: Install ProofLoop
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[all,anthropic,dev]"
+          python -m pip install -e ".[all,anthropic,dev]" -c constraints.txt
       - run: ruff check src tests tools examples
       - name: Tests (the window, Check, Loop files, Printers, end to end)
+        if: runner.os != 'Linux'
         run: python -m pytest -q
+      - name: Tests, with how much of the code they run
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          python -m pytest -q --cov=proofloop --cov-report=term --cov-report=markdown:coverage.md
+          { echo "## Test coverage"; cat coverage.md; } >> "$GITHUB_STEP_SUMMARY"
       - name: Text files are read and written as UTF-8 (Windows defaults to another encoding)
         if: runner.os == 'Linux'
         run: python -X warn_default_encoding -m pytest -q --ignore=tests/e2e -W "error::EncodingWarning:proofloop" -W "error::EncodingWarning:tests"
@@ -185,9 +194,13 @@ jobs:
           "PROOFLOOP_SLICER=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: STL to print-ready verdict, with a loop file, and the slicer-setting fixes applied
         run: |
+          # Exit 1 means it ran and found something to fix (phone_stand_v1 has planted flaws); 2 means it couldn't run.
           proofloop check prepare examples/cad/phone_stand_v1.stl --design examples/cad/phone_stand.yaml --loops 2
-          if ($LASTEXITCODE) { exit 1 }
-          proofloop check prepare examples/cad/block_control.stl --fix
+          if ($LASTEXITCODE -gt 1) { exit 1 }
+          proofloop check prepare examples/cad/block_control.stl --fix --json > prepare.json
+          if ($LASTEXITCODE -gt 1) { exit 1 }
+          Get-Content prepare.json | ConvertFrom-Json | Select-Object kind, ready, slicer, grams | Format-List
+          exit 0
       - name: The setup check finds it and slices a test part
         run: proofloop doctor --slice-test
       - name: What the slicer wrote (when it failed)

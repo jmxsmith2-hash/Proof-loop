@@ -11,14 +11,33 @@ from pathlib import Path
 
 import typer
 
+from proofloop.check import summary
 from proofloop.core.commands import ConfigOpt
 from proofloop.core.commands import database as _db
 from proofloop.core.commands import settings_or_exit as _settings
 from proofloop.core.config import ConfigError, find_config_dir, load_settings
+from proofloop.core.output import OK, PROBLEMS, emit, exit_code
 from proofloop.core.paths import config_file
 
 app = typer.Typer(help="Check CAD designs and sliced G-code before you print.", no_args_is_help=True,
                   add_completion=False)
+SEVERITY_COLOR = {4: "red", 3: "bright_red", 2: "yellow", 1: "cyan"}
+
+
+def _finding_line(f: dict, where: str = "") -> None:
+    colour = SEVERITY_COLOR.get(f["severity"], "white")
+    typer.echo(f"  {f['n']:2}. " + typer.style(f"{f['severity_name']:9}", fg=colour, bold=f["severity"] >= 3)
+               + f"  {f['title']}{where}")
+
+
+def _verdict(findings: list[dict], ready_text: str) -> None:
+    blocking = sum(1 for f in findings if f["severity"] >= 3)
+    if blocking:
+        typer.secho(f"✖ {blocking} thing{'s' if blocking != 1 else ''} to fix first", fg="red", bold=True)
+    else:
+        minor = len(findings)
+        typer.secho(f"✓ {ready_text}" + (f" ({minor} minor or note{'s' if minor != 1 else ''})" if minor else ""),
+                    fg="green", bold=True)
 
 
 @app.command("new")
@@ -98,15 +117,17 @@ def design_check(
     personas: int = typer.Option(5, "--personas", "-n", help="How many personas react to the design."),
     out: Path | None = typer.Option(None, "--out", "-o", help="Report folder."),
     config: Path | None = ConfigOpt,
+    as_json: bool = typer.Option(False, "--json", help="Print the result as JSON (for programs and assistants)."),
 ) -> None:
     """Check a CAD design before printing; run it again on each new version to see what changed."""
     from proofloop.check.cad.pipeline import check_design, design_spec
     from proofloop.personas.generate import PersonaGenerator
 
     if cad_file.name.lower().endswith((".gcode", ".gcode.3mf", ".gco")):
-        typer.echo("This is sliced G-code; checking it as G-code (proofloop check gcode).")
+        if not as_json:
+            typer.echo("This is sliced G-code; checking it as G-code (proofloop check gcode).")
         gcode_check(cad_file, printer=printer, material=material, plate=None, out=out, open_report=False,
-                       config=config)
+                    config=config, as_json=as_json)
         return
 
     s = _settings(config)
@@ -123,12 +144,19 @@ def design_check(
     except ConfigError as exc:
         typer.secho(f"Cannot check {cad_file}: {exc}", fg="red", err=True)
         raise typer.Exit(2) from None
+    code = exit_code(result["findings"])
+    if as_json:
+        emit(summary.design(result))
+        raise typer.Exit(code)
     made = result["process"]
-    how = (result["printer"].get("names") or [result["printer"]["name"]])[0] if made["kind"] == "print" else \
+    pr = result["printer"]
+    how = (pr.get("names") or [pr.get("label") or pr["name"]])[0] if made["kind"] == "print" else \
         made["label"] + (f", pull {made['pull'].upper()}" if made.get("pull") else "")
-    typer.echo(f"{result['design']} v{result['version']}  ({how}, {result['material']['name']})")
+    typer.secho(f"{result['design']} v{result['version']}", bold=True, nl=False)
+    typer.echo(f"  ({how}, {result['material']['name']})")
+    _verdict(result["findings"], "Ready to print" if made["kind"] == "print" else "Ready to make")
     for f in result["findings"]:
-        typer.echo(f"  {f['n']:2}. [{f['severity_name']:9}] {f['title']}")
+        _finding_line(f)
     if not result["findings"]:
         typer.secho("  no problems found by the geometry checks", fg="green")
     est = result["metrics"]["estimates"]
@@ -150,6 +178,7 @@ def design_check(
     if made["kind"] == "print":
         typer.echo(f"After printing: proofloop check printed \"{result['design']}\" --measure measurements.csv "
                    "[--defect warping ...]")
+    raise typer.Exit(code)
 
 
 @app.command("prepare")
@@ -170,6 +199,7 @@ def prepare_print(
     out: Path | None = typer.Option(None, "--out", "-o", help="Report folder."),
     open_report: bool = typer.Option(False, "--open", help="Open the report in the browser."),
     config: Path | None = ConfigOpt,
+    as_json: bool = typer.Option(False, "--json", help="Print the result as JSON (for programs and assistants)."),
 ) -> None:
     """From CAD to a print-ready verdict: design check, slice with Bambu Studio or Orca, G-code check, compare."""
     import webbrowser
@@ -177,7 +207,7 @@ def prepare_print(
     from proofloop.check.prepare import prepare
 
     s = _settings(config)
-    history = _print_history(config)
+    history = _print_history(config, say=not as_json)
     try:
         r = prepare(s, _db(s), model, printer=printer, material=material, layer=layer, slicer=slicer,
                     process_preset=process_preset, filament_preset=filament_preset, support=support, loops=loops,
@@ -185,6 +215,9 @@ def prepare_print(
     except ConfigError as exc:
         typer.secho(f"Cannot prepare {model}: {exc}", fg="red", err=True)
         raise typer.Exit(2) from None
+    if as_json:
+        emit(summary.prepare(r))
+        raise typer.Exit(OK if r["ready"] else PROBLEMS)
     typer.secho("Ready to print" if r["ready"] else f"Fix {r['blocking']} thing(s) first",
                 fg="green" if r["ready"] else "red", bold=True)
     typer.echo(f"  sliced by {r['slicer']['name']}: {r['presets']['process']}, {r['presets']['filament']}")
@@ -207,6 +240,7 @@ def prepare_print(
     typer.secho(f"report: {r['report']}", fg="green")
     if open_report:
         webbrowser.open(Path(r["report"]).resolve().as_uri())
+    raise typer.Exit(OK if r["ready"] else PROBLEMS)
 
 
 @app.command("gcode")
@@ -218,6 +252,7 @@ def gcode_check(
     out: Path | None = typer.Option(None, "--out", "-o", help="Report folder."),
     open_report: bool = typer.Option(False, "--open", help="Open the report in the browser."),
     config: Path | None = ConfigOpt,
+    as_json: bool = typer.Option(False, "--json", help="Print the result as JSON (for programs and assistants)."),
 ) -> None:
     """Check sliced G-code before printing: plate, layers, temperatures, flow, retraction, cooling."""
     import webbrowser
@@ -225,17 +260,22 @@ def gcode_check(
     from proofloop.check.gcode.pipeline import check_gcode
 
     cfg = Path(config) if config else find_config_dir()
-    history = _print_history(config)
+    history = _print_history(config, say=not as_json)
     try:
         r = check_gcode(cfg, gcode_file, printer=printer, material=material, plate=plate, out=out, history=history)
     except ConfigError as exc:
         typer.secho(f"Cannot check {gcode_file}: {exc}", fg="red", err=True)
         raise typer.Exit(2) from None
-    typer.echo(f"{r['file']}  ({r['printer']['label']} {r['printer_source']}, {r['material']['name']} "
+    code = exit_code(r["findings"])
+    if as_json:
+        emit(summary.gcode(r))
+        raise typer.Exit(code)
+    typer.secho(str(Path(r["file"]).name), bold=True, nl=False)
+    typer.echo(f"  ({r['printer']['label']} {r['printer_source']}, {r['material']['name']} "
                f"{r['material_source']}, {r['nozzle']:g} mm nozzle)")
+    _verdict(r["findings"], "Ready to print")
     for f in r["findings"]:
-        where = f"  [layer {f['layer']}]" if f.get("layer") else ""
-        typer.echo(f"  {f['n']:2}. [{f['severity_name']:9}] {f['title']}{where}")
+        _finding_line(f, typer.style(f"  layer {f['layer']}", dim=True) if f.get("layer") else "")
     if not r["findings"]:
         typer.secho("  no problems found in the G-code", fg="green")
     if r.get("setting_fixes"):
@@ -255,10 +295,13 @@ def gcode_check(
     typer.secho(f"report: {r['report']}", fg="green")
     if open_report:
         webbrowser.open(Path(r["report"]).resolve().as_uri())
+    raise typer.Exit(code)
 
 
-def _print_history(config: Path | None, files: list[Path] | None = None, quiet: bool = True):
-    """Import new prints from the print journal, then return a history lookup for the G-code check."""
+def _print_history(config: Path | None, files: list[Path] | None = None, quiet: bool = True, say: bool = True):
+    """Import new prints from the print journal, then return a history lookup for the G-code check.
+
+    ``say=False`` writes nothing on stdout (for --json)."""
     from proofloop.check.learn import history_for, import_prints
 
     try:
@@ -272,7 +315,7 @@ def _print_history(config: Path | None, files: list[Path] | None = None, quiet: 
         if not quiet:
             typer.secho(f"Could not read the print journal: {exc}", fg="yellow", err=True)
         counts = {"new": 0}
-    if counts["new"] and quiet:
+    if counts["new"] and quiet and say:
         typer.echo(f"learned from {counts['new']} new print(s) on your printers")
     return lambda printer, material, job: history_for(db, printer, material, job)
 
@@ -351,7 +394,7 @@ def design_history(design: str | None = typer.Argument(None, help="Design name (
         typer.echo(d["name"])
         for v in db.all("SELECT * FROM design_versions WHERE design_id = ? ORDER BY version", [d["id"]]):
             sev = [f["severity"] for f in v["findings_json"]]
-            prints = db.one("SELECT COUNT(*) AS n FROM print_results WHERE version_id = ?", [v["id"]])["n"]
+            prints = (db.one("SELECT COUNT(*) AS n FROM print_results WHERE version_id = ?", [v["id"]]) or {"n": 0})["n"]
             comp = v["comparison_json"] or {}
             change = (f"  ({len(comp.get('fixed', []))} fixed, {len(comp.get('new', []))} new)" if comp else "")
             typer.echo(f"  v{v['version']}  {v['created_at'][:16]}  {len(sev)} findings, {sev.count(4)} will fail, "

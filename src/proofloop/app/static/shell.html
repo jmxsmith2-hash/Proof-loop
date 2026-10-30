@@ -8,24 +8,32 @@
 <style>
 html, body { height: 100%; }
 body { display: flex; flex-direction: column; }
-header { display: flex; align-items: center; gap: 18px; padding: 0 16px; height: 50px; flex: none; background: var(--panel); border-bottom: 1px solid var(--line); }
+header { display: flex; align-items: center; gap: 18px; padding: 0 16px; height: 52px; flex: none; background: var(--panel); border-bottom: 1px solid var(--line); position: relative; z-index: 2; box-shadow: 0 1px 0 rgba(16,24,40,.02), 0 2px 6px -4px rgba(16,24,40,.12); }
 nav { display: flex; gap: 2px; height: 100%; min-width: 0; }
-nav button, .more > button { white-space: nowrap; height: 100%; padding: 0 12px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+nav button, .more > button { white-space: nowrap; height: 100%; padding: 0 13px; border: 0; border-bottom: 2.5px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; transition: color .15s, border-color .2s; }
+nav button:hover, .more > button:hover { color: var(--ink); }
 nav button[aria-selected="true"], .more > button.on { color: var(--ink); border-bottom-color: var(--accent); }
 nav button:focus-visible, .more > button:focus-visible { outline-offset: -3px; }
 .badge { display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
 .more { position: relative; height: 100%; }
-.menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 10; min-width: 230px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(16,24,40,.14); }
+.menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 10; min-width: 250px; padding: 6px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-lg); animation: pl-in .16s var(--ease); }
 .menu button { display: flex; width: 100%; gap: 10px; align-items: flex-start; text-align: left; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--ink); font: inherit; cursor: pointer; }
 .menu button:hover, .menu button:focus-visible { background: var(--soft); }
 .menu small { display: block; color: var(--muted); font-size: 12.5px; }
 .menu .on b::after { content: " · on"; color: var(--ok); font-weight: 600; }
-.ver { margin-left: auto; color: var(--muted); font-size: 13px; }
-.strip { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 16px; margin: 0; border-radius: 0; border-bottom: 1px solid var(--line); font-size: 14px; flex: none; }
-.strip button { padding: 4px 12px; font-size: 14px; }
+.ver { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--soft); font-variant-numeric: tabular-nums; cursor: pointer; border: 0; }
+.ver.fresh { background: var(--accent); color: var(--accent-ink); }
+.ver.fresh::after { content: " · what's new"; }
+.strip { display: flex; gap: 12px; align-items: center; padding: 7px 16px; margin: 0; border: 0; border-radius: 0; border-bottom: 1px solid color-mix(in srgb, var(--tone) 18%, var(--line)); font-size: 13.5px; flex: none; }
+.strip .grow { flex: 1; min-width: 0; }
+.strip .ic { margin: 0; }
+.strip button { padding: 4px 12px; font-size: 13.5px; flex: none; }
+.strip.pretend { background: linear-gradient(90deg, var(--warn-soft), color-mix(in srgb, var(--warn-soft) 40%, var(--panel))); }
+@media (max-width: 760px) { .strip { flex-wrap: wrap; } }
 .work { flex: 1; display: flex; min-height: 0; }
 iframe { flex: 1; min-width: 0; border: 0; display: block; background: var(--bg); }
-#guide { flex: none; width: 380px; overflow: auto; padding: 16px 18px; background: var(--panel); border-left: 1px solid var(--line); }
+#guide { flex: none; width: 360px; overflow: auto; padding: 18px 20px; background: var(--panel); border-left: 1px solid var(--line); animation: pl-slide .25s var(--ease); }
+@keyframes pl-slide { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: none; } }
 #guide h2 { font-size: 18px; margin: 0; }
 #guide ol { list-style: none; margin: 12px 0 0; padding: 0; }
 #guide li { display: flex; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
@@ -37,14 +45,19 @@ iframe { flex: 1; min-width: 0; border: 0; display: block; background: var(--bg)
 .meter { height: 6px; border-radius: 4px; background: var(--soft); overflow: hidden; margin: 8px 0 2px; }
 .meter i { display: block; height: 100%; background: var(--ok); transition: width .4s; }
 @media (max-width: 760px) { #guide { position: fixed; inset: 50px 0 0 0; width: auto; z-index: 8; border-left: 0; } }
-dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink); max-width: min(440px, calc(100vw - 32px)); padding: 18px 20px; }
-dialog::backdrop { background: #0006; }
+dialog { border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--ink); max-width: min(440px, calc(100vw - 32px)); padding: 20px 22px; box-shadow: var(--shadow-lg); }
+dialog[open] { animation: pl-in .2s var(--ease); }
+dialog::backdrop { background: rgba(10, 14, 20, .45); backdrop-filter: blur(3px); }
 dialog h2 { font-size: 18px; margin: 0 0 6px; }
 dialog p { margin: 6px 0; }
 .qr { background: #fff; border-radius: 10px; padding: 8px; width: 220px; margin: 10px auto; }
 .qr svg { width: 100%; height: auto; display: block; }
 .code { font-size: 26px; letter-spacing: 6px; font-weight: 700; text-align: center; }
 .err { color: var(--bad); }
+#newsDlg { max-width: min(560px, calc(100vw - 32px)); }
+.news { max-height: 60vh; overflow: auto; font-size: 14px; }
+.news h3 { margin: 14px 0 4px; } .news h4 { margin: 10px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.news ul { margin: 0; padding-left: 18px; } .news li { margin: 3px 0; }
 @media (max-width: 760px) { .ver, .brand span { display: none; } nav button, .more > button { padding: 0 8px; font-size: 14px; } header { gap: 8px; padding: 0 10px; } }
 </style>
 </head>
@@ -62,9 +75,10 @@ dialog p { margin: 6px 0; }
       <button type="button" role="menuitem" id="phoneBtn" class="hidden"><span><b>Phone</b><small>See your printers on your phone, over your Wi-Fi</small></span></button>
       <button type="button" role="menuitem" id="guideBtn"><span><b>Get set up</b><small id="guideMenuNote">The few things to do before your printers run unattended</small></span></button>
       <button type="button" role="menuitem" id="doctorBtn"><span><b>Setup check</b><small>Is everything ProofLoop needs working?</small></span></button>
+      <button type="button" role="menuitem" id="newsBtn" class="hidden"><span><b>What's new</b><small id="newsNote">What changed in this version</small></span></button>
     </div>
   </div>
-  <span class="ver" id="ver"></span>
+  <button type="button" class="ver" id="ver" title="What's new"></button>
 </header>
 <div class="banner warn strip hidden" id="noticeBanner" role="region" aria-label="Notifications">
   <span>Get a desktop notice when a check finishes while ProofLoop is in the background?</span>
@@ -72,9 +86,15 @@ dialog p { margin: 6px 0; }
   <button type="button" class="btn" id="noticeNo">Not now</button>
 </div>
 <div class="banner info strip hidden" id="bgBanner" role="region" aria-label="Running in the background">
-  <span>Closing this window keeps ProofLoop watching your printers. Quit it from its icon next to the clock.</span>
-  <span class="hidden" id="autostartHint">It doesn't start when you log in yet, so after a restart nothing watches the printers. <button type="button" class="btn primary" id="autostartYes">Start when I log in</button></span>
-  <button type="button" class="btn" id="bgOk">OK</button>
+  <span class="ic" aria-hidden="true">i</span>
+  <span class="grow" id="bgText">Closing this window keeps ProofLoop watching your printers. Quit it from its icon next to the clock.</span>
+  <button type="button" class="btn primary hidden" id="autostartYes">Start when I log in</button>
+  <button type="button" class="btn" id="bgOk">Got it</button>
+</div>
+<div class="banner warn strip pretend hidden" id="pretendBanner" role="note">
+  <span class="ic" aria-hidden="true">✦</span>
+  <span class="grow"><b>Pretend farm.</b> Three pretend printers, printing about 40 times faster than real ones. Everything else
+    is real ProofLoop; your own printers and data aren't touched.</span>
 </div>
 <div class="work">
 <iframe id="check" role="tabpanel" aria-labelledby="tab-check" title="Check" class="hidden"></iframe>
@@ -87,6 +107,12 @@ dialog p { margin: 6px 0; }
   <p class="hint">You can open this again from <b>More › Get set up</b>.</p>
 </aside>
 </div>
+
+<dialog id="newsDlg" aria-labelledby="newsTitle">
+  <h2 id="newsTitle">What's new</h2>
+  <div id="newsBody" class="news"></div>
+  <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="newsClose">Close</button></div>
+</dialog>
 
 <dialog id="phoneDlg" aria-labelledby="phoneTitle">
   <h2 id="phoneTitle">Your printers on your phone</h2>
@@ -203,8 +229,11 @@ async function loadStatus() {
   $("phoneBtn").classList.toggle("hidden", !STATUS.phone);
   $("phoneBtn").classList.toggle("on", !!(STATUS.phone && STATUS.phone.on));
   const showBg = !store.get("proofloop-bg-ok") || (!STATUS.autostart && !store.get("proofloop-autostart-dismissed"));
-  $("autostartHint").classList.toggle("hidden", STATUS.autostart);
-  $("bgBanner").classList.toggle("hidden", !showBg);
+  $("autostartYes").classList.toggle("hidden", STATUS.autostart);
+  $("bgText").textContent = STATUS.autostart
+    ? "Closing this window keeps ProofLoop watching your printers. Quit it from its icon next to the clock."
+    : "Closing this window keeps ProofLoop watching your printers, but it doesn't start when you log in yet: after a restart, nothing watches them.";
+  $("bgBanner").classList.toggle("hidden", !showBg || CFG.pretend);
   renderPhone();
 }
 $("bgOk").onclick = () => { store.set("proofloop-bg-ok", "1"); store.set("proofloop-autostart-dismissed", "1"); $("bgBanner").classList.add("hidden"); };
@@ -227,45 +256,6 @@ $("phoneToggle").onclick = async () => {
   try { STATUS = await call("/proofloop/phone", {on: !(STATUS.phone && STATUS.phone.on)}); }
   catch (e) { $("phoneErr").textContent = e.message; }
   $("phoneToggle").disabled = false; renderPhone(); loadStatus();
-
-// ---- first-run guide: the steps tick themselves off while you work through them
-let guideTimer = null;
-const esc = (s) => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
-function renderGuide(g) {
-  $("guideBar").style.width = Math.round(100 * g.done / g.total) + "%";
-  $("guideProgress").textContent = g.complete ? "All set: your printers can run unattended." : `${g.done} of ${g.total} done`;
-  $("guideMenuNote").textContent = g.complete ? "All done" : `${g.done} of ${g.total} done`;
-  let n = 0;
-  $("guideSteps").innerHTML = g.steps.map((s, i) => {
-    const num = s.optional ? "+" : ++n;
-    const button = !s.go ? "" : s.go.call === "autostart" ? `<button type="button" class="btn primary" data-call="autostart">Turn it on</button>`
-      : `<button type="button" class="btn" data-step="${i}">Show me</button>`;
-    return `<li class="${s.done ? "done" : "todo"}"><span class="ic ${s.done ? "ok" : ""}">${s.done ? "✓" : num}</span>
-      <div><b>${esc(s.title)}</b>${s.optional ? ' <span class="chip">optional</span>' : ""}<div class="hint">${esc(s.detail)}</div>${button}</div></li>`;
-  }).join("");
-  $("guideSteps").onclick = async (e) => {
-    const b = e.target.closest("button");
-    if (!b) return;
-    if (b.dataset.call === "autostart") {
-      try { STATUS = await call("/proofloop/autostart", {on: true}); toast("ProofLoop will start when you log in"); } catch (err) { toast(err.message); }
-      return loadGuide();
-    }
-    const go = g.steps[+b.dataset.step].go;
-    show(go.tab, go.section, go.anchor);
-  };
-}
-async function loadGuide() {
-  try { const g = await call("/proofloop/guide"); renderGuide(g); return g; } catch (e) { return null; }
-}
-function openGuide(open) {
-  $("guide").classList.toggle("hidden", !open);
-  clearInterval(guideTimer);
-  if (open) { loadGuide(); guideTimer = setInterval(loadGuide, 3000); }
-  else store.set("proofloop-guide-closed", "1");
-}
-$("guideBtn").onclick = () => { menu(false); openGuide(true); };
-$("guideClose").onclick = () => openGuide(false);
-loadGuide().then(g => { if (g && !g.complete && !store.get("proofloop-guide-closed")) openGuide(true); });
 };
 $("phoneForget").onclick = async () => {
   if (!confirm("Unpair every phone and make a new code?")) return;
@@ -311,7 +301,38 @@ function openGuide(open) {
 }
 $("guideBtn").onclick = () => { menu(false); openGuide(true); };
 $("guideClose").onclick = () => openGuide(false);
-loadGuide().then(g => { if (g && !g.complete && !store.get("proofloop-guide-closed")) openGuide(true); });
+if (CFG.pretend) $("pretendBanner").classList.remove("hidden");
+else loadGuide().then(g => { if (g && !g.complete && !store.get("proofloop-guide-closed")) openGuide(true); });
+
+// ---- what's new: the changelog, as simple Markdown (headings, bullets, bold, code)
+function md(text) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*(.+?)\*/g, "<i>$1</i>");
+  let html = "", item = null;
+  const flush = () => { if (item !== null) { html += `<li>${inline(item)}</li>`; item = null; } };
+  for (const line of text.split("\n")) {
+    if (line.startsWith("### ")) { flush(); html += `</ul><h4>${inline(line.slice(4))}</h4><ul>`; }
+    else if (line.startsWith("- ")) { flush(); item = line.slice(2); }
+    else if (line.trim() && item !== null) item += " " + line.trim();
+  }
+  flush();
+  return ("<ul>" + html + "</ul>").replace(/<ul><\/ul>/g, "");
+}
+let NEWS = null;
+call("/proofloop/changelog").then(n => {
+  NEWS = n; if (!n.sections.length) return;
+  $("newsBtn").classList.remove("hidden");
+  const seen = store.get("proofloop-news-seen");
+  if (seen !== n.version) { $("newsNote").textContent = `New in ${n.version}`; $("ver").classList.add("fresh"); }
+}).catch(() => {});
+function openNews() {
+  menu(false);
+  $("newsBody").innerHTML = NEWS.sections.map(sct => `<h3>${esc(sct.version)}${sct.date ? ` <span class="hint">${esc(sct.date)}</span>` : ""}</h3>${md(sct.body)}`).join("");
+  store.set("proofloop-news-seen", NEWS.version); $("ver").classList.remove("fresh"); $("newsNote").textContent = "What changed in this version";
+  $("newsDlg").showModal();
+}
+$("newsBtn").onclick = openNews;
+$("ver").onclick = () => { if (NEWS && NEWS.sections.length) openNews(); };
+$("newsClose").onclick = () => $("newsDlg").close();
 
 // ---- plates handed between the tabs, and finished checks
 window.addEventListener("message", async (e) => {

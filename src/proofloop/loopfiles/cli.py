@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from proofloop.core import printers
+from proofloop.core.output import ERROR, OK, PROBLEMS, emit
 from proofloop.core.paths import home
 from proofloop.core.settings import Defaults, SettingsStore
 from proofloop.loopfiles import threemf
@@ -84,18 +85,25 @@ def cmd_make(a) -> int:
     st = loop_settings(d, _part_push(a), swept_before(a.data))
     try:
         an = analyze(sf, prof, st)
-        _print_analysis(an, prof)
+        if not a.json:
+            _print_analysis(an, prof)
         if not an.ok:
-            return 2
+            if a.json:
+                emit({"kind": "loop_file", "ready": False, "written": None, "profile": prof.id, **an.as_dict()})
+            return PROBLEMS
         r = process(sf, prof, st)
     except ProcessError as e:
         print(f"✖ {e}", file=sys.stderr)
-        return 2
+        return ERROR
     out = Path(a.output) if a.output else Path(a.input).with_name(r.filename)
     out.write_bytes(r.data)
     PrintJournal(None, a.data).keep_file(r.filename, r.data)  # so the print journal can find its G-code
-    print(f"\n✓ wrote {out}")
-    return 0
+    if a.json:
+        emit({"kind": "loop_file", "ready": True, "written": str(out.resolve()), "loops": st.loops,
+              "profile": prof.id, **an.as_dict()})
+    else:
+        print(f"\n✓ wrote {out}")
+    return OK
 
 
 def _print_analysis(an, prof) -> None:
@@ -138,6 +146,9 @@ def cmd_cost(a) -> int:
         a.loops or d.loops,
         prices_for(app.inventory, None, sf.info.filament_slots),
     )
+    if a.json:
+        emit({"kind": "cost", "file": sf.name, **r.as_dict()})
+        return OK
     cur = r.currency
     print(f"{sf.name}: {r.parts_per_plate} parts per plate, {r.loops} loops")
     for ln in r.lines:
@@ -165,6 +176,13 @@ def cmd_check(a) -> int:
 
     sf = threemf.load(a.input)
     findings = lint(sf)
+    if a.json:
+        found = [{**f.as_dict(), "from": "loop"} for f in findings]
+        found += [{**f.as_dict(), "from": "print"} for f in print_checks(sf)]
+        danger = any(f["level"] == "danger" for f in found)
+        emit({"kind": "loop_check", "file": sf.name, "printer": printers.model_name(sf.info.printer_model_id),
+              "ready": not danger, "findings": found})
+        return PROBLEMS if danger else OK
     print(f"{sf.name}: {printers.model_name(sf.info.printer_model_id)}")
     for f in findings:
         print(f"  {ICON[f.level]} {f.title}\n      {f.detail}")
@@ -174,7 +192,7 @@ def cmd_check(a) -> int:
     for f in extra:
         print(f"  {ICON[f.level]} {f.title}\n      {f.detail}")
     findings += extra
-    return 1 if any(f.level == "danger" for f in findings) else 0
+    return PROBLEMS if any(f.level == "danger" for f in findings) else OK
 
 
 def cmd_import(a) -> int:
@@ -193,6 +211,11 @@ def cmd_import(a) -> int:
 
 
 def cmd_profiles(a) -> int:
+    if a.json:
+        emit([{"id": p.id, "name": p.name, "printer": printers.model_name(p.printer_model_id),
+               "printer_model_id": p.printer_model_id, "stage": p.stage,
+               "builtin": p.source.get("kind") == "builtin"} for p in _profiles(a).all()])
+        return OK
     for p in _profiles(a).all():
         kind = "built-in" if p.source.get("kind") == "builtin" else "imported"
         print(f"{p.id:28} {printers.model_name(p.printer_model_id):10} stage {p.stage}  {kind:9} {p.name}")
@@ -260,21 +283,23 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="proofloop loop", description="Loop files for FarmLoop auto-eject hardware. "
                                  "proofloop loop PLATE [options] makes one (the same as make).")
     ap.add_argument("-v", "--verbose", action="store_true")
-    ap.set_defaults(data=str(home()))
+    ap.set_defaults(data=str(home()), json=False)
+    as_json = argparse.ArgumentParser(add_help=False)
+    as_json.add_argument("--json", action="store_true", help="print the result as JSON (for programs and assistants)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("make", help="turn a plain .gcode.3mf into a loop file")
+    p = sub.add_parser("make", parents=[as_json], help="turn a plain .gcode.3mf into a loop file")
     p.add_argument("input")
     p.add_argument("-o", "--output")
     p.add_argument("--plate", type=int)
     _loop_args(p)
     p.set_defaults(fn=cmd_make)
 
-    p = sub.add_parser("check", help="check any loop file (FarmLoop's or ProofLoop's) for known problems")
+    p = sub.add_parser("check", parents=[as_json], help="check any loop file (FarmLoop's or ProofLoop's) for known problems")
     p.add_argument("input")
     p.set_defaults(fn=cmd_check)
 
-    p = sub.add_parser("cost", help="what a plate costs and earns, from your prices (set them in the window)")
+    p = sub.add_parser("cost", parents=[as_json], help="what a plate costs and earns, from your prices (set them in the window)")
     p.add_argument("input")
     p.add_argument("--cooldown-min", type=float, help="your cooldown estimate, if ProofLoop hasn't measured one yet")
     _loop_args(p)
@@ -293,7 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--name")
     p.set_defaults(fn=cmd_import)
 
-    p = sub.add_parser("profiles", help="list hardware profiles")
+    p = sub.add_parser("profiles", parents=[as_json], help="list hardware profiles")
     p.set_defaults(fn=cmd_profiles)
 
     a = ap.parse_args(argv)
@@ -302,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
         return int(a.fn(a) or 0)
     except (threemf.PlateFileError, KeyError) as e:
         print(f"✖ {str(e).strip(chr(39))}", file=sys.stderr)
-        return 2
+        return ERROR
 
 
 if __name__ == "__main__":

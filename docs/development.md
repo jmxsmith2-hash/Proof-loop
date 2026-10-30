@@ -1,9 +1,11 @@
 # Development
 
 ```bash
-pip install -e ".[all,dev]"
+pip install -e ".[all,dev]" -c constraints.txt
 ruff check src tests tools examples
+mypy src                      # types (pyproject.toml lists the older modules not checked yet)
 pytest -q                     # everything, a few minutes
+pytest -q --cov=proofloop     # and how much of the code the tests run
 pytest -q --ignore=tests/e2e  # without the CAD examples end to end
 ```
 
@@ -15,9 +17,17 @@ The tests never touch your real `~/.proofloop`: every test gets an empty folder 
 | `tests/core`, `tests/personas` | settings and paths, the database, models and cost, notifications, persona generation |
 | `tests/check` | CAD checks, the print-ready verdict (with a stand-in slicer, `tests/fixtures/fake_slicer.py`), G-code, learning, the `check` commands |
 | `tests/loopfiles` | making, checking and costing loop files on synthetic plates that mirror real P2S slices (`tests/plates.py`) |
-| `tests/monitor` | the monitor's rule, the plate check, the journal, filament |
-| `tests/app` | the window, the background service, phone pairing, plates handed between tabs, Check and Loop files & Printers on the window's server |
+| `tests/monitor` | the monitor's rule, the plate check, the journal, filament, sending, the queue; and end to end against a pretend printer, the summary |
+| `tests/app` | the window, the background service, phone pairing, plates handed between tabs, Check and Loop files & Printers on the window's server, backup, the MCP server (also with the official MCP client when it's installed) |
+| `tests/test_json_output.py` | `--json` and the exit codes of every command |
 | `tests/e2e` | the CAD examples end to end: every planted flaw found, the fixed version and the control part clean |
+
+**The pretend printer** (`proofloop.monitor.printer.pretend`) speaks the Bambu LAN protocol on `127.0.0.1`:
+MQTT over TLS, FTPS with TLS from the first byte, and a camera picture over HTTP, each on a free
+port. `tests/monitor/test_pretend_printer.py` runs a queued job through it over real sockets: the
+file is copied and started, each loop end's plate is checked with the camera, an empty plate is
+resumed and one with parts left is not, and the job is ticked off when the printer finishes. It
+also prints by itself for `proofloop try`, walking the file's G-code.
 
 Check the loop files against the real public FarmLoop P2S files too:
 
@@ -30,14 +40,32 @@ python tools/build_builtin_profiles.py /tmp/pb/evidence   # rebuilds the built-i
 `python examples/cad/make_examples.py` and `python examples/gcode/make_examples.py` regenerate the
 example parts and G-code.
 
+## Versions
+
+`constraints.txt` pins every package to the version CI tested, for every platform at once
+(`uv pip compile pyproject.toml --extra all --universal --python-version 3.11 -o constraints.txt`).
+`setup.bat`, `setup_unix.sh`, `proofloop update` and Docker install with it, so a new release of a
+library can't change an install overnight. Dependabot opens a pull request each week that moves the
+pins (and the CI actions) forward; CI tests it before it can be merged.
+
+## Releases
+
+Each version has a section in `CHANGELOG.md`, newest first (`## 0.4.0 · 2026-10-30`). To release:
+set the version in `pyproject.toml` and `src/proofloop/__init__.py`, write its section, merge, then
+push a tag `v0.4.0`. The release workflow checks that the tag, the version and the changelog agree,
+runs the tests, builds the package and makes the GitHub release with that section as its notes.
+`proofloop update` shows what an update brings before it installs it, and the window shows the
+newest sections under *More › What's new* (the version badge lights up after an update).
+
 ## CI
 
 CI runs once per change: on pull requests and on pushes to `main` (a newer push to a pull request
 cancels the run it replaces). Start it by hand from the Actions tab with **Run workflow**.
 
-- **Tests** on Python 3.11 to 3.13 with the plain install (what Docker runs), with ruff.
+- **Tests** on Python 3.11 to 3.13 with the plain install (what Docker runs), with ruff and mypy.
 - **Evidence**: the built-in P2S profile against the public FarmLoop files it was learned from.
-- **Everything** on Windows and Linux: every test, with `[all]` as setup installs it; a UTF-8
+- **Everything** on Windows and Linux: every test, with `[all]` as setup installs it (on Linux with
+  the coverage report in the run's summary); a UTF-8
   check, because Windows reads text in another encoding by default; the command line, run from the
   repository root.
 - **`setup.bat` on a clean Windows machine**, once with Python and once without (the uv path). It

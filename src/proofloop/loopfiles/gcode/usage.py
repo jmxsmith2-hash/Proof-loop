@@ -39,8 +39,16 @@ def layer_usage(
     mm = {s: 0.0 for s in slots}
     per_layer: list[dict[str, float]] = []
     current = slots[0]
+    by_marker = "\nM73 L" not in body  # no layer numbers from the slicer: count its "; CHANGE_LAYER" comments
+    started = False
     for line in body.splitlines():
-        if not line or line[0] == ";":
+        if not line:
+            continue
+        if line[0] == ";":
+            if by_marker and line.startswith("; CHANGE_LAYER"):
+                if started:
+                    per_layer.append(dict(mm))  # the end of the previous layer
+                started = True
             continue
         if line.startswith("M73 L"):
             if mm and line[5:].split()[0].isdigit():

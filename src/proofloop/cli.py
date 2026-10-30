@@ -10,7 +10,10 @@
     proofloop stop | status        quit the background ProofLoop / is it running?
     proofloop autostart on|off     start in the background when you log in
     proofloop phone on|off|forget  phone access on your network
-    proofloop doctor               check the setup (--slice-test, --send-test)
+    proofloop doctor               check the setup (--slice-test, --send-test, --printer-test)
+    proofloop summary              what happened on your printers (--hours, --json)
+    proofloop try                  try everything with three pretend printers (no hardware needed)
+    proofloop mcp                  ProofLoop for assistants such as Claude (--config prints the setup)
     proofloop update               get the newest ProofLoop (--check to only look)
 """
 
@@ -195,6 +198,11 @@ def cmd_status(a) -> int:
     from proofloop.app import autostart
 
     r = _ask(a.port, "/proofloop/status")
+    if a.json:
+        from proofloop.core.output import emit
+
+        emit({"running": bool(r), "starts_at_login": autostart.enabled(), **(r or {})})
+        return 0 if r else 1
     if not r:
         print("ProofLoop isn't running.")
     else:
@@ -247,9 +255,64 @@ def cmd_phone(a) -> int:
 def cmd_doctor(a) -> int:
     from proofloop.app.doctor import BAD, checks, text
 
-    results = checks(None, slice_test=a.slice_test, send_test=a.send_test, port=a.port)
-    print(text(results))
+    results = checks(None, slice_test=a.slice_test, send_test=a.send_test, port=a.port, printer_test=a.printer_test)
+    if a.json:
+        from proofloop.core.output import emit
+
+        emit({"ok": not any(r["level"] == BAD for r in results), "checks": results})
+    else:
+        print(text(results))
     return 1 if any(r["level"] == BAD for r in results) else 0
+
+
+def cmd_summary(a) -> int:
+    """What happened on your printers: from the running ProofLoop (live), or from its records."""
+    from proofloop.core.output import emit
+
+    s = _ask(a.port, f"/api/summary?hours={a.hours}", timeout=10)
+    if s is None or "error" in s:
+        from proofloop.monitor.service import App
+        from proofloop.monitor.summary import summary
+
+        app = App(home(), connect=False)
+        try:
+            s = {**summary(app, hours=a.hours), "live": False}
+        finally:
+            app.shutdown()
+    if a.json:
+        emit(s)
+    else:
+        print(s["text"] + ("" if s.get("live", True) else "\n(ProofLoop isn't running: from its records, "
+                                                         "without the printers' live state)"))
+    return 0
+
+
+def cmd_try(a) -> int:
+    """ProofLoop with three pretend printers: everything works, nothing is real."""
+    from proofloop.app import pretend_farm
+
+    if running(a.port):
+        print(f"The pretend farm is already open at http://127.0.0.1:{a.port}/")
+        if a.window:
+            _open_window(f"http://127.0.0.1:{a.port}/")
+        return 0
+    if not _port_free(a.port):
+        print(f"Port {a.port} is used by another program. Try: proofloop try --port {a.port + 1}", file=sys.stderr)
+        return 2
+    return pretend_farm.run(a.port, a.window, a.fresh, _open_window)
+
+
+def cmd_mcp(a) -> int:
+    from proofloop.app import mcp
+
+    if a.config:
+        from proofloop.core.output import emit
+
+        emit(mcp.config_entry())
+        print("\nClaude Code:  claude mcp add proofloop -- " + " ".join([sys.executable, "-m", "proofloop", "mcp"]),
+              file=sys.stderr)
+        return 0
+    return mcp.main(a.port)
 
 
 def cmd_update(a) -> int:
@@ -303,7 +366,7 @@ def _utf8_output() -> None:
     """Windows consoles and pipes often use cp1252, which has no ✓ or ✖: write UTF-8, never crash on a character."""
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            getattr(stream, "reconfigure")(encoding="utf-8", errors="replace")  # noqa: B009 - not on every stream
         except (AttributeError, ValueError):  # None under pythonw, or not a text stream
             pass
 
@@ -344,6 +407,7 @@ def _main(argv: list[str] | None = None) -> int:
     _server_opts(sub.add_parser("app", help="run in this terminal until Ctrl+C (no tray)"))
     for name, text in (("stop", "quit the background ProofLoop"), ("status", "is ProofLoop running?")):
         sub.add_parser(name, help=text).add_argument("--port", type=int, default=DEFAULT_PORT)
+    sub.choices["status"].add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p = sub.add_parser("autostart", help="start in the background when you log in")
     p.add_argument("what", choices=["on", "off", "status"], nargs="?", default="status")
     p = sub.add_parser("phone", help="phone access on your network")
@@ -352,6 +416,21 @@ def _main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("doctor", help="check that everything ProofLoop needs is there and working")
     p.add_argument("--slice-test", action="store_true", help="also slice a small example part with your slicer")
     p.add_argument("--send-test", action="store_true", help="also send a test notice to your notification targets")
+    p.add_argument("--printer-test", action="store_true", help="also log in to each printer the way a send does "
+                   "(nothing is printed)")
+    p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
+    p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p = sub.add_parser("summary", help="what happened on your printers (the last 12 hours by default)")
+    p.add_argument("--hours", type=float, default=12)
+    p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
+    p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p = sub.add_parser("try", help="try everything with three pretend printers (your real data isn't touched)")
+    p.add_argument("--port", type=int, default=8610)
+    p.add_argument("--no-window", dest="window", action="store_false", help="don't open the window")
+    p.add_argument("--fresh", action="store_true", help="start the pretend farm over")
+    p = sub.add_parser("mcp", help="ProofLoop for assistants such as Claude (Model Context Protocol, stdio)")
+    p.add_argument("--config", action="store_true", help="print the entry for Claude Desktop's config, and the "
+                   "command for Claude Code")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p = sub.add_parser("update", help="get the newest ProofLoop from GitHub")
     p.add_argument("--check", action="store_true", help="only say whether there is an update")
@@ -364,7 +443,8 @@ def _main(argv: list[str] | None = None) -> int:
         argv = ["open", *argv]  # plain `proofloop` (with options) opens the window
     a = ap.parse_args(argv)
     return {"open": cmd_open, "service": cmd_service, "app": cmd_app, "stop": cmd_stop, "status": cmd_status,
-            "autostart": cmd_autostart, "phone": cmd_phone, "doctor": cmd_doctor, "update": cmd_update}[a.cmd](a)
+            "autostart": cmd_autostart, "phone": cmd_phone, "doctor": cmd_doctor, "update": cmd_update,
+            "summary": cmd_summary, "mcp": cmd_mcp, "try": cmd_try}[a.cmd](a)
 
 
 if __name__ == "__main__":

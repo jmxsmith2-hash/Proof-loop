@@ -19,12 +19,19 @@ over 30 seconds send a notification to your targets (set up under *Printers › 
 
 ## CAD designs
 
+Every check starts with its verdict: ready to print, or how many things to fix first. Each finding
+has a stable id (the check that found it), how bad it is, what to change, where it is and the
+numbers behind it, so a person or an assistant can fix the design and check again
+([with Claude](assistants.md)).
+
 A typical part checks in about 6 seconds, and a 670,000-triangle export in about 13. Point it at a
 CAD export and it checks the geometry before you spend filament, then learns from your real prints
 so the next check is about *your* printer.
 
 ```bash
 proofloop check part.stl                                 # STL, 3MF, OBJ, PLY, GLB (STEP: pip install ".[step]")
+proofloop check part.scad                                # OpenSCAD code, rendered with OpenSCAD (openscad.org)
+proofloop check part.stl --json                          # for programs and assistants (exit 0 ready, 1 fix first)
 proofloop check design part.3mf --material "PETG HF"     # 3MF from Fusion, Tinkercad or Bambu Studio
 proofloop check design part.stl --printer bambu_h2d --handheld
 proofloop check part_v2.stl --design examples/cad/phone_stand.yaml   # same design name = next version

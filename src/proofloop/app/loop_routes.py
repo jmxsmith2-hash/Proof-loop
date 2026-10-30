@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 import time
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import Response
 
-from proofloop import __version__
-from proofloop.core.settings import Settings
-from proofloop.loopfiles.profiles import HardwareProfile
+from proofloop.app import backup as backups
 from proofloop.monitor.filament import DAY, FilamentSettings, Spool, day_start, norm_color
 from proofloop.monitor.spoolman import SpoolmanError, to_spool
 
 
-def register(api: FastAPI, app, guard) -> None:
+def register(api: FastAPI, app, guard, window: bool = True) -> None:
+    """``window=False`` for phone access: a phone can download a backup, not restore one."""
     inv = app.inventory
 
     def spool_or_404(sid: str) -> Spool:
@@ -323,7 +321,7 @@ def register(api: FastAPI, app, guard) -> None:
                     "waiting_for_you": w.waiting_for_you,
                 }
             )
-        per_printer = {}
+        per_printer: dict[str, int] = {}
         for r in prod:
             if r["ts"] >= now - 7 * DAY and r["ok"]:
                 per_printer[r["printer"]] = per_printer.get(r["printer"], 0) + r["parts"]
@@ -346,45 +344,19 @@ def register(api: FastAPI, app, guard) -> None:
     # ---- backup -------------------------------------------------------------------------
     @api.get("/api/backup", dependencies=guard)
     def backup():
-        user_profiles = [
-            json.loads(p.to_json()) for p in app.profiles.all() if p.source.get("kind") != "builtin"
-        ]
-        data = {
-            "proofloop_backup": 1,
-            "version": __version__,
-            "created": time.time(),
-            "settings": json.loads(app.settings.model_dump_json()),
-            "profiles": user_profiles,
-            "store": app.store.dump(),
-        }
         stamp = time.strftime("%Y%m%d-%H%M")
         return Response(
-            json.dumps(data),
-            media_type="application/json",
-            headers={"Content-Disposition": f'attachment; filename="proofloop-backup-{stamp}.json"'},
+            backups.make(app),
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="proofloop-backup-{stamp}.zip"'},
         )
 
     @api.post("/api/restore", dependencies=guard)
     async def restore(file: UploadFile = File(...)):
-        raw = await file.read(200 * 1024 * 1024)
+        if not window:
+            raise HTTPException(403, "a backup can only be restored in the ProofLoop window")
+        raw = await file.read(backups.MAX_RESTORE + 1)
         try:
-            data = json.loads(raw)
-            if not isinstance(data, dict) or data.get("proofloop_backup") != 1:
-                raise ValueError("this isn't a ProofLoop backup file")
-            settings = Settings.model_validate(data.get("settings") or {})
-            profiles = [HardwareProfile.from_dict(p) for p in data.get("profiles") or []]
-        except (ValueError, TypeError, KeyError) as e:
+            return backups.restore(app, raw)
+        except ValueError as e:
             raise HTTPException(422, f"can't restore: {e}") from e
-        app.store.restore(data.get("store") or {})
-        for p in profiles:
-            try:
-                app.profiles.save(p)
-            except ValueError:
-                pass
-        for name in list(app.watches):
-            app.remove_printer(name)
-        app.settings = settings
-        app.save_settings()
-        for p in settings.printers:
-            app._start_watch(p)
-        return {"restored": True, "spools": len(app.inventory.all()), "printers": len(settings.printers)}

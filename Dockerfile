@@ -4,9 +4,9 @@ FROM python:3.12-slim
 # ffmpeg reads the camera on X1, X2D, H2 and P2S printers (RTSPS).
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY pyproject.toml README.md LICENSE ./
+COPY pyproject.toml README.md LICENSE constraints.txt ./
 COPY src ./src
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . -c constraints.txt
 ENV PROOFLOOP_HOME=/data
 VOLUME ["/data"]
 EXPOSE 8484

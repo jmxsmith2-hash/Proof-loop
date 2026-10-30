@@ -41,7 +41,7 @@ def _prepare(img: Image.Image, roi: tuple[float, float, float, float]) -> np.nda
     img = img.convert("L")
     w, h = img.size
     scale = WORK_WIDTH / w
-    img = img.resize((WORK_WIDTH, max(1, int(h * scale))), Image.BILINEAR)
+    img = img.resize((WORK_WIDTH, max(1, int(h * scale))), Image.Resampling.BILINEAR)
     img = img.filter(ImageFilter.GaussianBlur(1.5))
     w, h = img.size
     x0, y0, x1, y1 = roi

@@ -84,7 +84,7 @@ def validate_json(data: Any, schema: dict[str, Any], path: str = "$") -> list[st
     """Minimal JSON-schema check: type, required, enum, properties, items, min/max."""
     errors: list[str] = []
     expected = schema.get("type")
-    type_map = {"object": dict, "array": list, "string": str, "integer": int,
+    type_map: dict[str, Any] = {"object": dict, "array": list, "string": str, "integer": int,
                 "number": (int, float), "boolean": bool, "null": type(None)}
     if expected:
         types = expected if isinstance(expected, list) else [expected]

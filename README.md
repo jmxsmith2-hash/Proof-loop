@@ -8,11 +8,15 @@ ProofLoop opens as one window with three tabs:
 
 | Tab | What it does |
 |---|---|
-| **Check** | Checks CAD files (STL, 3MF, OBJ or STEP from Fusion, Blender or Tinkercad) and sliced G-code before you print. It can slice headlessly for a print-ready verdict, turns each problem into the slicer setting that fixes it, and checks parts for moulding and CNC. [More](docs/check.md) |
+| **Check** | Checks CAD files (STL, 3MF, OBJ, STEP or OpenSCAD, from Fusion, Blender, Tinkercad or code) and sliced G-code before you print. It can slice headlessly for a print-ready verdict, turns each problem into the slicer setting that fixes it, and checks parts for moulding and CNC. [More](docs/check.md) |
 | **Loop files** | Makes loop files for FarmLoop auto-eject hardware: a push height for each part, a cooldown that's safe, a first-sweep safety pause. Checks any loop file, costs a plate, and makes calibration prints. [More](docs/loop-files.md) |
-| **Printers** | Watches your printers: live status, a camera check that the plate is empty before the next loop, print history, filament and spools. [More](docs/printers.md) |
+| **Printers** | Watches your printers: live status, a camera check that the plate is empty before the next loop and a failure watch during the print, print history, filament and spools, and orders with whether each will be ready in time. [More](docs/printers.md) |
 
 Under **More** there are **Get set up**, **Phone** and **Setup check**.
+
+**No printer yet?** Run `proofloop try`: three pretend printers print about 40 times faster than real
+ones, and everything else is real ProofLoop, from sending a file to the plate check and the history.
+It keeps its own folder and never touches your own printers or data.
 
 ## Getting set up
 
@@ -42,8 +46,18 @@ opens the right tab and outlines the exact form. Open it again any time from *Mo
   that can print the plate, so they finish together, and can keep that as a queue under *Printers ›
   Overview*. With **sending to printers** turned on (off unless you turn it on), a loop file goes to
   a printer and starts in one click, after you confirm the printer, and only when the printer is
-  connected, idle, the right model and has the right filament loaded. Nothing in the queue starts by
-  itself. [More](docs/printers.md#queue)
+  connected, idle, the right model and has the right filament loaded. The queue follows each job on
+  its printer and offers the next one when it's done. Nothing in the queue starts by itself.
+  [More](docs/printers.md#queue)
+- **While you were away.** The Overview opens with what happened: parts made, failures and why,
+  what needs you, filament used. Set a time and it arrives every morning through your notification
+  targets.
+
+## With Claude
+
+`proofloop mcp` lets Claude (or another assistant) check parts and G-code, fix a design and check it
+again, make loop files, plan runs and read how your printers are doing, in your own words. It can
+never start a print. [Set it up](docs/assistants.md). Every command also takes `--json`.
 
 ## Runs in the background
 
@@ -107,7 +121,11 @@ proofloop check prepare part.stl --loops 5   # design check, slice, G-code check
 proofloop loop plate.gcode.3mf --loops 5     # make a loop file (--first-pause on|off|auto)
 proofloop loop check FL_S2_plate.gcode.3mf   # check any loop file
 proofloop printers history                   # how recent prints ended
-proofloop doctor [--slice-test --send-test]  # check the setup
+proofloop printers orders                    # your orders, and whether each will be ready in time
+proofloop doctor [--printer-test ...]        # check the setup (--slice-test, --send-test too)
+proofloop summary [--hours 24]               # what happened on your printers
+proofloop try                                # three pretend printers: try everything without hardware
+proofloop mcp [--config]                     # ProofLoop for Claude and other assistants
 proofloop stop | status                      # quit ProofLoop / is it running?
 proofloop autostart on|off                   # start in the background when you log in
 proofloop phone on|off|forget                # phone access (prints the code and a QR code)
@@ -116,6 +134,8 @@ proofloop app                                # run in this terminal instead of t
 ```
 
 Each part has more: `proofloop check --help`, `proofloop loop --help`, `proofloop printers --help`.
+Add `--json` to any command for one JSON document; exit codes are `0` passed, `1` something to fix
+first, `2` couldn't run.
 
 ## Where things are kept
 
@@ -126,8 +146,9 @@ Everything is in one folder, `~/.proofloop` (`PROOFLOOP_HOME` moves it):
   name (see `src/proofloop/data`), and `settings.yaml` is merged over the built-in settings, so it
   only needs what you change;
 - `printers.db` and `results.db`: print history and events; design checks and what was learned;
-- `reports/`, `profiles/`, `files/`, `queue/`: reports, imported hardware profiles, the loop files
-  ProofLoop made, queued runs;
+- `reports/`, `profiles/`, `files/`, `queue/`, `references/`: reports, imported hardware profiles, the
+  loop files ProofLoop made, queued runs, pictures of each empty plate;
+- `try/`: the pretend farm of `proofloop try`, kept apart from everything else;
 - `proofloop.log`: the background service's log.
 
 ## More
@@ -136,6 +157,7 @@ Everything is in one folder, `~/.proofloop` (`PROOFLOOP_HOME` moves it):
 - [Loop files](docs/loop-files.md): what goes in a loop file, checking, costs, calibration, hardware profiles
 - [Printers](docs/printers.md): the plate check, print history, filament, notifications, Docker
 - [Printer setup](docs/bambu-setup.md), [where every printer and kit value comes from](docs/sources.md)
+- [With Claude and other assistants](docs/assistants.md), and `--json` for programs
 - [Architecture](docs/architecture.md) and [development](docs/development.md)
 
 ## License

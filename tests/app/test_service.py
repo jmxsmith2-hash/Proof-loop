@@ -216,3 +216,18 @@ def test_finds_its_own_folder():
     root = autostart.repo_root()
     assert root is not None and (root / "src" / "proofloop").is_dir() and (root / "setup.bat").is_file()
     assert root == Path(__file__).resolve().parents[2]
+
+
+def test_the_window_shows_whats_new(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from proofloop.app.shell import Shell
+
+    n = TestClient(Shell(8697, connect=False).api, base_url="http://127.0.0.1:8697").get("/proofloop/changelog").json()
+    assert n["version"] == proofloop_version() and n["sections"][0]["version"] == n["version"]
+
+
+def proofloop_version():
+    import proofloop
+
+    return proofloop.__version__

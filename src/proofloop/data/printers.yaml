@@ -48,6 +48,7 @@ printers:
     max_bed_temp: 120
     enclosed: true
   generic_fdm_0.4:
+    label: a generic FDM printer, 0.4 mm nozzle
     type: fdm
     names: []
     extruder: direct

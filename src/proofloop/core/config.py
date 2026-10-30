@@ -68,11 +68,16 @@ class ModelProvider(StrictModel):
 
 
 class Settings(StrictModel):
-    data_dir: Path | None = None  # default: ProofLoop's folder, ~/.proofloop
+    data_dir: Path = Field(default_factory=paths.home)  # default: ProofLoop's folder, ~/.proofloop
     log_level: str = "INFO"
     engine: EngineConfig = Field(default_factory=EngineConfig)
     models: dict[str, ModelProvider] = Field(default_factory=dict)
     config_dir: Path = Path("config")
+
+    @field_validator("data_dir", mode="before")
+    @classmethod
+    def _folder(cls, v):
+        return paths.home() if v is None else v  # data_dir: null in settings.yaml means the default
 
     @property
     def db_path(self) -> Path:
@@ -175,9 +180,7 @@ def load_settings(config_dir: Path | None = None, overrides: dict[str, Any] | No
         settings = Settings.model_validate(raw)
     except Exception as exc:  # pydantic.ValidationError, kept readable for the CLI
         raise ConfigError(f"invalid settings in {settings_file}: {exc}") from exc
-    if settings.data_dir is None:
-        settings.data_dir = paths.home()
-    elif not settings.data_dir.is_absolute():
+    if not settings.data_dir.is_absolute():
         settings.data_dir = (config_dir.parent / settings.data_dir).resolve()
     log.debug("settings loaded from %s", settings_file)
     return settings

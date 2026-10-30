@@ -91,9 +91,9 @@ def build_result(ctx: GcodeContext, notes: dict[str, Any], chosen: dict[str, Any
     trace, pr, mat, nozzle = ctx.trace, ctx.printer, ctx.material, ctx.nozzle
     images: dict[str, str] = {}
     if write_report:
-        out = Path(out) if out else home() / "reports" / "gcode" / Path(path).name.split(".")[0]
-        out.mkdir(parents=True, exist_ok=True)
-        images = render_all(ctx, out)
+        folder = Path(out) if out else home() / "reports" / "gcode" / Path(path).name.split(".")[0]
+        folder.mkdir(parents=True, exist_ok=True)
+        images = render_all(ctx, folder)
     m = ctx.metrics
     findings = []
     for n, f in enumerate(ctx.findings, 1):
@@ -116,10 +116,10 @@ def build_result(ctx: GcodeContext, notes: dict[str, Any], chosen: dict[str, Any
 
     result["setting_fixes"] = merged(findings)
     if write_report:
-        from proofloop.check.cad.report import write_report
+        from proofloop.check.cad.report import write_report as render
 
         if result["setting_fixes"]:
             result["fix_presets"] = {k: f"slicer-fixes/{v}" for k, v in
-                                     user_presets(result["setting_fixes"], trace.header, out / "slicer-fixes").items()}
-        result["report"] = str(write_report("gcode.html.j2", result, out))
+                                     user_presets(result["setting_fixes"], trace.header, folder / "slicer-fixes").items()}
+        result["report"] = str(render("gcode.html.j2", result, folder))
     return result

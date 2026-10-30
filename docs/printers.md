@@ -13,6 +13,25 @@ One screen with every printer's run (loop 7 of 10, done around 09:24 based on it
 times), parts made today, this week and this month, stopped loops, filament used, spools running
 low and anything waiting for you.
 
+## While you were away
+
+The Overview opens with a summary of the last 12 hours (or 24, or 7 days): parts and loops made per
+printer, prints that failed with the layer and the printer's HMS alerts, plates where parts were left,
+what is waiting for you now, filament used and spools running low, and where the queue stands. Tick
+*Send it to me every day at* and choose a time: it then goes to all your notification targets once a
+day, covering the time since the last one. `proofloop summary` prints it (`--json` for programs).
+
+## Orders
+
+*Printers › Orders* keeps what people asked for: a customer, how many parts of a sliced plate, a due
+date and, if you like, a price per part. Taking an order plans its run over the printers that can
+print the plate and puts it in the queue (nothing starts by itself). From then on each order shows
+how many parts are made, when it will be ready (each printer's remaining loops at its own measured
+loop time) and whether that's before the due date, with what it earns and costs (from your prices
+under *Costs*). It's marked made when its last job finishes, and you're told. Late orders show up in
+the summary under what needs you. `proofloop printers orders` lists them (`--json` for programs),
+and an assistant can take and read orders too ([with Claude](assistants.md)).
+
 ## Queue
 
 *Plan a production run* (under *Loop files › Make a loop file*) can spread the loops you need over
@@ -24,10 +43,15 @@ printer), so the printers finish at about the same time. A run of more than 50 l
 becomes several files. Printers left out say why.
 
 **Keep it as a queue** stores the plan with a copy of the plate. The *Queue* card on the Overview
-lists each job (printer, loops, waiting, sent or downloaded). When a printer with a job waiting
-comes free, ProofLoop tells you once, in the event log and through your notification targets.
-Nothing starts by itself: you **Send and start** a job (with sending turned on, and confirmed) or
-**Download** it and send it yourself.
+lists each job and where it is: waiting, sent, printing (and which loop), done, or stopped. A job
+you sent or downloaded is followed on its printer from what the printer reports, so you don't mark
+anything yourself: it's done when the file finishes, and stopped (with why) when it fails, is
+cancelled, or a sent file doesn't start within 10 minutes. A stopped job can be sent or downloaded
+again. When a printer with a job waiting comes free (and isn't still on a job you sent it),
+ProofLoop tells you once, in the event log and through your notification targets; it tells you
+too when a queued job finishes or stops. Nothing starts by itself: you **Send and start** a job
+(with sending turned on, and confirmed) or **Download** it and send it yourself. A downloaded job
+is followed if you print it on the printer it was planned for.
 
 ## Sending to printers
 
@@ -45,6 +69,9 @@ send to each printer. A paired phone can never send, or change this setting.
 
 - **Find printers automatically.** *Find printers* listens for the printers' own network
   announcements and fills in the IP, serial and model. You still type the access code.
+- **Test connection.** Logs in to the printer the way a send does (the access code, the serial
+  number, Developer Mode, its file storage) without printing or copying anything, and says what to
+  fix. The setup check runs it for every printer (`proofloop doctor --printer-test`).
 - **Live loop status.** For each printer: the loop number, the current phase (printing, cooling,
   bending, door), average cooldown and loop times measured on your printer, and a plate-bend counter
   you reset when you fit a new plate.
@@ -53,6 +80,12 @@ send to each printer. A paired phone can never send, or change this setting.
   only when it's empty. Anything else (parts left, no picture, a camera error, any other kind of
   pause) leaves the printer waiting with the heaters off and tells you. Take the empty-plate
   pictures here.
+- **Failure watch.** Halfway through each print (each loop of a loop file), and again at 80%,
+  ProofLoop looks at the plate. If it still looks empty both times, the part has most likely come
+  loose or the nozzle is clogged and the printer is printing into the air: you get an alert with the
+  camera picture, and with *Pause the printer and tell me* the printer pauses too. It needs pictures of
+  the empty plate, and never alerts without a picture. A tangle of spaghetti isn't recognised yet:
+  that needs footage from real failures to tell apart from a good print.
 - **Quiet hours.** Plates are still checked overnight, but the next loop waits until morning, with
   the printer paused and its heaters off.
 - **Notifications.** ntfy, Discord or any JSON webhook, each with its lowest level. When parts are
@@ -107,8 +140,12 @@ for everything). *Check* learns from it which flows, first layers and files fail
 
 ## Backup and restore
 
-One file with your settings, imported profiles, spools, usage, production log and measured
-timings (*Printers › Filament › Backup*).
+One file (*Printers › Filament › Backup*) with your settings, imported profiles, spools, usage,
+production log and measured timings, the pictures of each printer's empty plate, the queue, your
+`config/` options, and Check's design checks and what it has learned (including the findings you
+marked *Not a problem*). Restoring it replaces all of these, and is only possible in the window,
+not from a phone. Phones pair again afterwards. Reports, the kept loop files and the pictures of
+failed prints aren't included. Older backups (a `.json` file) still restore.
 
 ## On your phone, and on an always-on machine
 

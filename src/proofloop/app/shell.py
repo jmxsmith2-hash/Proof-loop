@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -57,6 +58,7 @@ class Shell:
             "version": __version__,
             "header": HEADER,
             "service": self.service is not None,
+            "pretend": bool(os.environ.get("PROOFLOOP_PRETEND")),  # proofloop try
         }
         # JSON inside <script>: "<" escaped so no value can close the tag
         blob = json.dumps(config).replace("<", "\\u003c")
@@ -130,7 +132,15 @@ class Shell:
         def doctor_page():
             from proofloop.app.doctor import checks, html_page
 
-            return HTMLResponse(html_page(checks(self, port=self.port)), headers={"Cache-Control": "no-store"})
+            return HTMLResponse(html_page(checks(self, port=self.port, printer_test=True)),
+                                headers={"Cache-Control": "no-store"})
+
+        @api.get("/proofloop/changelog")
+        def changelog():
+            from proofloop.core.changelog import read, sections
+
+            text = read()
+            return {"version": __version__, "sections": sections(text)[:5] if text else []}
 
         @api.post("/proofloop/phone")
         async def phone(request: Request):

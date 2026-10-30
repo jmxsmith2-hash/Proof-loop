@@ -19,6 +19,7 @@ from proofloop.app.config import DEFAULT_PORT, Settings
 from proofloop.core.paths import home
 
 OK, WARN, BAD, INFO = "ok", "warning", "problem", "info"
+STEP_TITLE = {"mqtt": "logs in", "reports": "sends its status", "ftps": "takes files"}
 ICON = {OK: "✓", WARN: "!", BAD: "✖", INFO: "i"}
 MQTT_PORT = 8883  # Bambu printers' local MQTT (LAN mode)
 
@@ -31,7 +32,8 @@ def _reachable(host: str, port: int, timeout: float = 2.5) -> bool:
         return False
 
 
-def checks(shell=None, slice_test: bool = False, send_test: bool = False, port: int = DEFAULT_PORT) -> list[dict]:
+def checks(shell=None, slice_test: bool = False, send_test: bool = False, port: int = DEFAULT_PORT,
+           printer_test: bool = False) -> list[dict]:
     out: list[dict] = []
 
     def add(level: str, title: str, detail: str = "") -> None:
@@ -40,7 +42,7 @@ def checks(shell=None, slice_test: bool = False, send_test: bool = False, port: 
     add(OK, f"ProofLoop {__version__} on Python {sys.version.split()[0]}", sys.executable)
     add(OK, "Your settings and data", str(home()))
     _check_checks(add, slice_test)  # Check: CAD, G-code and slicing
-    _loop_checks(add, shell, send_test)  # Loop files and Printers: printers, plate check, notifications
+    _loop_checks(add, shell, send_test, printer_test)  # Loop files and Printers: printers, plate check, notifications
 
     # ---- running in the background --------------------------------------------------
     if autostart.enabled():
@@ -128,7 +130,7 @@ def _slice_test(add, settings) -> None:
             db.close()
 
 
-def _loop_checks(add, shell, send_test: bool) -> None:
+def _loop_checks(add, shell, send_test: bool, printer_test: bool = False) -> None:
     from proofloop.core.notify import Notifier
     from proofloop.core.printers import model_name
     from proofloop.core.settings import SettingsStore
@@ -152,6 +154,12 @@ def _loop_checks(add, shell, send_test: bool) -> None:
             add(BAD, f"{p.name}: can't reach {p.host}",
                 "Is it on, on the same network, with LAN mode (or Developer mode) on? Check the IP address on the "
                 "printer's screen.")
+        if printer_test:
+            from proofloop.monitor.connection import test_printer
+
+            r = test_printer(p, w.link if w else None)
+            for step in r["steps"]:
+                add(OK if step["ok"] else BAD, f"{p.name}: {STEP_TITLE[step['step']]}", step["detail"])
         if not profiles.for_printer(p.model_id):
             add(BAD, f"{p.name}: no hardware profile for the {model_name(p.model_id)}",
                 "Import one from a FarmLoop file under Loop files › Hardware before making loop files for it.")

@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 import time
 import webbrowser
 
 from proofloop import __version__
+from proofloop.core.output import emit
 from proofloop.core.paths import PRINTERS_DB, home
 from proofloop.monitor.printer.ams import label as tray_label
 from proofloop.monitor.service import App
@@ -20,7 +20,7 @@ def cmd_history(a) -> int:
 
     rows = Store(home() / PRINTERS_DB).outcomes(limit=a.limit)
     if a.json:
-        print(json.dumps(rows, indent=2))
+        emit(rows)
         return 0
     if not rows:
         print("No prints recorded yet: ProofLoop records every print on the printers it watches.")
@@ -39,6 +39,10 @@ def cmd_spools(a) -> int:
     app = App(home(), connect=False)
     low = app.settings.filament.low_g
     spools = app.inventory.all(archived=a.all)
+    if a.json:
+        emit({"spools": [sp.as_dict(low) | {"forecast": app.inventory.forecast(sp)} for sp in spools],
+              "summary": app.inventory.summary()})
+        return 0
     if not spools:
         print("No spools yet: add them under Printers › Filament in the window.")
         return 0
@@ -50,6 +54,27 @@ def cmd_spools(a) -> int:
         print(f"  {sp.id}  {sp.material:6} {sp.color or '':8} {sp.label[:28]:28} {left:>9}  {where}{flag}")
     s = app.inventory.summary()
     print(f"\n  {s['spools']} spools, {s['on_hand_g'] / 1000:.2f} kg on hand; used {s['used_g']['7']:.0f} g in 7 days")
+    return 0
+
+
+def cmd_orders(a) -> int:
+    from proofloop.monitor.orders import progress
+
+    app = App(home(), connect=False)
+    try:
+        orders = [progress(app, o) for o in app.orders.all() if a.all or o["status"] == "open"]
+    finally:
+        app.shutdown()
+    if a.json:
+        emit(orders)
+        return 0
+    if not orders:
+        print("No open orders. Take one under Printers › Orders in the window.")
+        return 0
+    for o in orders:
+        due = f", due {o['due']}" if o["due"] else ""
+        state = "made" if o["complete"] else "LATE" if o["on_time"] is False else "on time" if o["on_time"] else ""
+        print(f"  {o['customer'][:24]:24} {o['made']:>5}/{o['quantity']:<5} {o['plate'][:30]:30}{due}  {state}")
     return 0
 
 
@@ -89,7 +114,13 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("spools", help="list your filament spools and what's left on them")
     p.add_argument("--all", action="store_true", help="include archived spools")
+    p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p.set_defaults(fn=cmd_spools)
+
+    p = sub.add_parser("orders", help="your orders: parts made, and whether each will be ready in time")
+    p.add_argument("--all", action="store_true", help="include finished and cancelled orders")
+    p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
+    p.set_defaults(fn=cmd_orders)
 
     p = sub.add_parser("serve", help="serve Loop files & Printers alone (Docker, an always-on computer)")
     p.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 to reach it from other devices on your network")

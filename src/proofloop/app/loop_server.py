@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -9,11 +10,11 @@ from dataclasses import replace
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from proofloop import __version__
 from proofloop.core import printers, theme
-from proofloop.core.settings import Defaults, Notifier, PrinterConfig, QuietHours
+from proofloop.core.settings import Defaults, Notifier, PrinterConfig, QuietHours, Settings
 from proofloop.loopfiles import threemf
 from proofloop.loopfiles.api import pick_profile
 from proofloop.loopfiles.calibration import TESTS, build_test
@@ -67,7 +68,7 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
     """``allow_send=False`` for phone access: a paired phone can watch, never start a print."""
     api = FastAPI(title="ProofLoop", version=__version__)
 
-    def auth(authorization: str | None = Header(default=None), request: Request = None):
+    def auth(request: Request, authorization: str | None = Header(default=None)):
         token = app.settings.app_token
         if not token:
             return
@@ -123,6 +124,58 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
     def index():
         return theme.inline((STATIC / "loop.html").read_text(encoding="utf-8"))
 
+    def live_version() -> dict:
+        """What the page shows, in a form that changes when it does (cheap: no files read)."""
+        def mtime(path):
+            try:
+                return path.stat().st_mtime_ns
+            except OSError:
+                return 0
+
+        last_event = app.store.events(1)
+        last_use = app.store.usage(limit=1)
+        return {
+            "printers": [(w.name, w.link.state.online, w.link.state.gcode_state, w.link.state.layer_num, w.phase,
+                          w.status, w.waiting_for_you, w.loop_no) for w in app.watches.values()],
+            "events": last_event[0]["id"] if last_event else 0,
+            "queue": mtime(app.queue.path),
+            "orders": mtime(app.orders.path),
+            "filament": (last_use[0]["id"] if last_use else 0, len(app.inventory.all())),
+        }
+
+    @api.get("/api/live", dependencies=guard)
+    async def live(request: Request, limit: int = 0):
+        """Server-sent events: ``change`` with what changed (printers, events, queue, orders, filament), as it
+        happens, so the page refreshes only then. ``limit`` ends the stream after that many (for tests)."""
+        async def stream():
+            yield "retry: 3000\n\n"
+            last, sent, quiet = None, 0, 0
+            while not await request.is_disconnected():
+                now = live_version()
+                changed = [k for k in now if last is None or now[k] != last[k]]
+                if changed:  # the first time, everything
+                    yield f"event: change\ndata: {json.dumps(changed)}\n\n"
+                    sent, quiet = sent + 1, 0
+                    if limit and sent >= limit:
+                        return
+                elif quiet >= 15:
+                    yield ": still here\n\n"  # keeps proxies and the browser from closing an idle stream
+                    quiet = 0
+                last, quiet = now, quiet + 1
+                await asyncio.sleep(1)
+
+        return StreamingResponse(stream(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    @api.get("/js/{name}.js")
+    def page_script(name: str):
+        """The page's script, one file per part (static/js); no secrets in them, so no token needed."""
+        path = STATIC / "js" / f"{name}.js"
+        if not name.replace("-", "").isalnum() or not path.is_file():
+            raise HTTPException(404, "no such script")
+        return Response(path.read_bytes(), media_type="text/javascript; charset=utf-8",
+                        headers={"Cache-Control": "no-cache"})
+
     def monitor_card(w) -> dict:
         d = w.as_dict()
         _key, job = app.tracker.job_for(w.link.state)
@@ -161,6 +214,7 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
             "can_send": allow_send,
             "notifications": [n.model_dump(exclude={"token"}) for n in app.settings.notifications],
             "quiet_hours": app.settings.quiet_hours.model_dump(),
+            "failure_watch": app.settings.failure_watch,
             "costs": app.settings.costs.model_dump(),
             "filament": app.settings.filament.model_dump(),
             "spools": [
@@ -291,7 +345,7 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
     @api.post("/api/queue/{rid}/{jid}/download", dependencies=guard)
     def queue_download(rid: str, jid: str):
         job, r = queued_file(rid, jid)
-        app.queue.mark(rid, jid, status="downloaded", file=r.filename, at=time.time())
+        app.queue.mark(rid, jid, status="downloaded", file=r.filename, at=time.time(), why=None, loop=None)
         return file_response(r)
 
     @api.post("/api/queue/{rid}/{jid}/send", dependencies=guard)
@@ -303,7 +357,7 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
             raise HTTPException(400, "confirm the printer to send it to")
         job, r = queued_file(rid, jid)
         result = send_made(job["printer"], body.get("confirm"), r)
-        app.queue.mark(rid, jid, status="sent", file=r.filename, at=time.time())
+        app.queue.mark(rid, jid, status="sent", file=r.filename, at=time.time(), why=None, loop=None)
         return result
 
     @api.delete("/api/queue/{rid}", dependencies=guard)
@@ -311,6 +365,87 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
         app.queue.get(rid)
         app.queue.remove(rid)
         return {"removed": rid}
+
+    @api.get("/api/summary", dependencies=guard)
+    def get_summary(hours: float = 12):
+        from proofloop.monitor.summary import summary
+
+        return {**summary(app, hours=max(1.0, min(hours, 24 * 31))), "at": app.settings.summary_at}
+
+    @api.put("/api/summary-at", dependencies=guard)
+    def put_summary_at(body: dict):
+        """The time of day the summary is sent (``None``: not sent)."""
+        try:
+            app.settings.summary_at = Settings.model_validate({"summary_at": body.get("at") or None}).summary_at
+        except ValueError as e:
+            raise HTTPException(422, "give a time like 07:30") from e
+        app.save_settings()
+        return {"at": app.settings.summary_at}
+
+    # ---- orders -----------------------------------------------------------------------
+    @api.get("/api/orders", dependencies=guard)
+    def list_orders():
+        from proofloop.monitor.orders import progress
+
+        out = [progress(app, o) for o in app.orders.all()]
+        return sorted(out, key=lambda o: (o["status"] != "open", o["due"] or "9999", o["created"]))
+
+    @api.post("/api/orders", dependencies=guard)
+    def add_order(body: dict):
+        """Plan the run for an order, keep it as a queue (nothing starts), and follow it."""
+        from proofloop.monitor.orders import due_ts, progress
+
+        token = str(body.get("token", ""))
+        sf = app.uploads.get(token)
+        qty = body.get("quantity")
+        try:
+            if body.get("due"):
+                due_ts(str(body["due"]))
+        except ValueError as e:
+            raise HTTPException(422, "give the due date as YYYY-MM-DD") from e
+        settings = body.get("settings") or {}
+        plan = plan_for(sf, qty, settings)
+        data, name = app.uploads.raw(token)
+        price = body.get("price_each")
+        try:
+            price = None if price in (None, "") else float(price)
+            defaults, st = _settings(app, {**settings, "loops": 1})
+            per_part = plate_cost(sf, profile(defaults.profile_id), st, 1, {}, setup=False)["totals"]["per_part"]
+            run = app.queue.add(name, data, settings, plan)
+            order = app.orders.add(str(body.get("customer") or ""), name, int(qty or 0), body.get("due") or None, run,
+                                   plan, price, per_part, str(body.get("notes") or ""))
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        return progress(app, order)
+
+    @api.patch("/api/orders/{oid}", dependencies=guard)
+    def change_order(oid: str, body: dict):
+        from proofloop.monitor.orders import due_ts, progress
+
+        changes = {k: body[k] for k in ("customer", "due", "price_each", "notes", "status") if k in body}
+        if changes.get("status") not in (None, "open", "done", "cancelled"):
+            raise HTTPException(422, "status is open, done or cancelled")
+        try:
+            if changes.get("due"):
+                due_ts(changes["due"])
+            return progress(app, app.orders.update(oid, **changes))
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+        except ValueError as e:
+            raise HTTPException(422, "give the due date as YYYY-MM-DD") from e
+
+    @api.delete("/api/orders/{oid}", dependencies=guard)
+    def remove_order(oid: str, keep_run: bool = False):
+        try:
+            gone = app.orders.remove(oid)
+        except KeyError as e:
+            raise HTTPException(404, str(e)) from e
+        if not keep_run:
+            try:
+                app.queue.remove(gone["run"])
+            except KeyError:
+                pass
+        return {"removed": oid}
 
     @api.put("/api/send-to-printer", dependencies=guard)
     def put_send(body: dict):
@@ -471,7 +606,8 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
         costs = [plate_cost(sf, prof, st, n, body, setup=False) for sf, n, _ in items]
         c = app.settings.costs
         setup = (
-            c.labor_min_per_run / 60 * c.labor_rate if None not in (c.labor_rate, c.labor_min_per_run) else 0
+            c.labor_min_per_run / 60 * c.labor_rate
+            if c.labor_rate is not None and c.labor_min_per_run is not None else 0
         )
         total = sum(x["totals"]["run"] for x in costs) + setup
         parts = sum(x["totals"]["parts"] for x in costs)
@@ -630,6 +766,17 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
             f["added"] = f["serial"] in known
         return found
 
+    @api.put("/api/failure-watch", dependencies=guard)
+    def put_failure_watch(body: dict):
+        if not allow_send and body.get("mode") == "pause":
+            raise HTTPException(403, "this can only be changed in the ProofLoop window")
+        try:
+            app.settings.failure_watch = Settings.model_validate({"failure_watch": body.get("mode")}).failure_watch
+        except ValueError as e:
+            raise HTTPException(422, "choose off, alert or pause") from e
+        app.save_settings()
+        return {"mode": app.settings.failure_watch}
+
     @api.put("/api/quiet-hours", dependencies=guard)
     def put_quiet(body: dict):
         try:
@@ -638,6 +785,19 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
             raise HTTPException(422, str(e)) from e
         app.save_settings()
         return app.settings.quiet_hours.model_dump()
+
+    @api.post("/api/monitor/{name}/test", dependencies=guard)
+    def test_connection(name: str):
+        """Log in to the printer the way a send does (nothing is printed or copied)."""
+        from proofloop.monitor.connection import test_printer
+
+        w = watch(name)
+        p = next(p for p in app.settings.printers if p.name == name)
+        r = test_printer(p, w.link)
+        w.event("info" if r["ok"] else "warning", "connection_test",
+                "connection test passed" if r["ok"] else "connection test: " + next(
+                    s["detail"] for s in r["steps"] if not s["ok"]))
+        return r
 
     @api.post("/api/monitor/{name}/bends/reset", dependencies=guard)
     def reset_bends(name: str):
@@ -700,5 +860,5 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
 
     from proofloop.app.loop_routes import register
 
-    register(api, app, guard)
+    register(api, app, guard, window=allow_send)
     return api

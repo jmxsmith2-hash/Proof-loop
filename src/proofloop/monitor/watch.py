@@ -23,6 +23,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from functools import partial
 
 from proofloop.monitor.printer.ams import valid_tray
 from proofloop.monitor.printer.state import PrinterState
@@ -39,7 +40,8 @@ PHASE = {
     5: "door closing",
 }
 
-SAFETY_PAUSE = 6.0  # routines.SAFETY_PAUSE_SIGNAL: the first-sweep safety pause comes next
+SAFETY_PAUSE = 6.0
+WATCH_AT = (0.5, 0.8)  # the failure watch looks at the plate halfway through a loop, and again at 80%  # routines.SAFETY_PAUSE_SIGNAL: the first-sweep safety pause comes next
 
 SENTINEL_TEXT = {
     1: "FarmBoard reset: print starting, door closing",
@@ -79,8 +81,14 @@ class PrinterWatch:
         retry_s: float = 2.0,
         filament=None,
         journal=None,
+        failure_watch: Callable[[], str] | None = None,
     ):
         self.name = name
+        # "off", "alert" or "pause": what to do when the plate still looks empty part-way through a print
+        # (ProofLoop passes your setting; a watch made without one doesn't look)
+        self.failure_watch = failure_watch or (lambda: "off")
+        self._watched: set[float] = set()
+        self._watch_empty = 0
         self.link = link
         self.verifier = verifier
         self.store = store
@@ -144,6 +152,7 @@ class PrinterWatch:
                 self.status = "the printer rejects commands: turn on Developer Mode (LAN-only mode)"
 
             self._track_loop(s)
+            self._look_for_failure(s)
             self._call("on_ams", s)
             self._log("on_state", s)
 
@@ -261,6 +270,43 @@ class PrinterWatch:
     def _new_loop(self) -> None:
         self._printed, self._trays_loop, self._max_layer = False, [], 0
         self._safety_pause = False
+        self._watched, self._watch_empty = set(), 0
+
+    # ---- the failure watch ---------------------------------------------------------------
+    def _look_for_failure(self, s: PrinterState) -> None:
+        """Part-way through a print the plate must no longer look empty. If it still does at both
+        looks, the part has most likely come loose or the nozzle is clogged (printing into the air)."""
+        if self.failure_watch() == "off" or s.gcode_state != "RUNNING" or not s.layer_num:
+            return
+        total = self._call("loop_layers", s) or s.total_layers
+        if not total or total < 10 or not self.verifier.references:
+            return
+        for mark in WATCH_AT:
+            if s.layer_num >= mark * total and mark not in self._watched:
+                self._watched.add(mark)
+                self.run_async(partial(self._failure_check, s.layer_num, total))
+                return
+
+    def _failure_check(self, layer: int, total: int) -> None:
+        try:
+            jpeg = self.link.snapshot()
+            check = self.verifier.check(jpeg, want_diff=False)
+        except Exception:  # no picture: never an alert on a guess
+            return
+        with self.lock:
+            if not check.clear:  # something is on the plate, as there should be
+                self._watch_empty = 0
+                return
+            self._watch_empty += 1
+            if self._watch_empty < len(WATCH_AT) or self.link.state.gcode_state != "RUNNING":
+                return
+            message = (f"printing layer {layer} of {total}, but the plate still looks empty: the part may have "
+                       "come loose, or the nozzle may be clogged")
+            if self.failure_watch() == "pause" and self.link.pause():
+                message += ". ProofLoop paused the printer"
+                self.waiting_for_you = True
+                self.status = "paused: the plate looks empty part-way through the print"
+            self.event("error", "failure_watch", message + ".", check.as_dict(), image=jpeg)
 
     def _loop_printed(self, s: PrinterState) -> None:
         if not self._printed and is_loop_job(s):

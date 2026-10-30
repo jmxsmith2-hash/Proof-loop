@@ -7,7 +7,7 @@ PY=${PYTHON:-python3}
 "$PY" -c 'import sys; assert sys.version_info >= (3, 11), "Python 3.11+ needed"'
 [ -d .venv ] || "$PY" -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e ".[all]"
+.venv/bin/python -m pip install -e ".[all]" -c constraints.txt
 [ -n "$NO_AUTOSTART" ] || .venv/bin/proofloop autostart on
 .venv/bin/proofloop doctor || true
 echo "Done. Open ProofLoop with: .venv/bin/proofloop  (it keeps running when you close the window; it starts"

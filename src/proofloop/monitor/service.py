@@ -20,6 +20,7 @@ from proofloop.loopfiles.gcode.sweep import SweepSettings
 from proofloop.loopfiles.profiles import ProfileStore
 from proofloop.monitor.filament import Inventory, Spool
 from proofloop.monitor.journal import PrintJournal
+from proofloop.monitor.orders import Orders
 from proofloop.monitor.queue import Queue
 from proofloop.monitor.spoolman import Spoolman
 from proofloop.monitor.store import Store
@@ -126,12 +127,14 @@ class UploadCache:
                 raise KeyError("that upload has expired; drop the file again")
             _, data, name = self._items[token]
             self._items.move_to_end(token)
-            if data is None:
+            if data is None and self.folder is not None:
                 try:
                     data = (self.folder / f"{token}.3mf").read_bytes()
                 except OSError as e:
                     self._items.pop(token, None)
                     raise KeyError("that upload has expired; drop the file again") from e
+        if data is None:
+            raise KeyError("that upload has expired; drop the file again")
         return data, name
 
 
@@ -144,6 +147,7 @@ class App:
         self.store = Store(self.data_dir / PRINTERS_DB)
         self.uploads = UploadCache(40, self.data_dir / "uploads")
         self.queue = Queue(self.data_dir / "queue")
+        self.orders = Orders(self.data_dir / "orders.json")
         self.notifier = Notifier(self.settings.notifications)
         self.connect = connect
         self.link_factory = link_factory or self._default_link
@@ -219,6 +223,7 @@ class App:
             settle_s=p.verify.settle_s,
             filament=self.tracker,
             journal=self.journal,
+            failure_watch=lambda: self.settings.failure_watch,
         )
         self.journal.models[p.name] = p.model_id
         link.add_listener(w.on_state)
@@ -241,9 +246,42 @@ class App:
                 self.tell_queue()
             except Exception:
                 log.exception("queue check failed")
+            try:
+                self.morning_summary()
+            except Exception:
+                log.exception("the morning summary failed")
+
+    def morning_summary(self, now: float | None = None) -> dict | None:
+        """The daily summary, at the time you chose, to every notification target (once a day)."""
+        from proofloop.monitor.summary import Morning, summary
+
+        morning = Morning(self.data_dir)
+        since = morning.due(self.settings.summary_at, now)
+        if since is None:
+            return None
+        s = summary(self, since=since)
+        event = self.store.add_event(None, "info", "summary", s["text"])
+        self.notifier.send(event, every=True)
+        morning.sent(now)
+        return s
 
     def tell_queue(self) -> None:
-        """Once per job: a printer with a queued job has come free (nothing starts by itself)."""
+        """Queued jobs that ended, then once per job: a printer with a queued job has come free."""
+        for run, job in self.queue.follow(self):
+            loops = f"{job['loops']} loop{'s' if job['loops'] != 1 else ''}"
+            if job["status"] == "done":
+                self._emit(self.store.add_event(job["printer"], "info", "queue_done",
+                                                f"{job['printer']} finished {run['plate']} ({loops}) from the queue."))
+            else:
+                self._emit(self.store.add_event(
+                    job["printer"], "error", "queue_stopped",
+                    f"{job['printer']} stopped {run['plate']} ({loops}): {job.get('why') or 'stopped'}. "
+                    "It's back under Printers › Overview to send again."))
+        from proofloop.monitor.orders import finished
+
+        for o in finished(self):
+            self._emit(self.store.add_event(None, "info", "order_done",
+                                            f"Order for {o['customer']} is made: {o['quantity']} × {o['plate']}."))
         for run, job in self.queue.ready(self):
             self._emit(self.store.add_event(
                 job["printer"], "warning", "queue_ready",
