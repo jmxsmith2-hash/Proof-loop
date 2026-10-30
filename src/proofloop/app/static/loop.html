@@ -436,7 +436,7 @@ input[type=number]{max-width:140px}
 <!-- ============ MONITOR ============ -->
 <section data-panel="monitor" class="hidden">
   <h1>Monitor</h1>
-  <p class="sub">ProofLoop watches your printers on the local network and checks the plate with the camera after each loop. It never starts prints; it only resumes a loop file that is waiting for its plate check.</p>
+  <p class="sub">ProofLoop watches your printers on the local network and checks the plate with the camera after each loop. On its own it only resumes a loop file that is waiting for its plate check; it starts a print only when you send one and confirm it.</p>
   <div id="monitorEmpty" class="banner info hidden"><span class="ic info">i</span><div>No printers yet. Add one below. The printer needs <b>LAN-only mode</b> with <b>Developer Mode</b> on; its IP, serial number and access code are on the printer's screen.</div></div>
   <div class="grid" id="printerCards" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))"></div>
   <div class="grid two" style="margin-top:16px">

@@ -12,7 +12,15 @@ ProofLoop opens as one window with three tabs:
 | **Loop files** | Makes loop files for FarmLoop auto-eject hardware: a push height for each part, a cooldown that's safe, a first-sweep safety pause. Checks any loop file, costs a plate, and makes calibration prints. [More](docs/loop-files.md) |
 | **Printers** | Watches your printers: live status, a camera check that the plate is empty before the next loop, print history, filament and spools. [More](docs/printers.md) |
 
-Under **More** there are **Phone** and **Setup check**.
+Under **More** there are **Get set up**, **Phone** and **Setup check**.
+
+## Getting set up
+
+The first time you open ProofLoop, a **Get set up** panel lists what to do before your printers
+run unattended: add the printer, connect to it, take pictures of the empty plate, pick the hardware
+for your kit, measure the sweep floor, set up alerts and start at login (and, optionally, install
+Bambu Studio for print-ready verdicts). Each step ticks itself off as you do it, and **Show me**
+opens the right tab and outlines the exact form. Open it again any time from *More › Get set up*.
 
 ## How the tabs work together
 
@@ -27,8 +35,15 @@ Under **More** there are **Phone** and **Setup check**.
 - **Learning from you.** Mark a finding *Not a problem*, and after two such marks that check counts
   one level lower for that printer and material. *It was right* undoes it.
 - **One place for notifications.** The ntfy, Discord or webhook targets you set up under
-  *Printers › Monitor* are used for everything: printer alerts and long checks that have finished.
-  The window also shows a desktop notice when a check finishes; it asks once, with a button.
+  *Printers › Monitor* are used for everything: printer alerts, long checks that have finished, and
+  a printer coming free for its next queued job. The window also shows a desktop notice when a check
+  finishes; it asks once, with a button.
+- **From plate to printers.** *Plan a production run* spreads the loops you need over the printers
+  that can print the plate, so they finish together, and can keep that as a queue under *Printers ›
+  Overview*. With **sending to printers** turned on (off unless you turn it on), a loop file goes to
+  a printer and starts in one click, after you confirm the printer, and only when the printer is
+  connected, idle, the right model and has the right filament loaded. Nothing in the queue starts by
+  itself. [More](docs/printers.md#queue)
 
 ## Runs in the background
 
@@ -112,7 +127,8 @@ Everything is in one folder, `~/.proofloop` (`PROOFLOOP_HOME` moves it):
   name (see `src/proofloop/data`), and `settings.yaml` is merged over the built-in settings, so it
   only needs what you change;
 - `printers.db` and `results.db`: print history and events; design checks and what was learned;
-- `reports/`, `profiles/`, `files/`: reports, imported hardware profiles, the loop files ProofLoop made;
+- `reports/`, `profiles/`, `files/`, `queue/`: reports, imported hardware profiles, the loop files
+  ProofLoop made, queued runs;
 - `proofloop.log`: the background service's log.
 
 ## More

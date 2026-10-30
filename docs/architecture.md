@@ -42,7 +42,7 @@ parts match the window's tabs:
 | `loopfiles/` | See below. |
 | `monitor/` | See below. |
 | `personas/` | people who differ in hand size, grip, body size, motor control and eyesight: traits, deliberate design, generation, diversity (used by the design check and product predictions). |
-| `app/` | the window's server (`shell.py`) with Check (`checks.py`) and Loop files & Printers (`loop_server.py`, `loop_routes.py`) on it; background service, tray, start at login, phone access, setup check, updates; the pages (`static/`, `templates/`). |
+| `app/` | the window's server (`shell.py`) with Check (`checks.py`) and Loop files & Printers (`loop_server.py`, `loop_routes.py`) on it; the first-run guide (`guide.py`); background service, tray, start at login, phone access, setup check, updates; the pages (`static/`, `templates/`). |
 | `data/` | built-in YAML (settings, models, printers, processes) and reference data (body sizes, product checklists). |
 
 ## Loop files
@@ -89,6 +89,8 @@ parts match the window's tabs:
 | `spoolman.py` | Optional Spoolman import and usage reporting. |
 | `costing.py` | Cost per part, loop and run, selling price, fees and capacity, from your own rates and the file's grams and times. Unset rates are reported, never filled in. |
 | `store.py` | `printers.db`: events, outcomes, production, timings. |
+| `send.py` | Sending to printers (opt-in): what must be true first, the filament-to-tray mapping, the FTPS upload and the `project_file` command. |
+| `queue.py` | Spreading a run over the printers that can print it, and the queue of jobs (`queue/`), with a notice when a printer comes free. |
 
 ## The monitor's rule
 

@@ -32,6 +32,10 @@ does to FarmLoop's own files.
 4. Put a part on the plate and press *Check plate*. It should report parts left.
 5. Make loop files with *Wait for the plate check* on.
 
+Sending loop files from ProofLoop (optional, *Monitor › Sending to printers*) needs the same
+LAN-only mode with Developer Mode on: the file is copied over the printer's FTPS on port 990 with
+the access code, and started over MQTT.
+
 If the printer reports HMS 0500-0500-0001-0007 ("MQTT command verification
 failed"), Developer Mode is off and the printer will refuse `resume`.
 
