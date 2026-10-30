@@ -24,10 +24,15 @@ printer), so the printers finish at about the same time. A run of more than 50 l
 becomes several files. Printers left out say why.
 
 **Keep it as a queue** stores the plan with a copy of the plate. The *Queue* card on the Overview
-lists each job (printer, loops, waiting, sent or downloaded). When a printer with a job waiting
-comes free, ProofLoop tells you once, in the event log and through your notification targets.
-Nothing starts by itself: you **Send and start** a job (with sending turned on, and confirmed) or
-**Download** it and send it yourself.
+lists each job and where it is: waiting, sent, printing (and which loop), done, or stopped. A job
+you sent or downloaded is followed on its printer from what the printer reports, so you don't mark
+anything yourself: it's done when the file finishes, and stopped (with why) when it fails, is
+cancelled, or a sent file doesn't start within 10 minutes. A stopped job can be sent or downloaded
+again. When a printer with a job waiting comes free (and isn't still on a job you sent it),
+ProofLoop tells you once, in the event log and through your notification targets; it tells you
+too when a queued job finishes or stops. Nothing starts by itself: you **Send and start** a job
+(with sending turned on, and confirmed) or **Download** it and send it yourself. A downloaded job
+is followed if you print it on the printer it was planned for.
 
 ## Sending to printers
 

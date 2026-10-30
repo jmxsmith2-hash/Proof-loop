@@ -291,7 +291,7 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
     @api.post("/api/queue/{rid}/{jid}/download", dependencies=guard)
     def queue_download(rid: str, jid: str):
         job, r = queued_file(rid, jid)
-        app.queue.mark(rid, jid, status="downloaded", file=r.filename, at=time.time())
+        app.queue.mark(rid, jid, status="downloaded", file=r.filename, at=time.time(), why=None, loop=None)
         return file_response(r)
 
     @api.post("/api/queue/{rid}/{jid}/send", dependencies=guard)
@@ -303,7 +303,7 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
             raise HTTPException(400, "confirm the printer to send it to")
         job, r = queued_file(rid, jid)
         result = send_made(job["printer"], body.get("confirm"), r)
-        app.queue.mark(rid, jid, status="sent", file=r.filename, at=time.time())
+        app.queue.mark(rid, jid, status="sent", file=r.filename, at=time.time(), why=None, loop=None)
         return result
 
     @api.delete("/api/queue/{rid}", dependencies=guard)

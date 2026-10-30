@@ -243,7 +243,17 @@ class App:
                 log.exception("queue check failed")
 
     def tell_queue(self) -> None:
-        """Once per job: a printer with a queued job has come free (nothing starts by itself)."""
+        """Queued jobs that ended, then once per job: a printer with a queued job has come free."""
+        for run, job in self.queue.follow(self):
+            loops = f"{job['loops']} loop{'s' if job['loops'] != 1 else ''}"
+            if job["status"] == "done":
+                self._emit(self.store.add_event(job["printer"], "info", "queue_done",
+                                                f"{job['printer']} finished {run['plate']} ({loops}) from the queue."))
+            else:
+                self._emit(self.store.add_event(
+                    job["printer"], "error", "queue_stopped",
+                    f"{job['printer']} stopped {run['plate']} ({loops}): {job.get('why') or 'stopped'}. "
+                    "It's back under Printers › Overview to send again."))
         for run, job in self.queue.ready(self):
             self._emit(self.store.add_event(
                 job["printer"], "warning", "queue_ready",

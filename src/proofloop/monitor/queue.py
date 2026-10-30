@@ -10,6 +10,10 @@ A run kept in the ``Queue`` stays on disk (``queue/`` in ProofLoop's folder, wit
 plate). When a printer with a job waiting comes free, ProofLoop tells you once, through the event
 log and your notification targets. Nothing in the queue starts by itself: you send or download each
 job (sending needs Sending to printers turned on, and your confirmation).
+
+A job you sent or downloaded is followed on its printer from what the printer reports: *printing*
+once its file runs there (with the loop it's on), then *done* when the file finishes, or *stopped*
+when it fails or is cancelled. Only then is the printer's next job offered.
 """
 
 from __future__ import annotations
@@ -22,9 +26,14 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from proofloop.monitor.journal import CANCELLED_ERROR
 from proofloop.monitor.send import BUSY, match_trays
+from proofloop.monitor.tracking import job_key
+from proofloop.monitor.watch import job_names
 
 MAX_LOOPS = 50  # loops in one file (as Make a loop file allows); longer runs on one printer get several files
+FOLLOWED = ("sent", "downloaded", "printing")  # jobs out of the queue and not finished yet
+START_WAIT_S = 600  # a sent file the printer hasn't started in this long didn't start
 
 
 def _free_in(state) -> float:
@@ -168,15 +177,61 @@ class Queue:
             self._save(runs)
             (self.folder / f"{rid}.gcode.3mf").unlink(missing_ok=True)
 
+    def follow(self, app) -> list[tuple[dict, dict]]:
+        """Move jobs on from what their printers report; returns the (run, job) that just ended."""
+        out = []
+        with self._lock:
+            runs = self._load()
+            changed = False
+            for run in runs:
+                for job in run["jobs"]:
+                    if job["status"] in FOLLOWED and job.get("file") and self._follow(app, job):
+                        changed = True
+                        if job["status"] in ("done", "stopped"):
+                            out.append((run, job))
+            if changed:
+                self._save(runs)
+        return out
+
+    @staticmethod
+    def _follow(app, job: dict) -> bool:
+        """One job's next step, from its printer's state. True when the job changed."""
+        w = app.watches.get(job["printer"])
+        if w is None or not w.link.state.online:
+            return False
+        s, before = w.link.state, dict(job)
+        mine = job_key(job["file"]) in {job_key(n) for n in job_names(s)}
+        state = s.gcode_state.upper()
+        if job["status"] == "printing":
+            if mine and state in BUSY:
+                job["loop"] = max(1, w.loop_no)
+            elif mine and state == "FAILED":
+                job.update(status="stopped", why="cancelled" if s.print_error == CANCELLED_ERROR else
+                           f"failed in loop {job.get('loop') or 1}", ended=time.time())
+            elif mine and state == "FINISH":
+                job.update(status="done", loop=job["loops"], ended=time.time())
+            elif not mine:  # the printer moved on to another print before ProofLoop saw this one end
+                ended = [o for o in app.store.outcomes(since=job["at"] or 0, printer=job["printer"], limit=200)
+                         if job_key(o.get("job") or "") == job_key(job["file"])]
+                bad = next((o for o in ended if o["outcome"] in ("failed", "cancelled")), None)
+                job.update(status="stopped" if bad else "done", ended=time.time(),
+                           why=(bad["outcome"] if bad else None))
+        elif mine and state in BUSY:  # sent or downloaded, and now running on its printer
+            job.update(status="printing", loop=max(1, w.loop_no))
+        elif job["status"] == "sent" and time.time() - (job["at"] or 0) > START_WAIT_S:
+            job.update(status="stopped", why="the printer didn't start it", ended=time.time())
+        return job != before
+
     def ready(self, app) -> list[tuple[dict, dict]]:
         """Jobs whose printer just came free and that you haven't been told about yet: (run, job)."""
         out = []
         with self._lock:
             runs = self._load()
             changed = False
+            # A printer still on a job you sent has nothing to offer yet (a downloaded one may never run).
+            seen = {j["printer"] for run in runs for j in run["jobs"] if j["status"] in ("sent", "printing")}
             for run in runs:
                 waiting = [j for j in run["jobs"] if j["status"] == "waiting"]
-                seen = set()
                 for job in waiting:  # only the next job on each printer
                     if job["printer"] in seen:
                         continue

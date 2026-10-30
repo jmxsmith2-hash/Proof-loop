@@ -919,12 +919,15 @@ async function refreshQueue() {
   let runs = [];
   try { runs = await json('/api/queue'); } catch (e) { return; }
   const sendOn = !!(STATE && STATE.send_to_printer);
-  const label = {waiting: '<span class="chip">waiting</span>', sent: '<span class="chip ok">sent</span>', downloaded: '<span class="chip info">downloaded</span>'};
+  const label = (j) => ({waiting: '<span class="chip">waiting</span>', sent: '<span class="chip info">sent, not started yet</span>',
+    downloaded: '<span class="chip info">downloaded</span>', printing: `<span class="chip info">printing loop ${j.loop || 1} of ${j.loops}</span>`,
+    done: '<span class="chip ok">done</span>', stopped: `<span class="chip bad">stopped: ${esc(j.why || '')}</span>`})[j.status] || '';
+  const again = (j) => j.status === 'waiting' || j.status === 'stopped';
   $('#queueOut').innerHTML = runs.length ? runs.map(run => `<div style="padding:8px 0;border-top:1px solid var(--line)">
       <div class="spread"><b>${esc(run.plate)}</b><span><span class="hint">${run.parts} parts</span> <button class="linkbtn" data-qremove="${esc(run.id)}">Remove</button></span></div>
-      ${run.jobs.map(j => `<div class="spread" style="margin-top:4px"><span>${esc(j.printer)} · ${j.loops} loop${j.loops > 1 ? 's' : ''} ${label[j.status] || ''}</span>
-        <span class="row">${j.status === 'waiting' && sendOn ? `<button class="btn" data-qsend="${esc(run.id)}/${esc(j.id)}" data-printer="${esc(j.printer)}">Send and start</button>` : ''}
-        ${j.status === 'waiting' ? `<button class="btn" data-qget="${esc(run.id)}/${esc(j.id)}">Download</button>` : ''}</span></div>`).join('')}
+      ${run.jobs.map(j => `<div class="spread" style="margin-top:4px"><span>${esc(j.printer)} · ${j.loops} loop${j.loops > 1 ? 's' : ''} ${label(j)}</span>
+        <span class="row">${again(j) && sendOn ? `<button class="btn" data-qsend="${esc(run.id)}/${esc(j.id)}" data-printer="${esc(j.printer)}">Send and start</button>` : ''}
+        ${again(j) ? `<button class="btn" data-qget="${esc(run.id)}/${esc(j.id)}">Download</button>` : ''}</span></div>`).join('')}
     </div>`).join('') : '<p class="hint">Nothing queued. Under <a href="#" data-goto="make">Make a loop file</a>, plan a run and spread it over your printers.</p>';
 }
 $('#queueOut').addEventListener('click', async (e) => {
