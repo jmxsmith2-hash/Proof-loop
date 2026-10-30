@@ -21,7 +21,9 @@ nav button:focus-visible, .more > button:focus-visible { outline-offset: -3px; }
 .menu button:hover, .menu button:focus-visible { background: var(--soft); }
 .menu small { display: block; color: var(--muted); font-size: 12.5px; }
 .menu .on b::after { content: " · on"; color: var(--ok); font-weight: 600; }
-.ver { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--soft); font-variant-numeric: tabular-nums; }
+.ver { margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; background: var(--soft); font-variant-numeric: tabular-nums; cursor: pointer; border: 0; }
+.ver.fresh { background: var(--accent); color: var(--accent-ink); }
+.ver.fresh::after { content: " · what's new"; }
 .strip { display: flex; gap: 12px; align-items: center; padding: 7px 16px; margin: 0; border: 0; border-radius: 0; border-bottom: 1px solid color-mix(in srgb, var(--tone) 18%, var(--line)); font-size: 13.5px; flex: none; }
 .strip .grow { flex: 1; min-width: 0; }
 .strip .ic { margin: 0; }
@@ -52,6 +54,10 @@ dialog p { margin: 6px 0; }
 .qr svg { width: 100%; height: auto; display: block; }
 .code { font-size: 26px; letter-spacing: 6px; font-weight: 700; text-align: center; }
 .err { color: var(--bad); }
+#newsDlg { max-width: min(560px, calc(100vw - 32px)); }
+.news { max-height: 60vh; overflow: auto; font-size: 14px; }
+.news h3 { margin: 14px 0 4px; } .news h4 { margin: 10px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.news ul { margin: 0; padding-left: 18px; } .news li { margin: 3px 0; }
 @media (max-width: 760px) { .ver, .brand span { display: none; } nav button, .more > button { padding: 0 8px; font-size: 14px; } header { gap: 8px; padding: 0 10px; } }
 </style>
 </head>
@@ -69,9 +75,10 @@ dialog p { margin: 6px 0; }
       <button type="button" role="menuitem" id="phoneBtn" class="hidden"><span><b>Phone</b><small>See your printers on your phone, over your Wi-Fi</small></span></button>
       <button type="button" role="menuitem" id="guideBtn"><span><b>Get set up</b><small id="guideMenuNote">The few things to do before your printers run unattended</small></span></button>
       <button type="button" role="menuitem" id="doctorBtn"><span><b>Setup check</b><small>Is everything ProofLoop needs working?</small></span></button>
+      <button type="button" role="menuitem" id="newsBtn" class="hidden"><span><b>What's new</b><small id="newsNote">What changed in this version</small></span></button>
     </div>
   </div>
-  <span class="ver" id="ver"></span>
+  <button type="button" class="ver" id="ver" title="What's new"></button>
 </header>
 <div class="banner warn strip hidden" id="noticeBanner" role="region" aria-label="Notifications">
   <span>Get a desktop notice when a check finishes while ProofLoop is in the background?</span>
@@ -100,6 +107,12 @@ dialog p { margin: 6px 0; }
   <p class="hint">You can open this again from <b>More › Get set up</b>.</p>
 </aside>
 </div>
+
+<dialog id="newsDlg" aria-labelledby="newsTitle">
+  <h2 id="newsTitle">What's new</h2>
+  <div id="newsBody" class="news"></div>
+  <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="newsClose">Close</button></div>
+</dialog>
 
 <dialog id="phoneDlg" aria-labelledby="phoneTitle">
   <h2 id="phoneTitle">Your printers on your phone</h2>
@@ -290,6 +303,36 @@ $("guideBtn").onclick = () => { menu(false); openGuide(true); };
 $("guideClose").onclick = () => openGuide(false);
 if (CFG.pretend) $("pretendBanner").classList.remove("hidden");
 else loadGuide().then(g => { if (g && !g.complete && !store.get("proofloop-guide-closed")) openGuide(true); });
+
+// ---- what's new: the changelog, as simple Markdown (headings, bullets, bold, code)
+function md(text) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*(.+?)\*/g, "<i>$1</i>");
+  let html = "", item = null;
+  const flush = () => { if (item !== null) { html += `<li>${inline(item)}</li>`; item = null; } };
+  for (const line of text.split("\n")) {
+    if (line.startsWith("### ")) { flush(); html += `</ul><h4>${inline(line.slice(4))}</h4><ul>`; }
+    else if (line.startsWith("- ")) { flush(); item = line.slice(2); }
+    else if (line.trim() && item !== null) item += " " + line.trim();
+  }
+  flush();
+  return ("<ul>" + html + "</ul>").replace(/<ul><\/ul>/g, "");
+}
+let NEWS = null;
+call("/proofloop/changelog").then(n => {
+  NEWS = n; if (!n.sections.length) return;
+  $("newsBtn").classList.remove("hidden");
+  const seen = store.get("proofloop-news-seen");
+  if (seen !== n.version) { $("newsNote").textContent = `New in ${n.version}`; $("ver").classList.add("fresh"); }
+}).catch(() => {});
+function openNews() {
+  menu(false);
+  $("newsBody").innerHTML = NEWS.sections.map(sct => `<h3>${esc(sct.version)}${sct.date ? ` <span class="hint">${esc(sct.date)}</span>` : ""}</h3>${md(sct.body)}`).join("");
+  store.set("proofloop-news-seen", NEWS.version); $("ver").classList.remove("fresh"); $("newsNote").textContent = "What changed in this version";
+  $("newsDlg").showModal();
+}
+$("newsBtn").onclick = openNews;
+$("ver").onclick = () => { if (NEWS && NEWS.sections.length) openNews(); };
+$("newsClose").onclick = () => $("newsDlg").close();
 
 // ---- plates handed between the tabs, and finished checks
 window.addEventListener("message", async (e) => {

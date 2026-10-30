@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofloop"
-version = "0.3.0"
+version = "0.4.0"
 description = "Check designs, make FarmLoop loop files and watch your Bambu Lab printers, in one app on your own computer"
 readme = "README.md"
 license = "AGPL-3.0-or-later"

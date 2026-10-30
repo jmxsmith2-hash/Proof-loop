@@ -29,6 +29,15 @@ def behind(root: Path) -> tuple[int, str]:
     return n, branch
 
 
+def _whats_new(root: Path, branch: str) -> str:
+    """The changelog sections the update brings: newer than the version running now."""
+    from proofloop import __version__
+    from proofloop.core.changelog import as_text, newer_than
+
+    r = _git(root, "show", f"origin/{branch}:CHANGELOG.md", check=False)
+    return as_text(newer_than(r.stdout, __version__)) if r.returncode == 0 else ""
+
+
 def update(check_only: bool = False, say=print) -> int:
     root = repo_root()
     if root is None or not (root / ".git").exists():
@@ -49,6 +58,9 @@ def update(check_only: bool = False, say=print) -> int:
         say(f"ProofLoop is up to date ({branch}).")
         return 0
     say(f"{n} update{'s' if n != 1 else ''} available on {branch}.")
+    coming = _whats_new(root, branch)
+    if coming:
+        say("What's new:\n" + coming)
     if check_only:
         return 0
     if _git(root, "status", "--porcelain", "--untracked-files=no", check=False).stdout.strip():

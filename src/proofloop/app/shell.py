@@ -135,6 +135,13 @@ class Shell:
             return HTMLResponse(html_page(checks(self, port=self.port, printer_test=True)),
                                 headers={"Cache-Control": "no-store"})
 
+        @api.get("/proofloop/changelog")
+        def changelog():
+            from proofloop.core.changelog import read, sections
+
+            text = read()
+            return {"version": __version__, "sections": sections(text)[:5] if text else []}
+
         @api.post("/proofloop/phone")
         async def phone(request: Request):
             body = await body_of(request)

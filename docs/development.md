@@ -48,6 +48,15 @@ example parts and G-code.
 library can't change an install overnight. Dependabot opens a pull request each week that moves the
 pins (and the CI actions) forward; CI tests it before it can be merged.
 
+## Releases
+
+Each version has a section in `CHANGELOG.md`, newest first (`## 0.4.0 · 2026-10-30`). To release:
+set the version in `pyproject.toml` and `src/proofloop/__init__.py`, write its section, merge, then
+push a tag `v0.4.0`. The release workflow checks that the tag, the version and the changelog agree,
+runs the tests, builds the package and makes the GitHub release with that section as its notes.
+`proofloop update` shows what an update brings before it installs it, and the window shows the
+newest sections under *More › What's new* (the version badge lights up after an update).
+
 ## CI
 
 CI runs once per change: on pull requests and on pushes to `main` (a newer push to a pull request
