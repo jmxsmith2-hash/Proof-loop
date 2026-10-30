@@ -161,6 +161,7 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
             "can_send": allow_send,
             "notifications": [n.model_dump(exclude={"token"}) for n in app.settings.notifications],
             "quiet_hours": app.settings.quiet_hours.model_dump(),
+            "failure_watch": app.settings.failure_watch,
             "costs": app.settings.costs.model_dump(),
             "filament": app.settings.filament.model_dump(),
             "spools": [
@@ -645,6 +646,17 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
             )
             f["added"] = f["serial"] in known
         return found
+
+    @api.put("/api/failure-watch", dependencies=guard)
+    def put_failure_watch(body: dict):
+        if not allow_send and body.get("mode") == "pause":
+            raise HTTPException(403, "this can only be changed in the ProofLoop window")
+        try:
+            app.settings.failure_watch = Settings.model_validate({"failure_watch": body.get("mode")}).failure_watch
+        except ValueError as e:
+            raise HTTPException(422, "choose off, alert or pause") from e
+        app.save_settings()
+        return {"mode": app.settings.failure_watch}
 
     @api.put("/api/quiet-hours", dependencies=guard)
     def put_quiet(body: dict):

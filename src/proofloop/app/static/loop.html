@@ -484,6 +484,13 @@ input[type=number]{max-width:140px}
           <button class="btn primary">Add printer</button>
         </form>
       </div>
+      <div class="card" id="failureWatchCard">
+        <h2>Failure watch</h2>
+        <p class="hint">Halfway through each print, and again at 80%, ProofLoop looks at the plate. If it still looks empty both times, the part has most likely come loose or the nozzle is clogged.</p>
+        <label class="field" style="margin:0"><span>When that happens</span>
+          <select id="failureWatch" style="max-width:320px"><option value="alert">Tell me</option><option value="pause">Pause the printer and tell me</option><option value="off">Don't look</option></select></label>
+        <p class="hint">Needs pictures of the empty plate. Every alert comes with the camera picture.</p>
+      </div>
       <div class="card">
         <h2>Quiet hours</h2>
         <p class="hint">Plates are still checked overnight, but the next loop waits until morning. The printer stays paused with its heaters off.</p>
@@ -1026,6 +1033,11 @@ $('#findPrinters').onclick = async () => {
       form.access_code.focus(); toast('Now enter the access code from the printer screen'); });
   } catch (e) { out.innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; }
 };
+$('#failureWatch').addEventListener('change', async (e) => {
+  try { const r = await send('/api/failure-watch', {mode: e.target.value}, 'PUT');
+    toast({alert: 'The failure watch will tell you', pause: 'The failure watch will pause the printer and tell you', off: 'Failure watch off'}[r.mode]); }
+  catch (err) { toast(err.message); }
+});
 $('#quietForm').onsubmit = async (e) => { e.preventDefault(); const f = e.target;
   try { await send('/api/quiet-hours', {enabled: f.enabled.checked, start: f.start.value || '22:00', end: f.end.value || '07:00'}, 'PUT'); toast('Quiet hours saved'); } catch (err) { toast(err.message); } };
 
@@ -1555,6 +1567,7 @@ async function refreshMonitor() {
     $('#outcomes').innerHTML = '<tr><th>Ended</th><th>Printer</th><th>File</th><th>Result</th></tr>' + (oc.length ? '' : '<tr><td colspan="4" class="muted">Nothing yet. Every print the Monitor sees is recorded here.</td></tr>') + oc.map(o => `<tr><td class="num muted">${new Date(o.ts * 1000).toLocaleString()}</td><td>${esc(o.printer)}</td><td>${esc(o.job || '')}${o.loop_file ? ' <span class="muted">loop ' + o.loop_no + '</span>' : ''}</td><td>${how[o.outcome] || esc(o.outcome)}${o.outcome !== 'finished' && o.layer ? ' <span class="muted">at layer ' + o.layer + (o.total_layers ? '/' + o.total_layers : '') + '</span>' : ''}${o.hms && o.hms.length ? ' <span class="muted">HMS ' + o.hms.map(h => esc(h.code)).join(', ') + '</span>' : ''}${o.eject === 'parts_left' ? ' <span class="chip warn">parts left</span>' : ''}${o.has_picture ? ` <button class="btn" data-act="outpic" data-id="${o.id}">Picture</button>` : ''}</td></tr>`).join('');
     const ev = await json('/api/events?limit=40');
     $('#events').innerHTML = '<tr><th>Time</th><th>Printer</th><th>What happened</th></tr>' + (ev.length ? '' : '<tr><td colspan="3" class="muted">Nothing yet. Events appear here as printers connect and loops run.</td></tr>') + ev.map(e => `<tr><td class="num muted">${new Date(e.ts * 1000).toLocaleString()}</td><td>${esc(e.printer || '')}</td><td>${e.level === 'error' ? '<span class="chip bad">!</span> ' : e.level === 'warning' ? '<span class="chip warn">!</span> ' : ''}${esc(e.message)}</td></tr>`).join('');
+    if (document.activeElement !== $('#failureWatch')) $('#failureWatch').value = STATE.failure_watch || 'alert';
     const q = STATE.quiet_hours, qf = $('#quietForm');
     if (q && document.activeElement?.form !== qf) { qf.enabled.checked = q.enabled; qf.start.value = q.start; qf.end.value = q.end; }
     const nt = STATE.notifications[0];

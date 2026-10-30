@@ -219,6 +219,7 @@ class App:
             settle_s=p.verify.settle_s,
             filament=self.tracker,
             journal=self.journal,
+            failure_watch=lambda: self.settings.failure_watch,
         )
         self.journal.models[p.name] = p.model_id
         link.add_listener(w.on_state)

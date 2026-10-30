@@ -284,8 +284,11 @@ class FakePrinter:
                 return
             if kind == "layers":
                 layers = n
+                self.picture = plate_picture()  # a new loop starts on an empty plate
                 self.report(total_layer_num=n, layer_num=0)
             elif kind == "layer":
+                if n == max(1, layers // 5):
+                    self.picture = plate_picture(parts_left=True)  # the part, growing on the plate
                 left = sum(1 for k, _ in todo[i:] if k == "layer")
                 self.report(layer_num=n, mc_remaining_time=max(1, round(left * 60 * self.layer_s / 60)),
                             mc_percent=min(99, round(100 * (len(todo) - left) / len(todo))))

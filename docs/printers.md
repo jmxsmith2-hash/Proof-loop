@@ -69,6 +69,12 @@ send to each printer. A paired phone can never send, or change this setting.
   only when it's empty. Anything else (parts left, no picture, a camera error, any other kind of
   pause) leaves the printer waiting with the heaters off and tells you. Take the empty-plate
   pictures here.
+- **Failure watch.** Halfway through each print (each loop of a loop file), and again at 80%,
+  ProofLoop looks at the plate. If it still looks empty both times, the part has most likely come
+  loose or the nozzle is clogged and the printer is printing into the air: you get an alert with the
+  camera picture, and with *Pause the printer and tell me* the printer pauses too. It needs pictures of
+  the empty plate, and never alerts without a picture. A tangle of spaghetti isn't recognised yet:
+  that needs footage from real failures to tell apart from a good print.
 - **Quiet hours.** Plates are still checked overnight, but the next loop waits until morning, with
   the printer paused and its heaters off.
 - **Notifications.** ntfy, Discord or any JSON webhook, each with its lowest level. When parts are
