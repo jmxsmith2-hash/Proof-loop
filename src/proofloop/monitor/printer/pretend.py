@@ -277,7 +277,8 @@ class FakePrinter:
             return
         todo = steps(gcode)
         layers = next((n for kind, n in todo if kind == "layers"), 1)
-        self.report(ams={"tray_now": "0"}, total_layer_num=layers)
+        self.report(ams={"tray_now": "0"}, total_layer_num=layers, bed_temper=65.0, bed_target_temper=65.0,
+                    nozzle_temper=220.0)
         for i, (kind, n) in enumerate(todo):
             if self._stop.is_set():
                 return
@@ -290,12 +291,17 @@ class FakePrinter:
                             mc_percent=min(99, round(100 * (len(todo) - left) / len(todo))))
                 time.sleep(self.layer_s)
             elif kind == "signal":
-                self.report(nozzle_target_temper=n)
+                if n == 1:  # a new loop: the bed heats again
+                    self.report(nozzle_target_temper=n, bed_temper=65.0, bed_target_temper=65.0, nozzle_temper=220.0)
+                elif n == 2:  # print done: the door opens and the bed cools to the release temperature
+                    self.report(nozzle_target_temper=n, bed_temper=30.0, bed_target_temper=0.0, nozzle_temper=60.0)
+                else:
+                    self.report(nozzle_target_temper=n)
                 time.sleep(self.step_s)
             elif kind == "pause":
                 self._pause()
         self.report(gcode_state="FINISH", mc_remaining_time=0, mc_percent=100, nozzle_target_temper=0,
-                    ams={"tray_now": "255"})
+                    ams={"tray_now": "255"}, bed_temper=28.0, bed_target_temper=0.0, nozzle_temper=35.0)
 
     def _pause(self) -> None:
         """The file waits here for the plate check: ProofLoop resumes it, or a pretend person does."""

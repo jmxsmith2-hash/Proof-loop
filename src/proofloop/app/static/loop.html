@@ -16,9 +16,10 @@ header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px
 nav .group{font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--muted);padding-right:4px}
 @media (max-width:700px){
   .bar{gap:6px;padding:10px 12px 6px}
-  nav{flex-wrap:nowrap;overflow-x:auto;max-width:100%;gap:4px 14px;scrollbar-width:none;-webkit-overflow-scrolling:touch;
+  .bar nav{flex-wrap:nowrap;overflow-x:auto;max-width:100%;gap:4px 14px;scrollbar-width:none;-webkit-overflow-scrolling:touch;
     mask-image:linear-gradient(90deg,#000 88%,transparent)}
-  nav::-webkit-scrollbar{display:none}
+  .bar nav::-webkit-scrollbar{display:none}
+  nav .group{white-space:nowrap}
   .navgroup{flex-wrap:nowrap}nav button{white-space:nowrap;padding:6px 10px}
   #ver{display:none}}
 #firstPauseHint[data-auto=on]::after{content:' Automatic: on until a loop has been swept cleanly on one of your printers.'}
