@@ -12,6 +12,7 @@
     proofloop phone on|off|forget  phone access on your network
     proofloop doctor               check the setup (--slice-test, --send-test)
     proofloop summary              what happened on your printers (--hours, --json)
+    proofloop mcp                  ProofLoop for assistants such as Claude (--config prints the setup)
     proofloop update               get the newest ProofLoop (--check to only look)
 """
 
@@ -285,6 +286,19 @@ def cmd_summary(a) -> int:
     return 0
 
 
+def cmd_mcp(a) -> int:
+    from proofloop.app import mcp
+
+    if a.config:
+        from proofloop.core.output import emit
+
+        emit(mcp.config_entry())
+        print("\nClaude Code:  claude mcp add proofloop -- " + " ".join([sys.executable, "-m", "proofloop", "mcp"]),
+              file=sys.stderr)
+        return 0
+    return mcp.main(a.port)
+
+
 def cmd_update(a) -> int:
     from proofloop.app.update import update
 
@@ -392,6 +406,10 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--hours", type=float, default=12)
     p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p = sub.add_parser("mcp", help="ProofLoop for assistants such as Claude (Model Context Protocol, stdio)")
+    p.add_argument("--config", action="store_true", help="print the entry for Claude Desktop's config, and the "
+                   "command for Claude Code")
+    p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p = sub.add_parser("update", help="get the newest ProofLoop from GitHub")
     p.add_argument("--check", action="store_true", help="only say whether there is an update")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -404,7 +422,7 @@ def _main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     return {"open": cmd_open, "service": cmd_service, "app": cmd_app, "stop": cmd_stop, "status": cmd_status,
             "autostart": cmd_autostart, "phone": cmd_phone, "doctor": cmd_doctor, "update": cmd_update,
-            "summary": cmd_summary}[a.cmd](a)
+            "summary": cmd_summary, "mcp": cmd_mcp}[a.cmd](a)
 
 
 if __name__ == "__main__":
