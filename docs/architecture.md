@@ -32,6 +32,9 @@ parts match the window's tabs:
   `loopfiles/lint.py` on a loop file's ejection cycle, and `loopfiles/print_checks.py` runs the
   G-code check on the print in each loop.
 - **One look**: `core/theme.css` is put inline into every page and report by `core/theme.py`.
+- **One shape for results**: `core/output.py` (JSON and exit codes) and `check/summary.py` (findings
+  with stable ids) are what `--json` prints and what `proofloop mcp` returns. The MCP server runs each
+  check as a `proofloop ... --json` command, and asks the running ProofLoop for live state.
 
 ## Folders
 
@@ -42,7 +45,7 @@ parts match the window's tabs:
 | `loopfiles/` | See below. |
 | `monitor/` | See below. |
 | `personas/` | people who differ in hand size, grip, body size, motor control and eyesight: traits, deliberate design, generation, diversity (used by the design check and product predictions). |
-| `app/` | the window's server (`shell.py`) with Check (`checks.py`) and Loop files & Printers (`loop_server.py`, `loop_routes.py`) on it; the first-run guide (`guide.py`); background service, tray, start at login, phone access, setup check, updates; the pages (`static/`, `templates/`). |
+| `app/` | the window's server (`shell.py`) with Check (`checks.py`) and Loop files & Printers (`loop_server.py`, `loop_routes.py`) on it; the first-run guide (`guide.py`); backup and restore (`backup.py`); assistants over MCP (`mcp.py`); the pretend farm (`pretend_farm.py`); background service, tray, start at login, phone access, setup check, updates; the pages (`static/`, `templates/`). |
 | `data/` | built-in YAML (settings, models, printers, processes) and reference data (body sizes, product checklists). |
 
 ## Loop files
@@ -90,7 +93,9 @@ parts match the window's tabs:
 | `costing.py` | Cost per part, loop and run, selling price, fees and capacity, from your own rates and the file's grams and times. Unset rates are reported, never filled in. |
 | `store.py` | `printers.db`: events, outcomes, production, timings. |
 | `send.py` | Sending to printers (opt-in): what must be true first, the filament-to-tray mapping, the FTPS upload and the `project_file` command. |
-| `queue.py` | Spreading a run over the printers that can print it, and the queue of jobs (`queue/`), with a notice when a printer comes free. |
+| `queue.py` | Spreading a run over the printers that can print it, and the queue of jobs (`queue/`): each job followed on its printer, with a notice when it ends and when a printer comes free. |
+| `summary.py` | What happened on the printers (the Overview's summary, `proofloop summary`, the daily notice). |
+| `printer/pretend.py` | A pretend printer speaking the Bambu LAN protocol on localhost, for the tests and `proofloop try`. |
 
 ## The monitor's rule
 

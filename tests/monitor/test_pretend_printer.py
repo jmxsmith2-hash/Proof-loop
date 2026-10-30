@@ -1,4 +1,4 @@
-"""End to end against a pretend printer that speaks the Bambu LAN protocol (``tests/fake_printer.py``).
+"""End to end against a pretend printer that speaks the Bambu LAN protocol (``proofloop.monitor.printer.pretend``).
 
 The real path, over real sockets and TLS: ProofLoop connects over MQTT, reads the AMS, copies a
 queued loop file over FTPS, starts it with ``project_file``, checks the plate with the camera at

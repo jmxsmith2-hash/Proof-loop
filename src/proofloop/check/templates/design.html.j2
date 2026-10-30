@@ -9,7 +9,7 @@
 <body><main>
 <div class="brand">{{ icon }}ProofLoop</div>
 <h1>{{ r.design }} <span class="muted">v{{ r.version }}</span></h1>
-<p class="secondary small">{{ r.file }} · {% if made == 'print' %}{{ (r.printer.names or [r.printer.name])[0] }} ({{ r.printer.nozzle }} mm nozzle, {{ r.printer.layer_height }} mm layers){% else %}{{ r.process.label }}{% if r.process.pull %}, pull along {{ r.process.pull|upper }}{% endif %}{% endif %} ·
+<p class="secondary small">{{ r.file }} · {% if made == 'print' %}{{ (r.printer.names or [r.printer.label or r.printer.name])[0] }} ({{ r.printer.nozzle }} mm nozzle, {{ r.printer.layer_height }} mm layers){% else %}{{ r.process.label }}{% if r.process.pull %}, pull along {{ r.process.pull|upper }}{% endif %}{% endif %} ·
   {{ r.material.name }}{% if r.material.learned_from_prints %} · <b>adjusted from {{ r.material.learned_from_prints }} real print(s)</b>{% endif %}
   · {{ r.generated }}</p>
 <div class="banner small"><b>Design checks</b> are measured from your CAD file before {{ 'printing' if made == 'print' else 'making it' }}: they are about the geometry,
@@ -90,7 +90,7 @@
 {% if r.prints %}<h2>What earlier prints taught us</h2>
 <div class="card">{% for p in r.prints %}<p class="small"><b>v{{ p.version }} print</b> ({{ p.created_at[:10] }}){% if p.defects_json %}: {{ p.defects_json|join(', ')|replace('_', ' ') }}{% endif %}</p>
   <ul class="small">{% for a in p.analysis_json.advice %}<li>{{ a }}</li>{% endfor %}</ul>{% endfor %}
-  {% if r.learned %}<p class="small secondary">Applied to this check for {{ r.printer.name }} + {{ r.material.name }}:
+  {% if r.learned %}<p class="small secondary">Applied to this check for {{ (r.printer.names or [r.printer.label or r.printer.name])[0] }} + {{ r.material.name }}:
     {% for k, v in r.learned.adjust.items() %}{{ k|replace('_', ' ') }} {{ '%+g' % v if v is number else v }}{% if not loop.last %}, {% endif %}{% endfor %}
     {% if r.learned.scale %} · measured scale {% for k, v in r.learned.scale.items() %}{{ k }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
     {% if r.learned.hole_offset_mm is not none %} · holes print {{ r.learned.hole_offset_mm }} mm{% endif %}</p>{% endif %}

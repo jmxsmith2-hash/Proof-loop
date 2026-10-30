@@ -15,16 +15,17 @@ The tests never touch your real `~/.proofloop`: every test gets an empty folder 
 | `tests/core`, `tests/personas` | settings and paths, the database, models and cost, notifications, persona generation |
 | `tests/check` | CAD checks, the print-ready verdict (with a stand-in slicer, `tests/fixtures/fake_slicer.py`), G-code, learning, the `check` commands |
 | `tests/loopfiles` | making, checking and costing loop files on synthetic plates that mirror real P2S slices (`tests/plates.py`) |
-| `tests/monitor` | the monitor's rule, the plate check, the journal, filament, sending, the queue; and end to end against a pretend printer (`tests/fake_printer.py`) |
-| `tests/app` | the window, the background service, phone pairing, plates handed between tabs, Check and Loop files & Printers on the window's server |
+| `tests/monitor` | the monitor's rule, the plate check, the journal, filament, sending, the queue; and end to end against a pretend printer, the summary |
+| `tests/app` | the window, the background service, phone pairing, plates handed between tabs, Check and Loop files & Printers on the window's server, backup, the MCP server (also with the official MCP client when it's installed) |
+| `tests/test_json_output.py` | `--json` and the exit codes of every command |
 | `tests/e2e` | the CAD examples end to end: every planted flaw found, the fixed version and the control part clean |
 
-**The pretend printer** (`tests/fake_printer.py`) speaks the Bambu LAN protocol on `127.0.0.1`:
+**The pretend printer** (`proofloop.monitor.printer.pretend`) speaks the Bambu LAN protocol on `127.0.0.1`:
 MQTT over TLS, FTPS with TLS from the first byte, and a camera picture over HTTP, each on a free
 port. `tests/monitor/test_pretend_printer.py` runs a queued job through it over real sockets: the
 file is copied and started, each loop end's plate is checked with the camera, an empty plate is
 resumed and one with parts left is not, and the job is ticked off when the printer finishes. It
-needs `cryptography` (in `[dev]`) for the printer's certificate.
+also prints by itself for `proofloop try`, walking the file's G-code.
 
 Check the loop files against the real public FarmLoop P2S files too:
 

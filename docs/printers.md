@@ -13,6 +13,14 @@ One screen with every printer's run (loop 7 of 10, done around 09:24 based on it
 times), parts made today, this week and this month, stopped loops, filament used, spools running
 low and anything waiting for you.
 
+## While you were away
+
+The Overview opens with a summary of the last 12 hours (or 24, or 7 days): parts and loops made per
+printer, prints that failed with the layer and the printer's HMS alerts, plates where parts were left,
+what is waiting for you now, filament used and spools running low, and where the queue stands. Tick
+*Send it to me every day at* and choose a time: it then goes to all your notification targets once a
+day, covering the time since the last one. `proofloop summary` prints it (`--json` for programs).
+
 ## Queue
 
 *Plan a production run* (under *Loop files › Make a loop file*) can spread the loops you need over

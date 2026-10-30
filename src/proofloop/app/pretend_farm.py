@@ -93,9 +93,9 @@ def prepare(farm, fresh: bool = False) -> bool:
         s.defaults.loops = 5
     s.printers = [PrinterConfig(name=name, host="127.0.0.1", serial=p.serial, access_code=p.access_code,
                                 model_id="N7", snapshot_url=p.snapshot_url, verify=VerifyConfig(settle_s=0.5))
-                  for name, p in zip(NAMES, farm, strict=True)]
+                  for name, p in zip(NAMES, farm, strict=False)]
     store.save(s)
-    for name in NAMES:
+    for name in NAMES[:len(farm)]:
         refs = BedVerifier(root / "references" / name, None)
         if not refs.references:
             refs.add_reference(plate_picture())
