@@ -43,8 +43,7 @@ def update(check_only: bool = False, say=print) -> int:
         return 2
     except subprocess.CalledProcessError as e:
         last = ((e.stderr or e.stdout or "").strip().splitlines() or [""])[-1]
-        say(f"Couldn't reach GitHub: {last}\nThe repository is private: sign in when Git asks (Git Credential "
-            "Manager remembers it).")
+        say(f"Couldn't reach GitHub: {last}\nCheck your internet connection and run this again.")
         return 2
     if not n:
         say(f"ProofLoop is up to date ({branch}).")

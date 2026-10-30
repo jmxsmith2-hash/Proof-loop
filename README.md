@@ -95,8 +95,7 @@ you get everything except reading STEP files directly.
 one ProofLoop per printer farm, so your printers are watched once.
 
 **Updating:** double-click **`Update.bat`**, or run `proofloop update`. It fetches the newest
-version from GitHub (sign in when Git asks; the repository is private), installs it and restarts
-ProofLoop if it was running. Your settings and data are kept.
+version from GitHub, installs it and restarts ProofLoop if it was running. Your settings and data are kept.
 
 ## Command line
 
