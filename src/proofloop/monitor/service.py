@@ -20,6 +20,7 @@ from proofloop.loopfiles.gcode.sweep import SweepSettings
 from proofloop.loopfiles.profiles import ProfileStore
 from proofloop.monitor.filament import Inventory, Spool
 from proofloop.monitor.journal import PrintJournal
+from proofloop.monitor.queue import Queue
 from proofloop.monitor.spoolman import Spoolman
 from proofloop.monitor.store import Store
 from proofloop.monitor.tracking import FilamentTracker
@@ -142,6 +143,7 @@ class App:
         self.profiles = ProfileStore(self.data_dir / "profiles")
         self.store = Store(self.data_dir / PRINTERS_DB)
         self.uploads = UploadCache(40, self.data_dir / "uploads")
+        self.queue = Queue(self.data_dir / "queue")
         self.notifier = Notifier(self.settings.notifications)
         self.connect = connect
         self.link_factory = link_factory or self._default_link
@@ -235,6 +237,18 @@ class App:
                     w.tick()
                 except Exception:
                     log.exception("%s: tick failed", w.name)
+            try:
+                self.tell_queue()
+            except Exception:
+                log.exception("queue check failed")
+
+    def tell_queue(self) -> None:
+        """Once per job: a printer with a queued job has come free (nothing starts by itself)."""
+        for run, job in self.queue.ready(self):
+            self._emit(self.store.add_event(
+                job["printer"], "warning", "queue_ready",
+                f"{job['printer']} is free. Next in the queue: {run['plate']}, {job['loops']} loop"
+                f"{'s' if job['loops'] != 1 else ''}. Send or download it under Printers › Overview."))
 
     def add_printer(self, p: PrinterConfig) -> PrinterWatch:
         if any(x.name == p.name for x in self.settings.printers):
@@ -255,6 +269,7 @@ class App:
 
     def send(self, name: str, filename: str, data: bytes, sf, danger: list[str]) -> dict:
         """Send a loop file to printer ``name`` and start it, if everything checks out (monitor/send.py)."""
+        from proofloop.monitor.printer.ams import label
         from proofloop.monitor.send import SendError, plan, start_command
 
         if not self.settings.send_to_printer:
@@ -266,7 +281,7 @@ class App:
                  plate=sf.plate or 1)
         p.filename = filename
         w.link.send(filename, data, start_command(p))
-        mapping = ", ".join(f"slot {i + 1} → tray {t}" for i, t in enumerate(p.ams_mapping) if t >= 0)
+        mapping = ", ".join(f"slot {i + 1} from {label(t)}" for i, t in enumerate(p.ams_mapping) if t >= 0)
         self._emit(self.store.add_event(name, "info", "sent", f"Sent {filename} and started it"
                                         + (f" ({mapping})" if mapping else "")))
         return {"printer": name, "file": filename, "use_ams": p.use_ams, "ams_mapping": p.ams_mapping, "notes": p.notes}
