@@ -32,6 +32,9 @@ example parts and G-code.
 
 ## CI
 
+CI runs once per change: on pull requests and on pushes to `main` (a newer push to a pull request
+cancels the run it replaces). Start it by hand from the Actions tab with **Run workflow**.
+
 - **Tests** on Python 3.11 to 3.13 with the plain install (what Docker runs), with ruff.
 - **Evidence**: the built-in P2S profile against the public FarmLoop files it was learned from.
 - **Everything** on Windows and Linux: every test, with `[all]` as setup installs it; a UTF-8
