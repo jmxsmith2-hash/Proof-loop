@@ -1,9 +1,9 @@
 """Read-mostly LAN connection to one Bambu Lab printer, for ProofLoop's printer monitor.
 
-ProofLoop never uploads or starts jobs: you send loop files the way you do now
-(Bambu Studio, Bambu Handy, Bambuddy). The monitor only reads status over MQTT,
-grabs camera frames, and sends ``resume`` (or ``pause``) when a loop's plate
-check is done. Payloads and ports match Bambuddy, a widely used open-source
+The monitor reads status over MQTT, grabs camera frames, and sends ``resume`` (or ``pause``) when a
+loop's plate check is done. It uploads and starts a file only through ``send``, which runs only
+when you've turned on sending to printers and confirmed that file for that printer (see
+``proofloop.monitor.send``). Payloads and ports match Bambuddy, a widely used open-source
 Bambu controller (see docs/sources.md):
 
 * MQTT over TLS on 8883, user ``bblp``, password = LAN access code; reports on
@@ -130,6 +130,14 @@ class BambuPrinter:
 
     def pause(self) -> bool:
         return self._publish({"print": {"command": "pause", "sequence_id": "0"}})
+
+    def send(self, filename: str, data: bytes, command: dict) -> None:
+        """Copy the file to the printer's storage, then start it. Raises SendError."""
+        from proofloop.monitor.send import SendError, upload
+
+        upload(self.host, self.access_code, filename, data)
+        if not self._publish(command):
+            raise SendError("the file is on the printer, but ProofLoop couldn't tell it to start: not connected")
 
     def snapshot(self, timeout: float = 20.0) -> bytes:
         if self.snapshot_url:

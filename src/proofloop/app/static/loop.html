@@ -210,6 +210,11 @@ input[type=number]{max-width:140px}
       <div class="card">
         <button class="btn primary big" id="download" style="width:100%;justify-content:center">Download loop file</button>
         <p class="hint" id="downloadHint" style="margin-top:10px">Send it with Bambu Studio (open the file, then <em>Print plate</em>), Bambu Handy or Bambuddy. Keep the <span class="mono">FL_S2_</span> name: FarmBoard kits look for it.</p>
+        <div id="sendBox" class="hidden" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+          <label class="field" style="margin-bottom:8px"><span>Or send it to a printer and start it</span>
+            <div class="row"><select id="sendPrinter" style="flex:1;width:auto"></select><button type="button" class="btn" id="sendBtn">Send and start</button></div></label>
+          <p class="hint">Only to a connected, idle printer of the model the plate was sliced for, with the right filament loaded, and only if the loop-file checks pass. You confirm each time.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -477,6 +482,10 @@ input[type=number]{max-width:140px}
           <div class="row"><button class="btn primary">Save</button><button type="button" class="btn" id="notifyClear">Turn off</button></div>
         </form>
       </div>
+      <div class="card hidden" id="sendCard">
+        <h2>Sending to printers</h2>
+        <label class="toggle"><input type="checkbox" id="sendToggle"><span><b>Let ProofLoop send loop files to printers and start them</b><span class="hint">Off unless you turn it on. Then <em>Make a loop file</em> can copy a file to a printer and start it, after you confirm the printer, and only when the printer is connected, idle, the right model, with the right filament loaded, and the file passes the loop-file checks. Watch the first send to each printer.</span></span></label>
+      </div>
     </div>
   </div>
 </section>
@@ -587,6 +596,7 @@ async function loadState() {
   const opts = STATE.profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');
   $('#calProfile').innerHTML = opts; $('#calProfile').value = STATE.defaults.profile_id;
   renderProfiles();
+  renderSend();
 }
 
 // ---------- make ----------
@@ -717,7 +727,7 @@ function renderPlate(a, keepSettings) {
   items.push(['ok', '✓', 'Bed wait uses M190 S, never M190 R (that faults on a P2S).']);
   if (a.profile.stage === 2) items.push(['ok', '✓', 'FarmBoard triggers and switch gestures are copied exactly from FarmLoop\'s own output for this kit.']);
   $('#checks').innerHTML = items.map(([k, i, t]) => `<li><span class="ic ${k}">${i}</span><div>${esc(t)}</div></li>`).join('');
-  $('#download').disabled = !a.ok;
+  $('#download').disabled = !a.ok; $('#sendBtn').disabled = !a.ok;
   $('#download').textContent = a.ok ? 'Download loop file' : 'Fix the problems above first';
 }
 
@@ -775,6 +785,34 @@ $('#download').onclick = async () => {
     const name = await saveBlob(r, 'loop.gcode.3mf'); toast('Saved ' + name); }
   catch (e) { toast(e.message); }
 };
+// ---------- send to a printer (only when turned on, never from a phone) ----------
+function renderSend() {
+  const on = !!(STATE && STATE.send_to_printer), mons = (STATE && STATE.monitor) || [];
+  $('#sendCard').classList.toggle('hidden', !(STATE && STATE.can_send));
+  $('#sendToggle').checked = on;
+  $('#sendBox').classList.toggle('hidden', !on || !mons.length);
+  const keep = $('#sendPrinter').value;
+  $('#sendPrinter').innerHTML = mons.map(m => {
+    const st = (m.printer.gcode_state || '').toLowerCase(), online = m.printer.online;
+    return `<option value="${esc(m.name)}">${esc(m.name)} · ${online ? (st || 'connected') : 'not connected'}</option>`;
+  }).join('');
+  if (keep) $('#sendPrinter').value = keep;
+}
+$('#sendToggle').onchange = async () => {
+  try { const r = await send('/api/send-to-printer', {on: $('#sendToggle').checked}, 'PUT'); STATE.send_to_printer = r.send_to_printer; renderSend();
+    toast(r.send_to_printer ? 'ProofLoop can send loop files to your printers now' : 'Sending to printers is off'); }
+  catch (e) { $('#sendToggle').checked = !$('#sendToggle').checked; toast(e.message); }
+};
+$('#sendBtn').onclick = async () => {
+  const printer = $('#sendPrinter').value, s = currentSettings();
+  if (!PLATE || !printer) return;
+  if (!confirm(`Start ${PLATE.file} (${s.loops} loop${s.loops > 1 ? 's' : ''}) on ${printer}?\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
+  $('#sendBtn').disabled = true;
+  try { const r = await send(`/api/plates/${PLATE.token}/send`, {...s, printer, confirm: printer}); toast(`Started ${r.file} on ${r.printer}`); }
+  catch (e) { toast(e.message); }
+  $('#sendBtn').disabled = false;
+};
+
 $('#saveDefaults').onclick = async () => { try { STATE.defaults = await send('/api/defaults', currentSettings(), 'PUT'); toast('Saved as your defaults'); } catch (e) { toast(e.message); } };
 
 
@@ -1420,6 +1458,7 @@ async function refreshMonitor() {
     if (q && document.activeElement?.form !== qf) { qf.enabled.checked = q.enabled; qf.start.value = q.start; qf.end.value = q.end; }
     const nt = STATE.notifications[0];
     if (nt) { const f = $('#notifyForm'); f.kind.value = nt.kind; f.url.value = nt.url; f.min_level.value = nt.min_level; }
+    renderSend();
   } catch (e) { toast(e.message); }
 }
 $('#outcomes').addEventListener('click', async (e) => {

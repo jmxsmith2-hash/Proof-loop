@@ -30,6 +30,7 @@ from proofloop.loopfiles.lint import lint
 from proofloop.loopfiles.print_checks import print_checks
 from proofloop.monitor.costing import CostSettings, Times, cost
 from proofloop.monitor.filament import prices_for, requirements
+from proofloop.monitor.send import SendError
 from proofloop.monitor.service import App, cooldown_for, loop_settings
 from proofloop.monitor.tracking import register_job
 
@@ -60,7 +61,8 @@ def _with_push(st, part_push: dict[str, float]):
     return replace(st, sweep=replace(st.sweep, part_push_z=dict(part_push)))
 
 
-def create_app(app: App) -> FastAPI:
+def create_app(app: App, allow_send: bool = True) -> FastAPI:
+    """``allow_send=False`` for phone access: a paired phone can watch, never start a print."""
     api = FastAPI(title="ProofLoop", version=__version__)
 
     def auth(authorization: str | None = Header(default=None), request: Request = None):
@@ -153,6 +155,8 @@ def create_app(app: App) -> FastAPI:
             ],
             "printers": {k: v for k, v in printers.MODEL_IDS.items()},
             "monitor": [monitor_card(w) for w in app.watches.values()],
+            "send_to_printer": app.settings.send_to_printer and allow_send,
+            "can_send": allow_send,
             "notifications": [n.model_dump(exclude={"token"}) for n in app.settings.notifications],
             "quiet_hours": app.settings.quiet_hours.model_dump(),
             "costs": app.settings.costs.model_dump(),
@@ -212,6 +216,37 @@ def create_app(app: App) -> FastAPI:
                 "X-ProofLoop-Filename": r.filename,
             },
         )
+
+    @api.post("/api/plates/{token}/send", dependencies=guard)
+    def send(token: str, body: dict):
+        """Make the loop file, as Download does, and send it to a printer you confirmed."""
+        if not allow_send:
+            raise HTTPException(403, "files can't be sent to printers from here")
+        name = str(body.get("printer") or "")
+        if not name or body.get("confirm") != name:
+            raise HTTPException(400, "confirm the printer to send it to")
+        sf = app.uploads.get(token)
+        defaults, st = _settings(app, body)
+        r = process(sf, profile(defaults.profile_id), st)
+        made = threemf.loads(r.data, name=r.filename)
+        danger = [f.title for f in lint(made) if f.level == "danger"]
+        # Known before the printer starts, so filament counting and the monitor recognise it.
+        register_job(app.store, r.filename, [(sf, st.loops, len(r.analysis.parts))], defaults.profile_id)
+        app.journal.keep_file(r.filename, r.data)
+        try:
+            return app.send(name, r.filename, r.data, made, danger)
+        except SendError as e:
+            raise HTTPException(409, str(e)) from e
+        except KeyError as e:
+            raise HTTPException(404, f"no printer called {name!r}") from e
+
+    @api.put("/api/send-to-printer", dependencies=guard)
+    def put_send(body: dict):
+        if not allow_send:
+            raise HTTPException(403, "this can only be changed in the ProofLoop window")
+        app.settings.send_to_printer = bool(body.get("on"))
+        app.save_settings()
+        return {"send_to_printer": app.settings.send_to_printer}
 
     @api.post("/api/plates/{token}/changes", dependencies=guard)
     def plate_changes(token: str, body: dict):

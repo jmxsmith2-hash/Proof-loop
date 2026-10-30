@@ -253,6 +253,24 @@ class App:
         self.settings.printers = [p for p in self.settings.printers if p.name != name]
         self.save_settings()
 
+    def send(self, name: str, filename: str, data: bytes, sf, danger: list[str]) -> dict:
+        """Send a loop file to printer ``name`` and start it, if everything checks out (monitor/send.py)."""
+        from proofloop.monitor.send import SendError, plan, start_command
+
+        if not self.settings.send_to_printer:
+            raise SendError("sending to printers is off: turn it on under Printers › Monitor first")
+        cfg, w = self.printer_config(name), self.watches.get(name)
+        if w is None:
+            raise SendError(f"no printer called {name!r}")
+        p = plan(name, w.link.state, cfg.model_id, sf.info.printer_model_id or "", sf.info.filament_slots, danger,
+                 plate=sf.plate or 1)
+        p.filename = filename
+        w.link.send(filename, data, start_command(p))
+        mapping = ", ".join(f"slot {i + 1} → tray {t}" for i, t in enumerate(p.ams_mapping) if t >= 0)
+        self._emit(self.store.add_event(name, "info", "sent", f"Sent {filename} and started it"
+                                        + (f" ({mapping})" if mapping else "")))
+        return {"printer": name, "file": filename, "use_ams": p.use_ams, "ams_mapping": p.ams_mapping, "notes": p.notes}
+
     def printer_config(self, name: str) -> PrinterConfig:
         for p in self.settings.printers:
             if p.name == name:

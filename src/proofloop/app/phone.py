@@ -182,5 +182,5 @@ class Phone:
             return HTMLResponse(pair_page(f'<p class="err">{html.escape("That code is wrong.")}'
                                                        "</p>"), 403)
 
-        api.mount("/", create_app(self.monitor))  # the Loop files & Printers page and API, nothing else
+        api.mount("/", create_app(self.monitor, allow_send=False))  # the page and API, never sending prints
         return api
