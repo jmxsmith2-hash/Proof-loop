@@ -38,7 +38,7 @@ dependencies = [
 step = ["cascadio>=0.0.13"]  # read STEP files directly (otherwise export STL/3MF/OBJ from your CAD tool)
 anthropic = ["anthropic>=0.40"]  # optional: Claude for personas and product predictions
 all = ["proofloop[step]"]
-dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.4"]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.4", "cryptography>=42"]  # cryptography: the pretend printer's certificate
 
 [project.scripts]
 proofloop = "proofloop.cli:main"

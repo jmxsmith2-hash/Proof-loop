@@ -47,6 +47,8 @@ def _insecure_context() -> ssl.SSLContext:
 
 
 class BambuPrinter:
+    mqtt_port, ftp_port = 8883, 990  # the printer's own; tests talk to a pretend printer on others
+
     def __init__(
         self, host: str, serial: str, access_code: str, model_id: str, snapshot_url: str | None = None
     ):
@@ -73,7 +75,7 @@ class BambuPrinter:
         client.on_connect = self._on_connect
         client.on_disconnect = self._on_disconnect
         client.on_message = self._on_message
-        client.connect_async(self.host, 8883, keepalive=30)
+        client.connect_async(self.host, self.mqtt_port, keepalive=30)
         client.loop_start()
         self._client = client
 
@@ -135,7 +137,7 @@ class BambuPrinter:
         """Copy the file to the printer's storage, then start it. Raises SendError."""
         from proofloop.monitor.send import SendError, upload
 
-        upload(self.host, self.access_code, filename, data)
+        upload(self.host, self.access_code, filename, data, port=self.ftp_port)
         if not self._publish(command):
             raise SendError("the file is on the printer, but ProofLoop couldn't tell it to start: not connected")
 

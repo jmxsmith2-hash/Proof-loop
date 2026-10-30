@@ -126,6 +126,7 @@ class _ImplicitFTPS(ftplib.FTP_TLS):
     connection to reuse the control connection's TLS session."""
 
     def connect(self, host="", port=0, timeout=-999, source_address=None):
+        self.host, self.port = host, port  # the data connection's TLS needs the host too
         sock = socket.create_connection((host, port), timeout if timeout != -999 else 30)
         self.af = sock.family
         self.sock = self.context.wrap_socket(sock, server_hostname=host)
@@ -140,7 +141,7 @@ class _ImplicitFTPS(ftplib.FTP_TLS):
         return conn, size
 
 
-def upload(host: str, access_code: str, filename: str, data: bytes, timeout: float = 120) -> None:
+def upload(host: str, access_code: str, filename: str, data: bytes, timeout: float = 120, port: int = 990) -> None:
     """Put ``data`` on the printer's storage as ``filename``."""
     import io
 
@@ -149,7 +150,7 @@ def upload(host: str, access_code: str, filename: str, data: bytes, timeout: flo
     ctx.verify_mode = ssl.CERT_NONE  # self-signed; the LAN access code is the credential
     ftp = _ImplicitFTPS(context=ctx, timeout=timeout)
     try:
-        ftp.connect(host, 990, timeout)
+        ftp.connect(host, port, timeout)
         ftp.login("bblp", access_code)
         ftp.prot_p()
         ftp.storbinary(f"STOR {filename}", io.BytesIO(data))
