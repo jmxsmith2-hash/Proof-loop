@@ -114,3 +114,14 @@ def test_a_wrong_access_code_is_refused_by_the_printer(printer):
     assert not printer.files
     upload("127.0.0.1", printer.access_code, "x.gcode.3mf", b"x" * 300_000, timeout=5, port=printer.ftp_port)
     assert printer.files["x.gcode.3mf"] == b"x" * 300_000
+
+
+def test_the_window_tests_a_printers_connection(tmp_path, printer):
+    app = connect(tmp_path, printer)
+    try:
+        r = TestClient(create_app(app)).post("/api/monitor/p2s/test").json()
+        assert r["ok"] and r["printer"] == "p2s" and [s["step"] for s in r["steps"]] == ["mqtt", "reports", "ftps"]
+        assert not printer.files and not printer.command("project_file")  # nothing copied, nothing started
+        assert any(e["kind"] == "connection_test" for e in app.store.events())
+    finally:
+        app.shutdown()

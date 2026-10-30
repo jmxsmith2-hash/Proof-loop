@@ -655,6 +655,19 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
         app.save_settings()
         return app.settings.quiet_hours.model_dump()
 
+    @api.post("/api/monitor/{name}/test", dependencies=guard)
+    def test_connection(name: str):
+        """Log in to the printer the way a send does (nothing is printed or copied)."""
+        from proofloop.monitor.connection import test_printer
+
+        w = watch(name)
+        p = next(p for p in app.settings.printers if p.name == name)
+        r = test_printer(p, w.link)
+        w.event("info" if r["ok"] else "warning", "connection_test",
+                "connection test passed" if r["ok"] else "connection test: " + next(
+                    s["detail"] for s in r["steps"] if not s["ok"]))
+        return r
+
     @api.post("/api/monitor/{name}/bends/reset", dependencies=guard)
     def reset_bends(name: str):
         watch(name).reset_bends()

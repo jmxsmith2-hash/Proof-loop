@@ -121,7 +121,7 @@ proofloop check prepare part.stl --loops 5   # design check, slice, G-code check
 proofloop loop plate.gcode.3mf --loops 5     # make a loop file (--first-pause on|off|auto)
 proofloop loop check FL_S2_plate.gcode.3mf   # check any loop file
 proofloop printers history                   # how recent prints ended
-proofloop doctor [--slice-test --send-test]  # check the setup
+proofloop doctor [--printer-test ...]        # check the setup (--slice-test, --send-test too)
 proofloop summary [--hours 24]               # what happened on your printers
 proofloop try                                # three pretend printers: try everything without hardware
 proofloop mcp [--config]                     # ProofLoop for Claude and other assistants

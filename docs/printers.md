@@ -58,6 +58,9 @@ send to each printer. A paired phone can never send, or change this setting.
 
 - **Find printers automatically.** *Find printers* listens for the printers' own network
   announcements and fills in the IP, serial and model. You still type the access code.
+- **Test connection.** Logs in to the printer the way a send does (the access code, the serial
+  number, Developer Mode, its file storage) without printing or copying anything, and says what to
+  fix. The setup check runs it for every printer (`proofloop doctor --printer-test`).
 - **Live loop status.** For each printer: the loop number, the current phase (printing, cooling,
   bending, door), average cooldown and loop times measured on your printer, and a plate-bend counter
   you reset when you fit a new plate.

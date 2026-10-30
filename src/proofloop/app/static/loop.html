@@ -1546,6 +1546,7 @@ async function refreshMonitor() {
           <button class="btn" data-act="ref" data-n="${n}" title="Take this with the plate empty">Save empty-plate picture</button>
           <button class="btn ${m.waiting_for_you ? 'primary' : ''}" data-act="check" data-n="${n}">Check plate${m.waiting_for_you ? ' & resume' : ''}</button>
           <button class="btn" data-act="diff" data-n="${n}">Last difference</button>
+          <button class="btn" data-act="test" data-n="${n}" title="Log in the way a send does; nothing is printed">Test connection</button>
           ${m.waiting_for_you ? `<button class="btn danger" data-act="resume" data-n="${n}">Resume without check</button>` : ''}
           <button class="btn danger" data-act="remove" data-n="${n}">Remove</button></div></div>`;
     }).join('');
@@ -1574,6 +1575,16 @@ $('#printerCards').addEventListener('click', async (e) => {
       const img = card.querySelector('[data-img]'); img.src = URL.createObjectURL(await r.blob()); img.classList.remove('hidden'); return;
     }
     if (b.dataset.act === 'ref') { if (!confirm('Is the plate empty right now? This picture is what "empty" looks like.')) return; await json(`/api/monitor/${n}/references`, {method: 'POST'}); toast('Saved. Add a few, with the door open and closed and the light on and off.'); }
+    if (b.dataset.act === 'test') {
+      b.disabled = true; b.textContent = 'Testing…';
+      try { const r = await json(`/api/monitor/${n}/test`, {method: 'POST'});
+        const out = card.querySelector('[data-test]') || card.insertAdjacentElement('beforeend', Object.assign(document.createElement('ul'), {className: 'list'}));
+        out.dataset.test = '1';
+        out.innerHTML = r.steps.map(s => `<li><span class="ic ${s.ok ? 'ok' : 'danger'}">${s.ok ? '✓' : '✖'}</span><div>${esc(s.detail)}</div></li>`).join('');
+        toast(r.ok ? 'Connection works: ready to send' : 'Connection test found a problem');
+      } finally { b.disabled = false; b.textContent = 'Test connection'; }
+      return;
+    }
     if (b.dataset.act === 'check') { await json(`/api/monitor/${n}/check`, {method: 'POST'}); toast('Checking the plate…'); setTimeout(refreshMonitor, 4000); }
     if (b.dataset.act === 'resume') { if (!confirm('Resume the next loop without a passing plate check?')) return; await json(`/api/monitor/${n}/resume`, {method: 'POST'}); }
     if (b.dataset.act === 'bends') { if (!confirm('Fitted a new build plate? This resets its bend counter.')) return; await json(`/api/monitor/${n}/bends/reset`, {method: 'POST'}); }

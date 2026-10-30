@@ -132,7 +132,8 @@ class Shell:
         def doctor_page():
             from proofloop.app.doctor import checks, html_page
 
-            return HTMLResponse(html_page(checks(self, port=self.port)), headers={"Cache-Control": "no-store"})
+            return HTMLResponse(html_page(checks(self, port=self.port, printer_test=True)),
+                                headers={"Cache-Control": "no-store"})
 
         @api.post("/proofloop/phone")
         async def phone(request: Request):

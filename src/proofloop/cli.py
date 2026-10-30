@@ -10,7 +10,7 @@
     proofloop stop | status        quit the background ProofLoop / is it running?
     proofloop autostart on|off     start in the background when you log in
     proofloop phone on|off|forget  phone access on your network
-    proofloop doctor               check the setup (--slice-test, --send-test)
+    proofloop doctor               check the setup (--slice-test, --send-test, --printer-test)
     proofloop summary              what happened on your printers (--hours, --json)
     proofloop try                  try everything with three pretend printers (no hardware needed)
     proofloop mcp                  ProofLoop for assistants such as Claude (--config prints the setup)
@@ -255,7 +255,7 @@ def cmd_phone(a) -> int:
 def cmd_doctor(a) -> int:
     from proofloop.app.doctor import BAD, checks, text
 
-    results = checks(None, slice_test=a.slice_test, send_test=a.send_test, port=a.port)
+    results = checks(None, slice_test=a.slice_test, send_test=a.send_test, port=a.port, printer_test=a.printer_test)
     if a.json:
         from proofloop.core.output import emit
 
@@ -416,6 +416,8 @@ def _main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("doctor", help="check that everything ProofLoop needs is there and working")
     p.add_argument("--slice-test", action="store_true", help="also slice a small example part with your slicer")
     p.add_argument("--send-test", action="store_true", help="also send a test notice to your notification targets")
+    p.add_argument("--printer-test", action="store_true", help="also log in to each printer the way a send does "
+                   "(nothing is printed)")
     p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p = sub.add_parser("summary", help="what happened on your printers (the last 12 hours by default)")
