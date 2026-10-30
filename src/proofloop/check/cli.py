@@ -21,6 +21,23 @@ from proofloop.core.paths import config_file
 
 app = typer.Typer(help="Check CAD designs and sliced G-code before you print.", no_args_is_help=True,
                   add_completion=False)
+SEVERITY_COLOR = {4: "red", 3: "bright_red", 2: "yellow", 1: "cyan"}
+
+
+def _finding_line(f: dict, where: str = "") -> None:
+    colour = SEVERITY_COLOR.get(f["severity"], "white")
+    typer.echo(f"  {f['n']:2}. " + typer.style(f"{f['severity_name']:9}", fg=colour, bold=f["severity"] >= 3)
+               + f"  {f['title']}{where}")
+
+
+def _verdict(findings: list[dict], ready_text: str) -> None:
+    blocking = sum(1 for f in findings if f["severity"] >= 3)
+    if blocking:
+        typer.secho(f"✖ {blocking} thing{'s' if blocking != 1 else ''} to fix first", fg="red", bold=True)
+    else:
+        minor = len(findings)
+        typer.secho(f"✓ {ready_text}" + (f" ({minor} minor or note{'s' if minor != 1 else ''})" if minor else ""),
+                    fg="green", bold=True)
 
 
 @app.command("new")
@@ -132,11 +149,14 @@ def design_check(
         emit(summary.design(result))
         raise typer.Exit(code)
     made = result["process"]
-    how = (result["printer"].get("names") or [result["printer"]["name"]])[0] if made["kind"] == "print" else \
+    pr = result["printer"]
+    how = (pr.get("names") or [pr.get("label") or pr["name"]])[0] if made["kind"] == "print" else \
         made["label"] + (f", pull {made['pull'].upper()}" if made.get("pull") else "")
-    typer.echo(f"{result['design']} v{result['version']}  ({how}, {result['material']['name']})")
+    typer.secho(f"{result['design']} v{result['version']}", bold=True, nl=False)
+    typer.echo(f"  ({how}, {result['material']['name']})")
+    _verdict(result["findings"], "Ready to print" if made["kind"] == "print" else "Ready to make")
     for f in result["findings"]:
-        typer.echo(f"  {f['n']:2}. [{f['severity_name']:9}] {f['title']}")
+        _finding_line(f)
     if not result["findings"]:
         typer.secho("  no problems found by the geometry checks", fg="green")
     est = result["metrics"]["estimates"]
@@ -250,11 +270,12 @@ def gcode_check(
     if as_json:
         emit(summary.gcode(r))
         raise typer.Exit(code)
-    typer.echo(f"{r['file']}  ({r['printer']['label']} {r['printer_source']}, {r['material']['name']} "
+    typer.secho(str(Path(r["file"]).name), bold=True, nl=False)
+    typer.echo(f"  ({r['printer']['label']} {r['printer_source']}, {r['material']['name']} "
                f"{r['material_source']}, {r['nozzle']:g} mm nozzle)")
+    _verdict(r["findings"], "Ready to print")
     for f in r["findings"]:
-        where = f"  [layer {f['layer']}]" if f.get("layer") else ""
-        typer.echo(f"  {f['n']:2}. [{f['severity_name']:9}] {f['title']}{where}")
+        _finding_line(f, typer.style(f"  layer {f['layer']}", dim=True) if f.get("layer") else "")
     if not r["findings"]:
         typer.secho("  no problems found in the G-code", fg="green")
     if r.get("setting_fixes"):

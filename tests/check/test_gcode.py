@@ -120,7 +120,7 @@ def test_cli_gcode_and_check_routes_gcode(tmp_path):
     runner = CliRunner()
     out = runner.invoke(app, ["gcode", str(EX / "bracket_flawed.gcode"), "-o", str(tmp_path / "g"),
                               "-c", str(CFG)])
-    assert out.exit_code == 0, out.output
+    assert out.exit_code == 1, out.output  # it ran, and found what to fix
     assert "will fail" in out.output and "Prints outside the build plate" in out.output
     out = runner.invoke(app, ["design", str(EX / "bracket_good.gcode"), "-o", str(tmp_path / "h"),
                               "-c", str(CFG)])
