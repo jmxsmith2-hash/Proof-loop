@@ -107,8 +107,12 @@ for everything). *Check* learns from it which flows, first layers and files fail
 
 ## Backup and restore
 
-One file with your settings, imported profiles, spools, usage, production log and measured
-timings (*Printers › Filament › Backup*).
+One file (*Printers › Filament › Backup*) with your settings, imported profiles, spools, usage,
+production log and measured timings, the pictures of each printer's empty plate, the queue, your
+`config/` options, and Check's design checks and what it has learned (including the findings you
+marked *Not a problem*). Restoring it replaces all of these, and is only possible in the window,
+not from a phone. Phones pair again afterwards. Reports, the kept loop files and the pictures of
+failed prints aren't included. Older backups (a `.json` file) still restore.
 
 ## On your phone, and on an always-on machine
 

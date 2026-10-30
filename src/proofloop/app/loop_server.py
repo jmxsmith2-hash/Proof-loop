@@ -700,5 +700,5 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
 
     from proofloop.app.loop_routes import register
 
-    register(api, app, guard)
+    register(api, app, guard, window=allow_send)
     return api

@@ -425,9 +425,9 @@ input[type=number]{max-width:140px}
       </div>
       <div class="card">
         <h2>Backup</h2>
-        <p class="hint">One file with your settings, imported hardware profiles, spools, usage, production log and measured timings. It includes your printers' access codes, so keep it private.</p>
+        <p class="hint">One file with your settings, imported hardware profiles, spools, usage, production log, measured timings, the pictures of each empty plate, the queue, design checks and what Check has learned. It includes your printers' access codes, so keep it private.</p>
         <div class="row"><a class="btn" id="backupBtn" href="/api/backup">Download backup</a>
-          <label class="btn">Restore…<input type="file" id="restoreFile" accept=".json" hidden></label></div>
+          <label class="btn" id="restoreBtn">Restore…<input type="file" id="restoreFile" accept=".zip,.json" hidden></label></div>
       </div>
     </div>
   </div>
@@ -792,6 +792,7 @@ $('#download').onclick = async () => {
 function renderSend() {
   const on = !!(STATE && STATE.send_to_printer), mons = (STATE && STATE.monitor) || [];
   $('#sendCard').classList.toggle('hidden', !(STATE && STATE.can_send));
+  $('#restoreBtn').classList.toggle('hidden', !(STATE && STATE.can_send));  // a phone can't restore
   $('#sendToggle').checked = on;
   $('#sendBox').classList.toggle('hidden', !on || !mons.length);
   $('#spreadBtn').classList.toggle('hidden', !mons.length);
@@ -1391,8 +1392,8 @@ $('#filSettings').onsubmit = async (e) => { e.preventDefault(); const f = e.targ
   try { await send('/api/filament/settings', {track_usage: f.track_usage.checked, hold_when_short: f.hold_when_short.checked, low_g: f.low_g.value === '' ? null : +f.low_g.value, spoolman_url: f.spoolman_url.value.trim() || null, spoolman_report: f.spoolman_report.checked}, 'PUT'); toast('Saved'); await loadFil(); } catch (err) { toast(err.message); } };
 $('#smImport').onclick = async () => { try { const r = await json('/api/filament/spoolman/import', {method: 'POST'}); toast(`Spoolman: ${r.added} added, ${r.updated} updated`); await loadFil(); } catch (err) { toast(err.message); } };
 $('#restoreFile').addEventListener('change', async (e) => { const file = e.target.files[0]; e.target.value = ''; if (!file) return;
-  if (!confirm('Replace everything in this ProofLoop (settings, printers, spools, history) with the backup?')) return;
-  try { const fd = new FormData(); fd.append('file', file); const r = await json('/api/restore', {method: 'POST', body: fd}); toast(`Restored: ${r.spools} spools, ${r.printers} printers`); await loadState(); await loadFil(); } catch (err) { toast(err.message); } });
+  if (!confirm('Replace everything in this ProofLoop (settings, printers, spools, history, design checks, the queue and the empty-plate pictures) with the backup?')) return;
+  try { const fd = new FormData(); fd.append('file', file); const r = await json('/api/restore', {method: 'POST', body: fd}); toast(`Restored: ${r.printers} printers, ${r.spools} spools, ${r.plate_pictures} plate pictures, ${r.queued} queued runs`); await loadState(); await loadFil(); } catch (err) { toast(err.message); } });
 
 // ---- the plate's filament (Make tab) ----
 let plateFilTimer = null;
