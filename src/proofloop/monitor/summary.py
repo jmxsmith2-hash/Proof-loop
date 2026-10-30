@@ -89,7 +89,8 @@ def summary(app, hours: float = 12, since: float | None = None) -> dict[str, Any
     unmatched = round(sum(u.get("grams") or 0 for u in app.store.usage(unmatched=True, limit=5000)), 1)
 
     jobs = [(run, j) for run in app.queue.runs() for j in run["jobs"]]
-    queue = {k: sum(1 for _, j in jobs if j["status"] == k) for k in ("waiting", "sent", "printing", "done", "stopped")}
+    queue: dict[str, Any] = {k: sum(1 for _, j in jobs if j["status"] == k)
+                             for k in ("waiting", "sent", "printing", "done", "stopped")}
     queue["next"] = [{"printer": j["printer"], "plate": run["plate"], "loops": j["loops"]}
                      for run, j in jobs if j["status"] == "waiting"][:5]
 

@@ -15,6 +15,7 @@ import secrets
 import threading
 import urllib.error
 import urllib.request
+from typing import Any
 
 log = logging.getLogger(__name__)
 LEVELS = {"info": 0, "warning": 1, "error": 2}
@@ -76,7 +77,7 @@ def requests_for(cfg, title: str, event: dict, image: bytes | None) -> list[urll
             req.add_header("Click", event["link"])
         out.append(req)
     elif cfg.kind == "discord":
-        payload = {"content": f"**{title}**\n{msg}"}
+        payload: dict[str, Any] = {"content": f"**{title}**\n{msg}"}
         if image:
             boundary = secrets.token_hex(12)
             payload["embeds"] = [{"image": {"url": "attachment://plate.jpg"}}]

@@ -29,6 +29,7 @@ import subprocess
 import threading
 import urllib.request
 from collections.abc import Callable
+from typing import Any
 
 from proofloop.monitor.printer.state import PrinterState
 
@@ -60,7 +61,7 @@ class BambuPrinter:
         self.state = PrinterState()
         self._listeners: list[Callable[[PrinterState], None]] = []
         self._lock = threading.Lock()
-        self._client = None
+        self._client: Any = None
 
     def add_listener(self, fn: Callable[[PrinterState], None]) -> None:
         self._listeners.append(fn)

@@ -332,7 +332,7 @@ class Checks:
         job = self._new("gcode", f"{src.title} \u00d7 {loops} loops")
         folder = self.root / job.id
         folder.mkdir(parents=True, exist_ok=True)
-        self.checks.submit(self._run, job, lambda j: self._loop_work(j, Path(src.source), loops, folder))
+        self.checks.submit(self._run, job, lambda j: self._loop_work(j, Path(src.source or ""), loops, folder))
         return job
 
     def _loop_work(self, job: Job, plate: Path, loops: int, folder: Path) -> None:

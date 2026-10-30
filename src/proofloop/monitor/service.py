@@ -127,12 +127,14 @@ class UploadCache:
                 raise KeyError("that upload has expired; drop the file again")
             _, data, name = self._items[token]
             self._items.move_to_end(token)
-            if data is None:
+            if data is None and self.folder is not None:
                 try:
                     data = (self.folder / f"{token}.3mf").read_bytes()
                 except OSError as e:
                     self._items.pop(token, None)
                     raise KeyError("that upload has expired; drop the file again") from e
+        if data is None:
+            raise KeyError("that upload has expired; drop the file again")
         return data, name
 
 

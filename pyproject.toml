@@ -39,7 +39,7 @@ dependencies = [
 step = ["cascadio>=0.0.13"]  # read STEP files directly (otherwise export STL/3MF/OBJ from your CAD tool)
 anthropic = ["anthropic>=0.40"]  # optional: Claude for personas and product predictions
 all = ["proofloop[step]"]
-dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.4"]
+dev = ["pytest>=8", "pytest-cov>=5", "httpx>=0.27", "ruff>=0.4", "mypy>=1.10"]
 
 [project.scripts]
 proofloop = "proofloop.cli:main"
@@ -51,7 +51,7 @@ where = ["src"]
 proofloop = [
     "data/*",
     "core/migrations/*.sql", "core/theme.css",
-    "app/static/*", "app/templates/*",
+    "app/static/*", "app/static/js/*", "app/templates/*",
     "check/templates/*",
     "loopfiles/profile_data/*.json",
 ]
@@ -72,3 +72,23 @@ ignore = ["E501"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.File", "fastapi.Form", "fastapi.Header", "fastapi.Depends", "typer.Option", "typer.Argument"]
+
+[tool.mypy]
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+# Not type-checked yet: older numeric code (mostly values that may be missing). Take a module off this
+# list once `mypy src` is clean for it; everything else is checked in CI.
+[[tool.mypy.overrides]]
+module = [
+    "proofloop.check.cad.checks", "proofloop.check.cad.detail", "proofloop.check.cad.ergonomics",
+    "proofloop.check.cad.manufacture", "proofloop.check.cad.threemf", "proofloop.check.evaluate",
+    "proofloop.check.gcode.checks", "proofloop.check.gcode.parse", "proofloop.check.learn",
+    "proofloop.check.sensors", "proofloop.loopfiles.importer", "proofloop.loopfiles.threemf",
+    "proofloop.monitor.costing", "proofloop.monitor.filament", "proofloop.monitor.store",
+    "proofloop.monitor.tracking", "proofloop.personas.design", "proofloop.personas.generate",
+    "proofloop.personas.traits",
+]
+ignore_errors = true

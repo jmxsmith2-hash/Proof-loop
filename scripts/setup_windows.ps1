@@ -70,7 +70,7 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 }
 $venvPy = (Resolve-Path ".\.venv\Scripts\python.exe").Path
 & $venvPy -m pip install --upgrade pip; Step "Updating pip"
-& $venvPy -m pip install -e ".[all]"; Step "Installing ProofLoop"
+& $venvPy -m pip install -e ".[all]" -c constraints.txt; Step "Installing ProofLoop"
 
 # Shortcuts start ProofLoop with pythonw.exe: no console window, and closing ProofLoop's window
 # leaves it running in the background (icon next to the clock) so the printers stay watched.

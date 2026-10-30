@@ -148,6 +148,7 @@ class Server:
         mid, method = msg.get("id"), msg.get("method")
         if mid is None:  # a notification (initialized, cancelled...): no answer
             return None
+        result: Any
         try:
             if method == "initialize":
                 asked = (msg.get("params") or {}).get("protocolVersion")
@@ -201,7 +202,7 @@ class Server:
                                 "data": base64.b64encode(Path(path).read_bytes()).decode()})
             except OSError:
                 pass
-        out = {"content": content}
+        out: dict[str, Any] = {"content": content}
         if isinstance(data, dict):
             out["structuredContent"] = data
         return out
@@ -212,6 +213,7 @@ class Server:
             line = line.strip()
             if not line:
                 continue
+            reply: dict | None
             try:
                 msg = json.loads(line)
             except ValueError:
@@ -399,7 +401,7 @@ def config_entry(python: str | None = None) -> dict:
 def main(port: int = DEFAULT_PORT) -> int:
     for stream in (sys.stdin, sys.stdout):
         try:
-            stream.reconfigure(encoding="utf-8")
+            getattr(stream, "reconfigure")(encoding="utf-8")  # noqa: B009 - not on every stream
         except (AttributeError, ValueError):
             pass
     Server(port).serve()

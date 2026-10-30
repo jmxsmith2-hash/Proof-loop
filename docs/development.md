@@ -1,9 +1,11 @@
 # Development
 
 ```bash
-pip install -e ".[all,dev]"
+pip install -e ".[all,dev]" -c constraints.txt
 ruff check src tests tools examples
+mypy src                      # types (pyproject.toml lists the older modules not checked yet)
 pytest -q                     # everything, a few minutes
+pytest -q --cov=proofloop     # and how much of the code the tests run
 pytest -q --ignore=tests/e2e  # without the CAD examples end to end
 ```
 
@@ -38,14 +40,23 @@ python tools/build_builtin_profiles.py /tmp/pb/evidence   # rebuilds the built-i
 `python examples/cad/make_examples.py` and `python examples/gcode/make_examples.py` regenerate the
 example parts and G-code.
 
+## Versions
+
+`constraints.txt` pins every package to the version CI tested, for every platform at once
+(`uv pip compile pyproject.toml --extra all --universal --python-version 3.11 -o constraints.txt`).
+`setup.bat`, `setup_unix.sh`, `proofloop update` and Docker install with it, so a new release of a
+library can't change an install overnight. Dependabot opens a pull request each week that moves the
+pins (and the CI actions) forward; CI tests it before it can be merged.
+
 ## CI
 
 CI runs once per change: on pull requests and on pushes to `main` (a newer push to a pull request
 cancels the run it replaces). Start it by hand from the Actions tab with **Run workflow**.
 
-- **Tests** on Python 3.11 to 3.13 with the plain install (what Docker runs), with ruff.
+- **Tests** on Python 3.11 to 3.13 with the plain install (what Docker runs), with ruff and mypy.
 - **Evidence**: the built-in P2S profile against the public FarmLoop files it was learned from.
-- **Everything** on Windows and Linux: every test, with `[all]` as setup installs it; a UTF-8
+- **Everything** on Windows and Linux: every test, with `[all]` as setup installs it (on Linux with
+  the coverage report in the run's summary); a UTF-8
   check, because Windows reads text in another encoding by default; the command line, run from the
   repository root.
 - **`setup.bat` on a clean Windows machine**, once with Python and once without (the uv path). It

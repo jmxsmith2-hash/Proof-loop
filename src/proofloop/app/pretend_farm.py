@@ -134,7 +134,7 @@ def start_a_run(port: int, plate: Path, parts: int = 60) -> None:
             .encode() + plate.read_bytes() + f"\r\n--{boundary}--\r\n".encode())
     token = call("/api/plates", body, f"multipart/form-data; boundary={boundary}")["token"]
     run = call("/api/queue", json.dumps({"token": token, "parts": parts, "settings": {"loops": 5}}).encode())
-    first = {}
+    first: dict[str, dict] = {}
     for job in run["jobs"]:
         first.setdefault(job["printer"], job)
     for job in first.values():

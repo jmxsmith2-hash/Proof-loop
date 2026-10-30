@@ -105,7 +105,7 @@ def progress(app, order: dict[str, Any], now: float | None = None) -> dict[str, 
     except KeyError:
         run, jobs = None, []
     ppl = order["parts_per_loop"]
-    loops_done, left_by_printer = 0, {}
+    loops_done, left_by_printer = 0, dict[str, int]()
     for j in jobs:
         if j["status"] == "done":
             done = j["loops"]
@@ -142,7 +142,7 @@ def progress(app, order: dict[str, Any], now: float | None = None) -> dict[str, 
         **{k: v for k, v in order.items() if k not in ("loop_s", "told")},
         "made": made, "left": order["quantity"] - made, "pct": round(100 * made / order["quantity"]),
         "complete": bool(complete), "eta": eta, "on_time": on_time,
-        "late_by_days": None if on_time is not False else math.ceil((eta - due) / DAY),
+        "late_by_days": math.ceil((eta - due) / DAY) if on_time is False and eta and due else None,
         "queued": run is not None, "jobs": [{k: j.get(k) for k in ("printer", "loops", "status", "loop")}
                                             for j in jobs],
         "money": money,

@@ -1,0 +1,19 @@
+# Weekly pull requests that move the pinned versions (constraints.txt) and the CI actions forward,
+# each one tested by CI before it can be merged.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ["*"]
+    open-pull-requests-limit: 3
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

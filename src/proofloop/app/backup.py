@@ -117,22 +117,22 @@ def restore(app, raw: bytes) -> dict:
         data, z, members = read(raw)
         settings = Settings.model_validate(data.get("settings") or {})
         profiles = [HardwareProfile.from_dict(p) for p in data.get("profiles") or []]
-        if RESULTS_DB in members:
-            results = z.read(members[RESULTS_DB])
+        results = z.read(members[RESULTS_DB]) if z is not None and RESULTS_DB in members else None
+        if results is not None:
             _check_db(results)
     except (TypeError, KeyError, zipfile.BadZipFile) as e:
         raise ValueError(str(e)) from e
     root = Path(app.data_dir)
     app.store.restore(data.get("store") or {})
-    for p in profiles:
+    for prof in profiles:
         try:
-            app.profiles.save(p)
+            app.profiles.save(prof)
         except ValueError:
             pass
     for name in list(app.watches):
         app.remove_printer(name)
     if z is not None:
-        if RESULTS_DB in members:
+        if results is not None:
             _restore_db(results, root / RESULTS_DB)
         for name in ("feedback.json", "orders.json"):
             if name in members:

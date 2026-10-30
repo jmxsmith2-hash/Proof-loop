@@ -68,7 +68,7 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
     """``allow_send=False`` for phone access: a paired phone can watch, never start a print."""
     api = FastAPI(title="ProofLoop", version=__version__)
 
-    def auth(authorization: str | None = Header(default=None), request: Request = None):
+    def auth(request: Request, authorization: str | None = Header(default=None)):
         token = app.settings.app_token
         if not token:
             return
@@ -412,7 +412,7 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
             defaults, st = _settings(app, {**settings, "loops": 1})
             per_part = plate_cost(sf, profile(defaults.profile_id), st, 1, {}, setup=False)["totals"]["per_part"]
             run = app.queue.add(name, data, settings, plan)
-            order = app.orders.add(str(body.get("customer") or ""), name, int(qty), body.get("due") or None, run,
+            order = app.orders.add(str(body.get("customer") or ""), name, int(qty or 0), body.get("due") or None, run,
                                    plan, price, per_part, str(body.get("notes") or ""))
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
@@ -606,7 +606,8 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
         costs = [plate_cost(sf, prof, st, n, body, setup=False) for sf, n, _ in items]
         c = app.settings.costs
         setup = (
-            c.labor_min_per_run / 60 * c.labor_rate if None not in (c.labor_rate, c.labor_min_per_run) else 0
+            c.labor_min_per_run / 60 * c.labor_rate
+            if c.labor_rate is not None and c.labor_min_per_run is not None else 0
         )
         total = sum(x["totals"]["run"] for x in costs) + setup
         parts = sum(x["totals"]["parts"] for x in costs)

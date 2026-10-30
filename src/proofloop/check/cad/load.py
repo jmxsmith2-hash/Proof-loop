@@ -104,7 +104,7 @@ def _read(path: Path) -> trimesh.Trimesh:
         return read_3mf(path)
     loaded = trimesh.load(str(path), force="mesh", process=True)
     if isinstance(loaded, trimesh.Scene):  # pragma: no cover (force="mesh" normally merges)
-        loaded = loaded.dump(concatenate=True)
+        loaded = loaded.dump(concatenate=True)  # type: ignore[assignment]  # one mesh with concatenate=True
     if not isinstance(loaded, trimesh.Trimesh) or len(loaded.faces) == 0:
         raise ConfigError(f"{path.name} contains no triangles")
     return loaded

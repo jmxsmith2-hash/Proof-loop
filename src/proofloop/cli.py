@@ -366,7 +366,7 @@ def _utf8_output() -> None:
     """Windows consoles and pipes often use cp1252, which has no ✓ or ✖: write UTF-8, never crash on a character."""
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            getattr(stream, "reconfigure")(encoding="utf-8", errors="replace")  # noqa: B009 - not on every stream
         except (AttributeError, ValueError):  # None under pythonw, or not a text stream
             pass
 

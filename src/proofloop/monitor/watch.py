@@ -23,6 +23,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from functools import partial
 
 from proofloop.monitor.printer.ams import valid_tray
 from proofloop.monitor.printer.state import PrinterState
@@ -283,7 +284,7 @@ class PrinterWatch:
         for mark in WATCH_AT:
             if s.layer_num >= mark * total and mark not in self._watched:
                 self._watched.add(mark)
-                self.run_async(lambda layer=s.layer_num, t=total: self._failure_check(layer, t))
+                self.run_async(partial(self._failure_check, s.layer_num, total))
                 return
 
     def _failure_check(self, layer: int, total: int) -> None:

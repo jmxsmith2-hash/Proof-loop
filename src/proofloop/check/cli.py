@@ -394,7 +394,7 @@ def design_history(design: str | None = typer.Argument(None, help="Design name (
         typer.echo(d["name"])
         for v in db.all("SELECT * FROM design_versions WHERE design_id = ? ORDER BY version", [d["id"]]):
             sev = [f["severity"] for f in v["findings_json"]]
-            prints = db.one("SELECT COUNT(*) AS n FROM print_results WHERE version_id = ?", [v["id"]])["n"]
+            prints = (db.one("SELECT COUNT(*) AS n FROM print_results WHERE version_id = ?", [v["id"]]) or {"n": 0})["n"]
             comp = v["comparison_json"] or {}
             change = (f"  ({len(comp.get('fixed', []))} fixed, {len(comp.get('new', []))} new)" if comp else "")
             typer.echo(f"  v{v['version']}  {v['created_at'][:16]}  {len(sev)} findings, {sev.count(4)} will fail, "

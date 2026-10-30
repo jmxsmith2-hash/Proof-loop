@@ -61,6 +61,8 @@ def update(check_only: bool = False, say=print) -> int:
         return 2
     say("Installing…")
     args = [sys.executable, "-m", "pip", "install", "--quiet", "-e", f"{root}{EXTRAS}"]
+    if (root / "constraints.txt").is_file():  # the versions this ProofLoop was tested with
+        args += ["-c", str(root / "constraints.txt")]
     r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode:
         say("Installing the update failed:\n" + (r.stderr or r.stdout)[-2000:])

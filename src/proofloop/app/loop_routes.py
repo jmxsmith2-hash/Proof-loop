@@ -321,7 +321,7 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
                     "waiting_for_you": w.waiting_for_you,
                 }
             )
-        per_printer = {}
+        per_printer: dict[str, int] = {}
         for r in prod:
             if r["ts"] >= now - 7 * DAY and r["ok"]:
                 per_printer[r["printer"]] = per_printer.get(r["printer"], 0) + r["parts"]
