@@ -25,13 +25,13 @@ class Notifier:
         self.configs = list(configs)
         self.farm_name = farm_name
 
-    def send(self, event: dict, image: bytes | None = None, wait: bool = False) -> int:
-        """Send to every target whose level allows it, in the background. With ``wait`` (e.g. when
-        ProofLoop is about to quit), wait up to 15 s and return how many targets took it."""
+    def send(self, event: dict, image: bytes | None = None, wait: bool = False, every: bool = False) -> int:
+        """Send to every target whose level allows it (``every``: to all of them), in the background. With
+        ``wait`` (e.g. when ProofLoop is about to quit), wait up to 15 s and return how many targets took it."""
         done: list[bool] = []
         threads = []
         for cfg in self.configs:
-            if LEVELS.get(event["level"], 0) >= LEVELS[cfg.min_level]:
+            if every or LEVELS.get(event["level"], 0) >= LEVELS[cfg.min_level]:
                 t = threading.Thread(target=lambda c=cfg: done.append(self._deliver(c, event, image)), daemon=True)
                 t.start()
                 threads.append(t)

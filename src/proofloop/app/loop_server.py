@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from proofloop import __version__
 from proofloop.core import printers, theme
-from proofloop.core.settings import Defaults, Notifier, PrinterConfig, QuietHours
+from proofloop.core.settings import Defaults, Notifier, PrinterConfig, QuietHours, Settings
 from proofloop.loopfiles import threemf
 from proofloop.loopfiles.api import pick_profile
 from proofloop.loopfiles.calibration import TESTS, build_test
@@ -311,6 +311,22 @@ def create_app(app: App, allow_send: bool = True) -> FastAPI:
         app.queue.get(rid)
         app.queue.remove(rid)
         return {"removed": rid}
+
+    @api.get("/api/summary", dependencies=guard)
+    def get_summary(hours: float = 12):
+        from proofloop.monitor.summary import summary
+
+        return {**summary(app, hours=max(1.0, min(hours, 24 * 31))), "at": app.settings.summary_at}
+
+    @api.put("/api/summary-at", dependencies=guard)
+    def put_summary_at(body: dict):
+        """The time of day the summary is sent (``None``: not sent)."""
+        try:
+            app.settings.summary_at = Settings.model_validate({"summary_at": body.get("at") or None}).summary_at
+        except ValueError as e:
+            raise HTTPException(422, "give a time like 07:30") from e
+        app.save_settings()
+        return {"at": app.settings.summary_at}
 
     @api.put("/api/send-to-printer", dependencies=guard)
     def put_send(body: dict):

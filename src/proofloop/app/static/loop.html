@@ -108,6 +108,14 @@ input[type=number]{max-width:140px}
   <h1>Overview</h1>
   <p class="sub">Your farm at a glance: what each printer is doing, what you've made, and what needs you. Everything here is counted from your printers, never estimated.</p>
   <div id="ovAttention"></div>
+  <div class="card summary" id="ovSummary">
+    <div class="spread"><h2>While you were away</h2>
+      <span class="row"><select id="sumHours" aria-label="Period"><option value="12">last 12 hours</option><option value="24">last 24 hours</option><option value="168">last 7 days</option></select></span></div>
+    <p class="lead" id="sumHeadline">…</p>
+    <div id="sumBody"></div>
+    <div class="row hint" id="sumSchedule"><label class="row" style="gap:6px"><input type="checkbox" id="sumDaily"> Send it to me every day at</label>
+      <input type="time" id="sumAt" value="07:30" style="width:auto"><span>through your notification targets</span></div>
+  </div>
   <div class="kpis" id="ovKpis"></div>
   <div class="grid two">
     <div class="grid" style="align-content:start">
@@ -1437,8 +1445,29 @@ $('#makeFilOut').addEventListener('click', (e) => { const b = e.target.closest('
   $('#sLoops').value = b.dataset.setloops; syncSliders(); reanalyze(); toast('Loops set to ' + b.dataset.setloops); });
 
 // ---------- overview ----------
+async function refreshSummary() {
+  try {
+    const s = await json('/api/summary?hours=' + $('#sumHours').value);
+    $('#sumHeadline').textContent = s.headline;
+    const parts = [];
+    if (s.failures.length) parts.push('<ul class="list">' + s.failures.slice(0, 5).map(f => `<li><span class="ic danger">✖</span><div><b>${esc(f.printer)}</b> ${esc(f.outcome)} ${esc(f.job || '')}<div class="hint">${f.layer && f.total_layers ? `layer ${f.layer} of ${f.total_layers}` : ''}${f.hms.length ? ' · HMS ' + esc(f.hms.join(', ')) : ''} · ${new Date(f.when * 1000).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}</div></div></li>`).join('') + '</ul>');
+    const fil = s.filament, mats = Object.entries(fil.by_material);
+    if (mats.length) parts.push(`<p class="hint">Filament used: ${mats.map(([m, g]) => esc(G(g) + ' ' + m)).join(' · ')}</p>`);
+    $('#sumBody').innerHTML = parts.join('');
+    $('#sumDaily').checked = !!s.at; if (s.at) $('#sumAt').value = s.at;
+  } catch (e) { $('#sumHeadline').textContent = e.message; }
+}
+$('#sumHours').addEventListener('change', refreshSummary);
+async function saveSummaryAt() {
+  try { const r = await send('/api/summary-at', {at: $('#sumDaily').checked ? $('#sumAt').value : null}, 'PUT');
+    toast(r.at ? `The summary will arrive every day at ${r.at}` : 'No daily summary'); } catch (e) { toast(e.message); }
+}
+$('#sumDaily').addEventListener('change', saveSummaryAt);
+$('#sumAt').addEventListener('change', () => { if ($('#sumDaily').checked) saveSummaryAt(); });
+
 async function refreshOverview() {
   refreshQueue();
+  refreshSummary();
   try {
     const o = await json('/api/overview'), cur = STATE.costs?.currency || '';
     const att = [];

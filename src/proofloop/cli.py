@@ -11,6 +11,7 @@
     proofloop autostart on|off     start in the background when you log in
     proofloop phone on|off|forget  phone access on your network
     proofloop doctor               check the setup (--slice-test, --send-test)
+    proofloop summary              what happened on your printers (--hours, --json)
     proofloop update               get the newest ProofLoop (--check to only look)
 """
 
@@ -262,6 +263,28 @@ def cmd_doctor(a) -> int:
     return 1 if any(r["level"] == BAD for r in results) else 0
 
 
+def cmd_summary(a) -> int:
+    """What happened on your printers: from the running ProofLoop (live), or from its records."""
+    from proofloop.core.output import emit
+
+    s = _ask(a.port, f"/api/summary?hours={a.hours}", timeout=10)
+    if s is None or "error" in s:
+        from proofloop.monitor.service import App
+        from proofloop.monitor.summary import summary
+
+        app = App(home(), connect=False)
+        try:
+            s = {**summary(app, hours=a.hours), "live": False}
+        finally:
+            app.shutdown()
+    if a.json:
+        emit(s)
+    else:
+        print(s["text"] + ("" if s.get("live", True) else "\n(ProofLoop isn't running: from its records, "
+                                                         "without the printers' live state)"))
+    return 0
+
+
 def cmd_update(a) -> int:
     from proofloop.app.update import update
 
@@ -365,6 +388,10 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--send-test", action="store_true", help="also send a test notice to your notification targets")
     p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
+    p = sub.add_parser("summary", help="what happened on your printers (the last 12 hours by default)")
+    p.add_argument("--hours", type=float, default=12)
+    p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
+    p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p = sub.add_parser("update", help="get the newest ProofLoop from GitHub")
     p.add_argument("--check", action="store_true", help="only say whether there is an update")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -376,7 +403,8 @@ def _main(argv: list[str] | None = None) -> int:
         argv = ["open", *argv]  # plain `proofloop` (with options) opens the window
     a = ap.parse_args(argv)
     return {"open": cmd_open, "service": cmd_service, "app": cmd_app, "stop": cmd_stop, "status": cmd_status,
-            "autostart": cmd_autostart, "phone": cmd_phone, "doctor": cmd_doctor, "update": cmd_update}[a.cmd](a)
+            "autostart": cmd_autostart, "phone": cmd_phone, "doctor": cmd_doctor, "update": cmd_update,
+            "summary": cmd_summary}[a.cmd](a)
 
 
 if __name__ == "__main__":

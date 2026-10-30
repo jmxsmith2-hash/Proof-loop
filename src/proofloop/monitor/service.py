@@ -241,6 +241,24 @@ class App:
                 self.tell_queue()
             except Exception:
                 log.exception("queue check failed")
+            try:
+                self.morning_summary()
+            except Exception:
+                log.exception("the morning summary failed")
+
+    def morning_summary(self, now: float | None = None) -> dict | None:
+        """The daily summary, at the time you chose, to every notification target (once a day)."""
+        from proofloop.monitor.summary import Morning, summary
+
+        morning = Morning(self.data_dir)
+        since = morning.due(self.settings.summary_at, now)
+        if since is None:
+            return None
+        s = summary(self, since=since)
+        event = self.store.add_event(None, "info", "summary", s["text"])
+        self.notifier.send(event, every=True)
+        morning.sent(now)
+        return s
 
     def tell_queue(self) -> None:
         """Queued jobs that ended, then once per job: a printer with a queued job has come free."""
