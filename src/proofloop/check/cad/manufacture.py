@@ -414,7 +414,7 @@ def check_pockets(ctx: Context, ratio: float) -> None:
     from_high = name[0] == "+"
     solid = grid.solid if from_high else np.flip(grid.solid, ax)
     solid = np.moveaxis(solid, ax, 2)                     # tool comes down from high z
-    any_solid = solid.any(axis=2)
+    any_solid = np.asarray(solid.any(axis=2), dtype=bool)  # an array: numpy 2.4's stubs allow a plain bool here
     top = np.where(any_solid, solid.shape[2] - 1 - np.argmax(solid[:, :, ::-1], axis=2), -1)
     surface = top.max()
     depth = np.where(any_solid, (surface - top) * grid.pitch, 0.0)
