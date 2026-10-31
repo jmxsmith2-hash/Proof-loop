@@ -98,7 +98,8 @@ def test_monitor_follows_every_plate_of_a_batch(tmp_path, clock, stage, printer_
     resumed = []
     w.link.resume = lambda: resumed.append(w.loop_no) or True
     w.verifier = types.SimpleNamespace(
-        references=["ref"], dir=tmp_path, check=lambda jpeg, want_diff=True: BedCheck(True, 0.0, 0, "ref")
+        references=["ref"], dir=tmp_path, check=lambda jpeg, want_diff=True: BedCheck(True, 0.0, 0, "ref"),
+        look=lambda jpeg: None,
     )
     w.run_async, w.settle_s = (lambda f: f()), 0
     st.subtask_name = name.removesuffix(".gcode.3mf")

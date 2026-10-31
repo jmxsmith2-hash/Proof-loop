@@ -53,6 +53,11 @@ dialog p { margin: 6px 0; }
 .qr { background: #fff; border-radius: 10px; padding: 8px; width: 220px; margin: 10px auto; }
 .qr svg { width: 100%; height: auto; display: block; }
 .code { font-size: 26px; letter-spacing: 6px; font-weight: 700; text-align: center; }
+#phoneDlg { max-width: min(560px, calc(100vw - 32px)); }
+.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin: 10px 0; }
+.role { border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.role h3 { font-size: 15px; margin: 0 0 2px; }
+.role .qr { width: 100%; max-width: 180px; }
 .err { color: var(--bad); }
 #newsDlg { max-width: min(560px, calc(100vw - 32px)); }
 .news { max-height: 60vh; overflow: auto; font-size: 14px; }
@@ -121,11 +126,22 @@ dialog p { margin: 6px 0; }
     <p class="muted">Windows may ask whether Python can use the network: choose <b>Private networks</b>.</p>
   </div>
   <div id="phoneOn" class="hidden">
-    <p>On your phone, on the same Wi-Fi, scan this code with the camera:</p>
-    <div class="qr" id="phoneQr" role="img" aria-label="QR code to pair your phone"></div>
-    <p>Or open <b id="phoneUrl"></b> and type</p>
-    <p class="code" id="phoneCode"></p>
-    <p class="muted">A paired phone stays paired. "Forget phones" unpairs all of them and makes a new code.</p>
+    <p>On your phone, on the same Wi-Fi, scan the code for what that phone may do. Or open <b id="phoneUrl"></b> and type its six-digit code.</p>
+    <div class="roles">
+      <section class="role" aria-labelledby="roleWatchT">
+        <h3 id="roleWatchT">Watch only</h3>
+        <p class="muted">Sees printers, plate checks, filament and costs. Can't change anything.</p>
+        <div class="qr" id="qrWatch" role="img" aria-label="QR code to pair a watch-only phone"></div>
+        <p class="code" id="codeWatch"></p>
+      </section>
+      <section class="role" aria-labelledby="roleOperatorT">
+        <h3 id="roleOperatorT">Operator</h3>
+        <p class="muted">Can also change spools, orders, the queue and printers. Never sends a print.</p>
+        <div class="qr" id="qrOperator" role="img" aria-label="QR code to pair an operator phone"></div>
+        <p class="code" id="codeOperator"></p>
+      </section>
+    </div>
+    <p class="muted">A paired phone stays paired. "Forget phones" unpairs all of them and makes new codes.</p>
   </div>
   <p class="err" id="phoneErr" role="alert"></p>
   <div class="row">
@@ -247,7 +263,13 @@ function renderPhone() {
   $("phoneForget").classList.toggle("hidden", !ph.on);
   $("phoneToggle").textContent = ph.on ? "Turn off phone access" : "Turn on phone access";
   $("phoneErr").textContent = ph.error || "";
-  if (ph.on) { $("phoneQr").innerHTML = ph.qr; $("phoneUrl").textContent = ph.url; $("phoneCode").textContent = ph.code; }
+  if (ph.on) {
+    $("phoneUrl").textContent = ph.url;
+    for (const r of ph.roles || []) {
+      const name = r.role === "watch" ? "Watch" : "Operator";
+      $("qr" + name).innerHTML = r.qr; $("code" + name).textContent = r.code;
+    }
+  }
 }
 $("phoneBtn").onclick = () => { menu(false); renderPhone(); $("phoneDlg").showModal(); };
 $("phoneClose").onclick = () => $("phoneDlg").close();
@@ -258,7 +280,7 @@ $("phoneToggle").onclick = async () => {
   $("phoneToggle").disabled = false; renderPhone(); loadStatus();
 };
 $("phoneForget").onclick = async () => {
-  if (!confirm("Unpair every phone and make a new code?")) return;
+  if (!confirm("Unpair every phone and make new codes?")) return;
   try { STATUS = await call("/proofloop/phone", {forget: true, on: true}); } catch (e) { $("phoneErr").textContent = e.message; }
   renderPhone();
 };

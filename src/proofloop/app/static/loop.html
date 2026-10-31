@@ -90,6 +90,8 @@ input[type=number]{max-width:140px}
 .filrow{padding:8px 0;border-top:1px solid var(--line)}
 .filrow:first-child{border-top:0}
 .filrow select{max-width:320px}
+.meter.warn i{background:var(--warn)}
+.meter.bad i{background:var(--bad)}
 .run{padding:12px 0;border-top:1px solid var(--line)}
 .run:first-child{border-top:0}
 .thumb{width:100%;border-radius:8px;border:1px solid var(--line);background:var(--soft);aspect-ratio:4/3;object-fit:cover}
@@ -104,7 +106,8 @@ input[type=number]{max-width:140px}
       <button role="tab" data-tab="overview">Overview</button>
       <button role="tab" data-tab="monitor">Monitor</button>
       <button role="tab" data-tab="filament">Filament</button>
-      <button role="tab" data-tab="orders">Orders</button></div>
+      <button role="tab" data-tab="orders">Orders</button>
+      <button role="tab" data-tab="maintenance">Maintenance</button></div>
     <div class="navgroup" data-part="loopfiles"><span class="group">Loop files</span>
       <button role="tab" data-tab="make" aria-selected="true">Make a loop file</button>
       <button role="tab" data-tab="check">Check a file</button>
@@ -148,7 +151,11 @@ input[type=number]{max-width:140px}
   <h1>Orders</h1>
   <p class="sub">What someone asked for, by when. Taking an order plans its run over your printers and puts it in the queue; ProofLoop then follows it and tells you whether it will be ready in time. Nothing starts by itself.</p>
   <div class="grid two">
-    <div class="card"><div class="spread"><h2>Open orders</h2><label class="row hint"><input type="checkbox" id="ordersAll"> show finished</label></div><div id="ordersOut"></div></div>
+    <div class="grid" style="align-content:start">
+    <div class="card"><div class="spread"><h2>Open orders</h2><span class="row"><a class="linkbtn" id="csvOrders" href="/api/orders/export.csv" download>Download all (CSV)</a><label class="row hint"><input type="checkbox" id="ordersAll"> show finished</label></span></div><div id="ordersOut"></div></div>
+    <div class="card"><h2>Customers</h2><div class="tw"><table id="customersOut"></table></div><p class="hint">Earned is what the orders you've made are worth; unpaid is the part you haven't marked paid.</p></div>
+    </div>
+    <div class="grid" style="align-content:start">
     <div class="card">
       <h2>New order</h2>
       <form id="orderForm">
@@ -163,6 +170,49 @@ input[type=number]{max-width:140px}
         <button class="btn primary" id="orderAdd" disabled>Take the order</button>
         <p class="hint">Uses your saved loop-file settings; the queue gets one job per printer that can print the plate.</p>
       </form>
+    </div>
+    <div class="card">
+      <h2>Invoices</h2>
+      <p class="hint" style="margin-bottom:10px">Set once. Each order's <b>Invoice</b> button opens a page to print or save as PDF. Anything you leave empty stays a blank on the invoice.</p>
+      <form id="businessForm">
+        <label class="field"><span>Business name</span><input type="text" name="name" maxlength="200"></label>
+        <label class="field"><span>Address</span><textarea name="address" rows="3" maxlength="1000"></textarea></label>
+        <div class="row">
+          <label class="field" style="flex:1;min-width:150px"><span>Email</span><input type="text" name="email" maxlength="200"></label>
+          <label class="field" style="flex:1;min-width:120px"><span>Tax ID</span><input type="text" name="tax_id" maxlength="100"></label></div>
+        <div class="row">
+          <label class="field" style="width:120px"><span>Number prefix</span><input type="text" name="prefix" maxlength="20"></label>
+          <label class="field" style="width:130px"><span>Next number</span><input type="number" name="next_number" min="1" step="1"></label></div>
+        <label class="field"><span>Under the total</span><textarea name="footer" rows="2" maxlength="1000" placeholder="how to pay, thank you…"></textarea></label>
+        <button class="btn">Save</button> <span class="hint" id="businessSaved"></span>
+      </form>
+    </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MAINTENANCE ============ -->
+<section data-panel="maintenance" class="hidden">
+  <h1>Maintenance</h1>
+  <p class="sub">What each printer has done since each job was last done, counted from the prints ProofLoop recorded. Press <b>Done</b> when you've done one and it counts from there. Nothing here stops or pauses a print.</p>
+  <div class="grid two">
+    <div class="grid" style="align-content:start" id="maintOut"></div>
+    <div class="grid" style="align-content:start">
+      <div class="card">
+        <h2>Tasks and how often</h2>
+        <div id="maintEdit"></div>
+        <p class="hint">These intervals are starting points, not the maker's rules. Change them to suit your farm. The ones marked <b>Bambu wiki</b> follow Bambu Lab's maintenance page for the X1 series. A new task counts from when ProofLoop first saw it.</p>
+        <label class="row hint"><input type="checkbox" id="maintRemind"> Tell me once when a task is due, through your notification targets</label>
+      </div>
+      <div class="card">
+        <h2>Add your own</h2>
+        <form id="maintAdd" class="row">
+          <label class="field" style="flex:2;min-width:160px"><span>Task</span><input type="text" name="name" maxlength="60" placeholder="Wipe the chamber window" required></label>
+          <label class="field" style="width:90px"><span>Every</span><input type="number" name="every" min="1" step="any" value="100" required></label>
+          <label class="field" style="width:130px"><span>&nbsp;</span><select name="unit" aria-label="Unit"><option value="hours">print hours</option><option value="prints">prints</option><option value="loops">loops</option><option value="grams">g of filament</option><option value="days">days</option></select></label>
+          <button class="btn primary">Add</button>
+        </form>
+      </div>
     </div>
   </div>
 </section>
@@ -315,6 +365,15 @@ input[type=number]{max-width:140px}
         </div>
         <div class="kpis" id="capKpis"></div>
         <p class="hint">Based on this plate's real loop time, including the cooldown, with failed loops taken out.</p>
+      </div>
+      <div class="card">
+        <h2>What you've made</h2>
+        <p class="hint" style="margin-bottom:10px">Loops, parts, filament and print hours per order, day or month, with cost, price and margin where an order has them. Opens in Excel or Sheets.</p>
+        <div class="row" style="align-items:flex-end">
+          <label class="field" style="margin:0"><span>From</span><input type="date" id="csvFrom"></label>
+          <label class="field" style="margin:0"><span>To</span><input type="date" id="csvTo"></label>
+          <label class="field" style="margin:0"><span>One row per</span><select id="csvBy"><option value="order">order</option><option value="day">day</option><option value="month">month</option></select></label>
+          <a class="btn" id="csvCosts" href="/api/costs/export.csv" download>Download (CSV)</a></div>
       </div>
     </div>
 
@@ -487,7 +546,7 @@ input[type=number]{max-width:140px}
   <div class="grid two" style="margin-top:16px">
     <div class="grid" style="align-content:start">
     <div class="card">
-      <h2>Print history</h2>
+      <div class="spread"><h2>Print history</h2><a class="linkbtn" id="csvHistory" href="/api/outcomes/export.csv" download>Download all (CSV)</a></div>
       <p class="hint">How every print on these printers ended. Check learns from it which settings fail on your printers.</p>
       <div class="tw"><table id="outcomes"></table></div>
     </div>
@@ -511,10 +570,21 @@ input[type=number]{max-width:140px}
       </div>
       <div class="card" id="failureWatchCard">
         <h2>Failure watch</h2>
-        <p class="hint">Halfway through each print, and again at 80%, ProofLoop looks at the plate. If it still looks empty both times, the part has most likely come loose or the nozzle is clogged.</p>
+        <p class="hint">ProofLoop looks at the plate while a print runs. If it still looks empty halfway and at 80%, the part has most likely come loose or the nozzle is clogged. It also compares each look with the last good one: if the picture changes all over, raggedly, twice in a row, the print has most likely turned to spaghetti or come loose. This is a guess from the picture, so it can be wrong either way.</p>
         <label class="field" style="margin:0"><span>When that happens</span>
           <select id="failureWatch" style="max-width:320px"><option value="alert">Tell me</option><option value="pause">Pause the printer and tell me</option><option value="off">Don't look</option></select></label>
         <p class="hint">Needs pictures of the empty plate. Every alert comes with the camera picture.</p>
+      </div>
+      <div class="card" id="cameraCard">
+        <h2>Camera</h2>
+        <form id="cameraForm">
+          <label class="field"><span>The failure watch looks</span>
+            <select name="look_every_pct" style="max-width:320px"><option value="5">Every 5% of the layers</option><option value="10">Every 10% of the layers</option><option value="15">Every 15% of the layers</option><option value="20">Every 20% of the layers</option><option value="25">Every 25% of the layers</option><option value="0">Only halfway and at 80% (no spaghetti look)</option></select></label>
+          <label class="toggle"><input type="checkbox" name="timelapse"><span><b>Make a timelapse of each print</b><span class="hint">Off unless you turn it on. A picture every few layers, made into a small animation when the print ends. Each printer's last few are on its card.</span></span></label>
+          <div class="row"><label class="field" style="margin:0"><span>A picture every (layers)</span><input type="number" name="timelapse_every_layers" min="1" max="500" style="max-width:100px"></label>
+          <label class="field" style="margin:0"><span>Keep per printer</span><input type="number" name="timelapse_keep" min="1" max="50" style="max-width:100px"></label>
+          <button class="btn primary" style="align-self:flex-end">Save</button></div>
+        </form>
       </div>
       <div class="card">
         <h2>Quiet hours</h2>
@@ -526,15 +596,51 @@ input[type=number]{max-width:140px}
           <button class="btn primary" style="align-self:flex-end">Save</button></div>
         </form>
       </div>
-      <div class="card">
+      <div class="card" id="notifyCard">
         <h2>Notifications</h2>
-        <p class="hint" style="margin-top:-4px">When a plate check finds parts left behind, the camera picture comes with the alert.</p>
-        <p class="hint">Get a phone alert when a plate check fails. ntfy is free: install the app, pick a private topic, paste its URL.</p>
+        <p class="hint" style="margin-top:-4px">When a plate check finds parts left behind, the camera picture comes with the alert. Add as many places as you like, each with its own lowest level.</p>
+        <ul class="list" id="notifyList"></ul>
         <form id="notifyForm">
-          <label class="field"><span>Service</span><select name="kind"><option value="ntfy">ntfy</option><option value="discord">Discord webhook</option><option value="webhook">Other webhook (JSON)</option></select></label>
-          <label class="field"><span>URL</span><input type="url" name="url" placeholder="https://ntfy.sh/your-private-topic"></label>
+          <h3 id="notifyHead" style="margin-top:6px">Add a place to send notices</h3>
+          <label class="field"><span>Service</span><select name="kind"><option value="ntfy">ntfy</option><option value="discord">Discord webhook</option><option value="telegram">Telegram</option><option value="email">Email</option><option value="webhook">Other webhook (JSON)</option></select></label>
+          <div data-for="ntfy discord webhook">
+            <label class="field"><span>URL</span><input type="url" name="url" placeholder="https://ntfy.sh/your-private-topic"></label>
+            <p class="hint">ntfy is free: install the app, pick a private topic, paste its URL. For Discord, paste a channel's webhook URL.</p>
+          </div>
+          <div data-for="telegram" class="hidden">
+            <label class="field"><span>Bot token</span><input type="password" name="bot_token" autocomplete="off" placeholder="123456:ABC-DEF..."></label>
+            <label class="field"><span>Chat id</span><input type="text" name="chat_id" autocomplete="off" placeholder="123456789"></label>
+            <p class="hint">Make a bot with @BotFather and copy its token. Send your bot a message, then use your chat id (a number; a group's starts with -).</p>
+          </div>
+          <div data-for="email" class="hidden">
+            <div class="row"><label class="field" style="flex:2;min-width:180px"><span>Mail server (SMTP)</span><input type="text" name="smtp_host" autocomplete="off" placeholder="smtp.example.com"></label>
+            <label class="field" style="flex:1;min-width:90px"><span>Port</span><input type="number" name="smtp_port" min="1" max="65535" placeholder="587"></label>
+            <label class="field" style="flex:1;min-width:140px"><span>Security</span><select name="smtp_security"><option value="starttls">STARTTLS (587)</option><option value="ssl">SSL (465)</option><option value="none">None (25)</option></select></label></div>
+            <div class="row"><label class="field" style="flex:1;min-width:180px"><span>Username</span><input type="text" name="smtp_user" autocomplete="off"></label>
+            <label class="field" style="flex:1;min-width:180px"><span>Password</span><input type="password" name="smtp_password" autocomplete="new-password"></label></div>
+            <label class="field"><span>From</span><input type="text" name="mail_from" placeholder="you@example.com"></label>
+            <label class="field"><span>To (one or more, separated by commas)</span><input type="text" name="mail_to" placeholder="you@example.com, partner@example.com"></label>
+            <p class="hint">Gmail and some others need an app password, not your usual one. The camera picture comes as plate.jpg.</p>
+          </div>
           <label class="field"><span>Send</span><select name="min_level"><option value="error">Only problems</option><option value="warning" selected>Problems and warnings</option><option value="info">Everything</option></select></label>
-          <div class="row"><button class="btn primary">Save</button><button type="button" class="btn" id="notifyClear">Turn off</button></div>
+          <div class="row"><button class="btn primary" id="notifySave">Add</button><button type="button" class="btn hidden" id="notifyCancel">Cancel</button></div>
+        </form>
+      </div>
+      <div class="card" id="haCard">
+        <h2>Home Assistant</h2>
+        <p class="hint" style="margin-top:-4px">Off unless you turn it on. Shares each printer's state (idle, printing, progress, layer, time left, temperatures, job, plate check, loop, and whether it needs you) with your own MQTT broker, so Home Assistant finds the printers by itself. It only publishes: nothing on the broker can control a printer.</p>
+        <form id="haForm">
+          <label class="toggle"><input type="checkbox" name="enabled"><span><b>Share printer states with Home Assistant</b></span></label>
+          <div class="row"><label class="field" style="flex:2;min-width:180px"><span>Broker</span><input type="text" name="host" autocomplete="off" placeholder="homeassistant.local"></label>
+          <label class="field" style="flex:1;min-width:90px"><span>Port</span><input type="number" name="port" min="1" max="65535" placeholder="1883"></label></div>
+          <div class="row"><label class="field" style="flex:1;min-width:180px"><span>Username (if it needs one)</span><input type="text" name="username" autocomplete="off"></label>
+          <label class="field" style="flex:1;min-width:180px"><span>Password</span><input type="password" name="password" autocomplete="new-password"></label></div>
+          <label class="toggle"><input type="checkbox" name="tls"><span><b>Use TLS</b></span></label>
+          <label class="toggle" id="haVerifyRow"><input type="checkbox" name="tls_verify"><span><b>Check the broker's certificate</b><span class="hint">Turn off only for a broker you run yourself with a self-signed certificate.</span></span></label>
+          <div class="row"><label class="field" style="flex:1;min-width:180px"><span>Base topic</span><input type="text" name="base_topic" placeholder="proofloop"></label>
+          <label class="field" style="flex:1;min-width:180px"><span>Home Assistant discovery prefix</span><input type="text" name="discovery_prefix" placeholder="homeassistant"></label></div>
+          <p class="hint" id="haStatus"></p>
+          <div class="row"><button class="btn primary">Save</button><button type="button" class="btn" id="haTest">Test connection</button></div>
         </form>
       </div>
       <div class="card hidden" id="sendCard">
@@ -592,6 +698,7 @@ input[type=number]{max-width:140px}
 <script src="/js/costs.js"></script>
 <script src="/js/filament.js"></script>
 <script src="/js/orders.js"></script>
+<script src="/js/maintenance.js"></script>
 <script src="/js/overview.js"></script>
 <script src="/js/check.js"></script>
 <script src="/js/monitor.js"></script>

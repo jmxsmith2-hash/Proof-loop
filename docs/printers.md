@@ -32,6 +32,27 @@ under *Costs*). It's marked made when its last job finishes, and you're told. La
 the summary under what needs you. `proofloop printers orders` lists them (`--json` for programs),
 and an assistant can take and read orders too ([with Claude](assistants.md)).
 
+**Paid, and who owes you.** Mark an order paid or unpaid; the *Customers* table lists each customer's
+orders, parts, what the orders you've made earned and how much of that is still unpaid.
+
+**Invoices.** Fill in your business name, address, email, tax ID and an invoice prefix once (*Orders ›
+Invoices*), then press **Invoice** on an order: a page opens to print or save as PDF from your
+browser. The first time gives the order its number (the prefix and a count that goes up by one, such
+as `INV-0001`); the number and date are kept with the order and never change, even if you change the
+prefix later. It shows the order's parts, price per part and total, the tax included in your price if
+you've set one under *Costs*, the order's notes and, once marked, that it's paid. Anything you haven't
+filled in is left as a blank to write in, never made up.
+
+**Spreadsheets.** Download orders, print history, and production and costs as CSV that Excel and
+Sheets open directly (UTF-8, dates as `2026-10-30`, plain numbers with the currency in its own
+column). Names and notes that start with `=`, `+`, `-` or `@` get a `'` in front so they can't run as
+a formula. *Orders* and *Print history* have a download link; *Costs › What you've made* takes a date
+range and one row per order, day or month: loops, parts, filament grams of finished loops, print hours,
+and cost, price and margin for the parts that belong to an order (from that order's price and cost per
+part; left blank where an order has none). From the command line:
+`proofloop printers export orders|history|costs [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--by order|day|month]
+[--out file.csv | --json]`.
+
 ## Queue
 
 *Plan a production run* (under *Loop files › Make a loop file*) can spread the loops you need over
@@ -80,18 +101,69 @@ send to each printer. A paired phone can never send, or change this setting.
   only when it's empty. Anything else (parts left, no picture, a camera error, any other kind of
   pause) leaves the printer waiting with the heaters off and tells you. Take the empty-plate
   pictures here.
-- **Failure watch.** Halfway through each print (each loop of a loop file), and again at 80%,
-  ProofLoop looks at the plate. If it still looks empty both times, the part has most likely come
-  loose or the nozzle is clogged and the printer is printing into the air: you get an alert with the
-  camera picture, and with *Pause the printer and tell me* the printer pauses too. It needs pictures of
-  the empty plate, and never alerts without a picture. A tangle of spaghetti isn't recognised yet:
-  that needs footage from real failures to tell apart from a good print.
+- **Failure watch.** Part-way through each print (each loop of a loop file), ProofLoop looks at the
+  plate with the camera and watches for two things. It needs pictures of the empty plate, never alerts
+  without a camera picture, and every alert comes with that picture. *Pause the printer and tell me*
+  pauses the printer too; nothing else it does ever pauses, resumes or starts a print.
+  - *The plate still looks empty* halfway and again at 80%: the part has most likely come loose or the
+    nozzle is clogged, and the printer is printing into the air.
+  - *The print has gone wrong* (spaghetti, or a part knocked loose and dragged): every 10% of the
+    layers (*Monitor › Camera* sets this from 5% to 25%, or off) the picture is compared with the
+    empty-plate pictures and with the last look that was fine. A part that is growing changes the
+    picture in one compact piece next to where it was. Spaghetti shows as a large area of new change
+    away from there, spread over much of the plate, ragged and full of edges. It is an alert only after
+    two looks in a row find that, the message says "the print looks like it has come loose or turned to
+    spaghetti at layer 70 of 100", and it is told once for each print. A look the camera can't give,
+    a blank or too dark picture, or a change over the whole plate (a lamp, a bumped camera) counts as
+    neither good nor bad.
+
+  This is a heuristic on pictures, with no model and no cloud, and it was tuned on made-up pictures,
+  not on footage of real failures. Expect it to miss some failures and to be wrong now and then:
+  - It misses a failure that grows slowly (each look is only compared with the last good one), one
+    that starts before the first look, a single part knocked off in one piece (it looks like the
+    toolhead moving), and spaghetti the camera can't see (behind the part, or a dark filament on a dark
+    plate).
+  - It can raise a false alarm when the camera is bumped or the light changes a lot during a print, or
+    on a print that really does fill much of the plate in a short time. If that happens too often,
+    choose *Only halfway and at 80%*, or *Don't look*.
+- **Camera.** *Camera* on a printer's card shows its view: a new picture every second or two while
+  it is open. It stops asking the printer's camera when you hide it, switch to another tab or the
+  window is hidden, and several people (or phones) looking share one request. *Snapshot* takes one
+  picture. A phone can look too, watch-only phones included.
+- **Timelapse.** Off unless you turn it on (*Monitor › Camera*). During each print (each loop of a
+  loop file) ProofLoop saves a small camera picture every 5 layers (you choose), and when the print
+  ends it makes one animated WebP of them (a GIF if this computer can't write WebP), 640 pixels wide
+  and at most 100 pictures, and deletes the pictures. A picture the camera can't give is skipped; the
+  plate check is never held up. The last 5 timelapses of each printer (you choose) are kept in
+  `~/.proofloop/timelapse/<printer>/` and listed on its card, with *View* and *Save*. Older ones are
+  deleted, and a timelapse is not part of a backup.
 - **Quiet hours.** Plates are still checked overnight, but the next loop waits until morning, with
   the printer paused and its heaters off.
-- **Notifications.** ntfy, Discord or any JSON webhook, each with its lowest level. When parts are
-  left behind, the camera picture arrives with the ntfy or Discord notification. These same
-  targets get a notice when a long check under *Check* has finished, and when
-  ProofLoop stops or restarts.
+- **Notifications.** ntfy, Discord, Telegram, email or any JSON webhook, as many as you like, each
+  with its lowest level and a *Send test* button. When parts are left behind, the camera picture
+  arrives with the notification (ntfy, Discord and Telegram attach it, email sends it as
+  `plate.jpg`; a target that refuses the picture gets the text alone). These same targets get a
+  notice when a long check under *Check* has finished, and when ProofLoop stops or restarts.
+  *Email* needs your mail server (SMTP host, port, STARTTLS or SSL, username and password, From and
+  To; Gmail and some others want an app password). *Telegram* needs a bot token from @BotFather
+  and your chat id. Passwords and tokens are saved in `settings.json` and never shown again: the
+  window says *saved* and an empty box keeps what is there. A paired phone sees only where each
+  target goes, can't change them, and can't download a backup.
+- **Home Assistant.** Off unless you turn it on (*Monitor › Home Assistant*). ProofLoop then
+  publishes each printer's state to your own MQTT broker (address, port, optional user name and
+  password, optional TLS, base topic `proofloop`), and Home Assistant finds the printers by itself
+  through MQTT discovery. Each printer is a device with sensors for its state (idle, preparing,
+  printing, paused, finished, failed, offline), progress, layer (with the total as an attribute),
+  time left, nozzle and bed temperature, current job, plate check (empty, parts left, not
+  checked), the loop it is on and the loops in the file, and a *Needs you* problem sensor that is
+  on while the printer waits for you. `proofloop/status` says `online` while ProofLoop is connected
+  and `offline` when it stops or the broker loses it, so Home Assistant marks the sensors
+  unavailable. A printer's values go out when they change, at most once every 5 seconds. It only
+  publishes: ProofLoop subscribes to nothing, so nothing on the broker can control a printer. A
+  broker that is down, slow or refusing is only logged (the export keeps retrying, waiting longer
+  each time, up to a minute) and never slows the watching. Turning it off leaves the sensors in
+  Home Assistant, unavailable; delete them there if you don't want them. *Test connection* logs in
+  and hangs up without publishing anything.
 
 ### Print history
 
@@ -138,13 +210,35 @@ for everything). *Check* learns from it which flows, first layers and files fail
 - **Costs use your real spools.** Filament cost per part under *Loop files › Costs* comes from what
   you paid for the spool that feeds the plate.
 
+## Maintenance
+
+*Printers › Maintenance* counts, for each printer, the print hours, prints, loops and grams of
+filament (and days) since each job was last done, from the prints ProofLoop recorded. Each task shows
+when it was last done, how much has been used since, and a bar that fills to its interval: **due** at
+100% and **overdue** from 125%. Press **Done** to count from now again (pick an earlier day if you did
+it a while ago, and add a note). A task ProofLoop hasn't seen done counts from when it first saw it,
+not from before.
+
+The built-in tasks are starting points, not manufacturer figures, and you change any of them or switch
+them off: clean the build plate (every 25 prints), empty the purge chute (50 prints), clean and check
+the nozzle (100 print hours), change the nozzle (500), check belt tension (300), clean and oil the rails
+(200), clean the carbon rods (30 days), grease the lead screws (90 days) and check the AMS desiccant
+(30 days). Only the carbon rods and lead screws follow a published interval, from Bambu Lab's wiki for
+the X1 series ([sources](sources.md#maintenance)). Add your own tasks with an interval in print hours,
+prints, loops, grams or days.
+
+When a task becomes due you get one notice through your notification targets (level warning), and not
+again until it's done or a week has passed; turn it off with the checkbox. The daily summary lists what
+is due. Maintenance never stops or pauses a print. Your changes are in the settings and what you marked
+done is in `printers.db`, so both are in the backup.
+
 ## Backup and restore
 
 One file (*Printers › Filament › Backup*) with your settings, imported profiles, spools, usage,
 production log and measured timings, the pictures of each printer's empty plate, the queue, your
 `config/` options, and Check's design checks and what it has learned (including the findings you
-marked *Not a problem*). Restoring it replaces all of these, and is only possible in the window,
-not from a phone. Phones pair again afterwards. Reports, the kept loop files and the pictures of
+marked *Not a problem*). Making and restoring a backup are only possible in the window, never from
+a phone, because a backup holds your printers' access codes and passwords. Restoring replaces all of these. Phones pair again afterwards. Reports, the kept loop files and the pictures of
 failed prints aren't included. Older backups (a `.json` file) still restore.
 
 ## On your phone, and on an always-on machine

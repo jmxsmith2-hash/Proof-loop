@@ -123,11 +123,13 @@ $('#spoolList').addEventListener('click', async (e) => {
 
 function printLabel(s) {
   const w = window.open('', '_blank', 'width=420,height=320'); if (!w) { toast('Allow pop-ups to print labels'); return; }
+  /* eslint-disable no-useless-escape -- the label page is written into a pop-up: keep `<\/script>` escaped */
   w.document.write(`<!doctype html><title>${esc(s.label)}</title><style>body{font:14px system-ui;margin:16px}.l{border:2px solid #000;border-radius:10px;padding:12px;width:300px}.c{width:40px;height:40px;border-radius:6px;border:1px solid #000;float:right}b{font-size:18px}small{color:#444}</style>
     <div class="l"><div class="c" style="background:${esc(s.color || '#fff')}"></div><b>${esc(s.label)}</b><br>${esc([s.brand, s.material].filter(Boolean).join(' · '))}<br>
     <small>${esc(s.color)}${s.net_g ? ` · ${s.net_g} g new` : ''}${s.tare_g != null ? ` · empty spool ${s.tare_g} g` : ''}</small><br>
     <small>${s.drying_temp ? `Dry ${s.drying_temp} °C${s.drying_hours ? ' for ' + s.drying_hours + ' h' : ''} · ` : ''}added ${new Date(s.added * 1000).toLocaleDateString()}</small><br><small>ProofLoop spool ${esc(s.id)}</small></div>
     <script>setTimeout(()=>print(),200)<\/script>`);
+  /* eslint-enable no-useless-escape */
   w.document.close();
 }
 

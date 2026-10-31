@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -167,7 +168,7 @@ class Shell:
             body = await body_of(request)
             try:
                 autostart.enable() if body.get("on") else autostart.disable()
-            except Exception as e:  # noqa: BLE001
+            except (OSError, subprocess.SubprocessError, KeyError) as e:  # KeyError: no APPDATA
                 raise HTTPException(500, f"couldn't change it: {e}") from e
             return self.status()
 

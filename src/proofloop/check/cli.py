@@ -16,11 +16,13 @@ from proofloop.core.commands import ConfigOpt
 from proofloop.core.commands import database as _db
 from proofloop.core.commands import settings_or_exit as _settings
 from proofloop.core.config import ConfigError, find_config_dir, load_settings
+from proofloop.core.logging import get_logger
 from proofloop.core.output import OK, PROBLEMS, emit, exit_code
 from proofloop.core.paths import config_file
 
 app = typer.Typer(help="Check CAD designs and sliced G-code before you print.", no_args_is_help=True,
                   add_completion=False)
+log = get_logger(__name__)
 SEVERITY_COLOR = {4: "red", 3: "bright_red", 2: "yellow", 1: "cyan"}
 
 
@@ -311,8 +313,10 @@ def _print_history(config: Path | None, files: list[Path] | None = None, quiet: 
     db = _db(s)
     try:
         counts = import_prints(db, s.config_dir, None, files)
-    except Exception as exc:  # noqa: BLE001 - learning must never stop a check
-        if not quiet:
+    except Exception as exc:  # noqa: BLE001 - broad on purpose: the journal is a bonus and must never stop a check
+        if quiet:
+            log.warning("could not read the print journal: %s", exc)
+        else:
             typer.secho(f"Could not read the print journal: {exc}", fg="yellow", err=True)
         counts = {"new": 0}
     if counts["new"] and quiet and say:

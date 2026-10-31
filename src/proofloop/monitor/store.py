@@ -7,6 +7,7 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -88,6 +89,23 @@ CREATE TABLE IF NOT EXISTS outcomes (
     outcome TEXT NOT NULL,   -- finished, failed, cancelled, unknown
     data TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS maintenance (
+    printer TEXT NOT NULL,
+    task TEXT NOT NULL,
+    since REAL NOT NULL,     -- counting from here: when it was last done, or when ProofLoop first saw the task
+    done REAL,               -- when it was last marked done
+    note TEXT,
+    notified REAL,           -- when the "due" notice went out (NULL: not yet)
+    PRIMARY KEY (printer, task)
+);
+CREATE TABLE IF NOT EXISTS maintenance_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,        -- the day it was done
+    printer TEXT NOT NULL,
+    task TEXT NOT NULL,
+    note TEXT,
+    used TEXT NOT NULL       -- the counters since the time before (hours, prints, loops, grams, days)
+);
 CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(ts);
 CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage(ts);
 CREATE INDEX IF NOT EXISTS idx_usage_spool ON usage(spool_id, ts);
@@ -96,6 +114,13 @@ CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_timings ON timings(printer, kind, ts);
 CREATE INDEX IF NOT EXISTS idx_checks_printer ON checks(printer, ts);
 """
+
+
+def _rowid(cur: sqlite3.Cursor) -> int:
+    """The id of the row an INSERT just made (sqlite always sets it; the type allows None)."""
+    if cur.lastrowid is None:
+        raise sqlite3.DatabaseError("no row id after INSERT")
+    return cur.lastrowid
 
 
 class Store:
@@ -126,7 +151,8 @@ class Store:
         }
 
     def events(self, limit: int = 100, printer: str | None = None) -> list[dict]:
-        q, args = "SELECT * FROM events", []
+        q = "SELECT * FROM events"
+        args: list[Any] = []
         if printer:
             q += " WHERE printer=?"
             args.append(printer)
@@ -235,12 +261,13 @@ class Store:
             cur = self._db.execute(
                 f"INSERT INTO usage ({cols}) VALUES ({','.join('?' * len(row))})", tuple(row.values())
             )
-        return cur.lastrowid
+        return _rowid(cur)
 
     def usage(
         self, since: float = 0, limit: int = 500, spool_id: str | None = None, unmatched=False
     ) -> list[dict]:
-        q, args = "SELECT * FROM usage WHERE ts>=?", [since]
+        q = "SELECT * FROM usage WHERE ts>=?"
+        args: list[Any] = [since]
         if spool_id:
             q += " AND spool_id=?"
             args.append(spool_id)
@@ -311,7 +338,7 @@ class Store:
                 (data.get("ended") or time.time(), data["printer"], data.get("job"), data["outcome"],
                  json.dumps(data)),
             )
-            return int(cur.lastrowid)
+            return _rowid(cur)
 
     def update_outcome(self, oid: int, data: dict) -> None:
         with self._lock:
@@ -324,9 +351,11 @@ class Store:
         return json.loads(r[0]) if r else None
 
     def outcomes(self, since: float = 0, limit: int = 500, printer: str | None = None) -> list[dict]:
-        q, args = "SELECT id, ts, data FROM outcomes WHERE ts>=?", [since]
+        q = "SELECT id, ts, data FROM outcomes WHERE ts>=?"
+        args: list[Any] = [since]
         if printer:
-            q, args = q + " AND printer=?", [*args, printer]
+            q += " AND printer=?"
+            args.append(printer)
         with self._lock:
             rows = self._db.execute(q + " ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()
         return [{"id": r[0], "ts": r[1], **json.loads(r[2])} for r in rows]
@@ -351,11 +380,51 @@ class Store:
                 for r in self._db.execute("SELECT * FROM production WHERE ts>=? ORDER BY id", (since,))
             ]
 
+    # ---- maintenance ----------------------------------------------------------------
+    def maintenance(self, printer: str) -> dict[str, dict]:
+        with self._lock:
+            rows = self._db.execute("SELECT * FROM maintenance WHERE printer=?", (printer,))
+            return {r["task"]: dict(r) for r in rows}
+
+    def maintenance_start(self, printer: str, task: str, ts: float) -> None:
+        """Start counting a task on a printer (does nothing if it already is)."""
+        with self._lock:
+            self._db.execute("INSERT OR IGNORE INTO maintenance (printer, task, since) VALUES (?,?,?)",
+                             (printer, task, ts))
+
+    def maintenance_notified(self, printer: str, task: str, ts: float | None) -> None:
+        with self._lock:
+            self._db.execute("UPDATE maintenance SET notified=? WHERE printer=? AND task=?", (ts, printer, task))
+
+    def maintenance_done(self, printer: str, task: str, ts: float, note: str, used: dict) -> int:
+        """A task was done: count from ``ts`` again, and keep what it had used up to then."""
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO maintenance (printer, task, since, done, note) VALUES (?,?,?,?,?) "
+                "ON CONFLICT(printer, task) DO UPDATE SET since=excluded.since, done=excluded.done, "
+                "note=excluded.note, notified=NULL", (printer, task, ts, ts, note))
+            cur = self._db.execute(
+                "INSERT INTO maintenance_log (ts, printer, task, note, used) VALUES (?,?,?,?,?)",
+                (ts, printer, task, note, json.dumps(used)))
+            return _rowid(cur)
+
+    def maintenance_log(self, printer: str | None = None, limit: int = 50) -> list[dict]:
+        q, args = "SELECT * FROM maintenance_log", []
+        if printer:
+            q += " WHERE printer=?"
+            args.append(printer)
+        with self._lock:
+            rows = [dict(r) for r in self._db.execute(q + " ORDER BY ts DESC, id DESC LIMIT ?", (*args, limit))]
+        for r in rows:
+            r["used"] = json.loads(r["used"])
+        return rows
+
     def dump(self) -> dict:
         """Everything worth backing up (events and checks are logs, not state)."""
         with self._lock:
             out = {}
-            for t in ("spools", "usage", "jobs", "assignments", "production", "timings", "counters", "outcomes"):
+            for t in ("spools", "usage", "jobs", "assignments", "production", "timings", "counters", "outcomes",
+                      "maintenance", "maintenance_log"):
                 out[t] = [dict(r) for r in self._db.execute(f"SELECT * FROM {t}")]
         return out
 
@@ -364,7 +433,7 @@ class Store:
             self._db.execute("BEGIN")
             try:
                 for t in ("spools", "usage", "jobs", "assignments", "production", "timings", "counters",
-                          "outcomes"):
+                          "outcomes", "maintenance", "maintenance_log"):
                     rows = data.get(t)
                     if rows is None:
                         continue
@@ -377,6 +446,6 @@ class Store:
                             tuple(keep.values()),
                         )
                 self._db.execute("COMMIT")
-            except Exception:
+            except Exception:  # undo the half-restored tables on any error, then re-raise it
                 self._db.execute("ROLLBACK")
                 raise

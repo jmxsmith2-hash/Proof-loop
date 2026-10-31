@@ -13,6 +13,7 @@ are never touched, and runs on its own port (8610), alongside your real ProofLoo
 
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import os
@@ -173,7 +174,7 @@ def run(port: int = PORT, window: bool = True, fresh: bool = False, open_window=
             try:
                 start_a_run(port, plate)
                 print("Started a run of 60 brackets over the three printers: watch it under Printers › Overview.")
-            except Exception as e:  # noqa: BLE001 - the farm still works; you can start one yourself
+            except (OSError, ValueError, KeyError, http.client.HTTPException) as e:  # the farm works without it
                 log.warning("couldn't start the example run: %s", e)
         if window and open_window:
             open_window(url)

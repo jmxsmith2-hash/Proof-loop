@@ -1,0 +1,17 @@
+{
+  "name": "proofloop-page-scripts",
+  "private": true,
+  "description": "Lint tooling for the window's page scripts (src/proofloop/app/static). Nothing here ships.",
+  "scripts": {
+    "lint": "eslint src/proofloop/app/static/js src/proofloop/app/static/shell.html src/proofloop/app/static/loop.html src/proofloop/app/templates/check_app.html.j2"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "espree": "^11.2.0",
+    "globals": "^17.13.0"
+  },
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24"
+  }
+}

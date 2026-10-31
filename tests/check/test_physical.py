@@ -73,3 +73,12 @@ def test_full_physical_review(db, tmp_path):
     page = write_report(result, tmp_path, personas).read_text(encoding="utf-8")
     assert "PREDICTION, NOT A TEST" in page and "Kevin" not in page and "kb@example.com" not in page
     assert db.all("SELECT * FROM sensor_findings") and db.all("SELECT * FROM review_complaints")
+
+
+def test_sensor_times_without_a_zone_are_utc_whatever_the_machine_zone():
+    from datetime import UTC, datetime
+
+    from proofloop.check.sensors import _parse_time
+
+    assert _parse_time("2026-10-01T06:00:00") == datetime(2026, 10, 1, 6, tzinfo=UTC).timestamp()
+    assert _parse_time("2026-10-01T06:00:00Z") == _parse_time("2026-10-01T08:00:00+02:00")

@@ -291,7 +291,7 @@ $('#planApply').onclick = () => { $('#sLoops').value = $('#planApply').dataset.l
 
 // ---------- spread a run over your printers, and the queue ----------
 let SPREAD = null;
-const when = (s) => s == null ? '—' : new Date(Date.now() + s * 1000).toLocaleString([], {weekday: 'short', hour: '2-digit', minute: '2-digit'});
+const fmtWhen = (s) => s == null ? '—' : new Date(Date.now() + s * 1000).toLocaleString([], {weekday: 'short', hour: '2-digit', minute: '2-digit'});
 $('#spreadBtn').onclick = async () => {
   const qty = +$('#planQty').value;
   if (!PLATE || !qty) { toast('Enter how many parts you need first'); return; }
@@ -305,8 +305,8 @@ function renderSpread() {
   if (!s.rows.length) { $('#spreadOut').innerHTML = `<div class="banner warn" style="margin-top:10px"><span class="ic warning">!</span><div>No printer can print this plate right now.${out}</div></div>`; return; }
   $('#spreadOut').innerHTML = `<div class="tw" style="margin-top:10px"><table><tr><th>Printer</th><th class="n">Loops</th><th class="n">Parts</th><th>Starts</th><th>Finishes</th><th>Cooldown</th></tr>
     ${s.rows.map(r => `<tr><td>${esc(r.printer)}</td><td class="n">${r.loops}${r.files > 1 ? ` <span class="hint">(${r.files} files)</span>` : ''}</td><td class="n">${r.parts}</td>
-      <td>${r.starts_in_s ? 'in ' + fmtDur(r.starts_in_s) : 'now'}</td><td>${when(r.finish_s)}</td><td class="hint">${esc(r.cooldown)}</td></tr>`).join('')}</table></div>
-    <p class="hint">${s.loops} loops, ${s.parts} parts, done around <b>${when(s.finish_s)}</b>${s.cooldown_known ? '' : ' plus the cooldowns, which no printer has timed yet'}.</p>${out}
+      <td>${r.starts_in_s ? 'in ' + fmtDur(r.starts_in_s) : 'now'}</td><td>${fmtWhen(r.finish_s)}</td><td class="hint">${esc(r.cooldown)}</td></tr>`).join('')}</table></div>
+    <p class="hint">${s.loops} loops, ${s.parts} parts, done around <b>${fmtWhen(s.finish_s)}</b>${s.cooldown_known ? '' : ' plus the cooldowns, which no printer has timed yet'}.</p>${out}
     <button class="btn primary" id="keepQueue">Keep it as a queue</button>
     <p class="hint">ProofLoop tells you when each printer is free for its next job. You send or download each one; nothing starts by itself.</p>`;
   $('#keepQueue').onclick = async () => {
@@ -315,7 +315,7 @@ function renderSpread() {
   };
 }
 async function refreshQueue() {
-  let runs = [];
+  let runs;
   try { runs = await json('/api/queue'); } catch (e) { return; }
   const sendOn = !!(STATE && STATE.send_to_printer);
   const label = (j) => ({waiting: '<span class="chip">waiting</span>', sent: '<span class="chip info">sent, not started yet</span>',

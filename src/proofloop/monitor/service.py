@@ -19,11 +19,13 @@ from proofloop.loopfiles.gcode.routines import LoopSettings
 from proofloop.loopfiles.gcode.sweep import SweepSettings
 from proofloop.loopfiles.profiles import ProfileStore
 from proofloop.monitor.filament import Inventory, Spool
+from proofloop.monitor.homeassistant import HomeAssistantExport
 from proofloop.monitor.journal import PrintJournal
 from proofloop.monitor.orders import Orders
 from proofloop.monitor.queue import Queue
 from proofloop.monitor.spoolman import Spoolman
 from proofloop.monitor.store import Store
+from proofloop.monitor.timelapse import Timelapse
 from proofloop.monitor.tracking import FilamentTracker
 from proofloop.monitor.vision import BedVerifier
 from proofloop.monitor.watch import PrinterWatch
@@ -148,8 +150,10 @@ class App:
         self.uploads = UploadCache(40, self.data_dir / "uploads")
         self.queue = Queue(self.data_dir / "queue")
         self.orders = Orders(self.data_dir / "orders.json")
+        self._maintenance_at = 0.0  # when maintenance was last checked for tasks that came due
         self.notifier = Notifier(self.settings.notifications)
         self.connect = connect
+        self.homeassistant = HomeAssistantExport(self, active=connect)  # opt-in MQTT export
         self.link_factory = link_factory or self._default_link
         self.watches: dict[str, PrinterWatch] = {}
         self._stop = threading.Event()
@@ -162,12 +166,14 @@ class App:
         for p in self.settings.printers:
             self._start_watch(p)
         if connect:
+            self.homeassistant.configure(self.settings.mqtt_export)
             threading.Thread(target=self._ticker, daemon=True, name="proofloop-ticker").start()
 
     # ---- settings ---------------------------------------------------------------
     def save_settings(self) -> None:
         self.settings_store.save(self.settings)
         self.notifier = Notifier(self.settings.notifications)
+        self.homeassistant.configure(self.settings.mqtt_export)
 
     def update_defaults(self, values: dict) -> Defaults:
         merged = {**self.settings.defaults.model_dump(), **values}
@@ -224,6 +230,8 @@ class App:
             filament=self.tracker,
             journal=self.journal,
             failure_watch=lambda: self.settings.failure_watch,
+            look_every=lambda: self.settings.camera.look_every_pct,
+            timelapse=Timelapse(self.data_dir / "timelapse", p.name, lambda: self.settings.camera),
         )
         self.journal.models[p.name] = p.model_id
         link.add_listener(w.on_state)
@@ -240,16 +248,22 @@ class App:
             for w in list(self.watches.values()):
                 try:
                     w.tick()
-                except Exception:
+                except Exception:  # broad: one printer's bug must not stop the ticker for all of them
                     log.exception("%s: tick failed", w.name)
             try:
                 self.tell_queue()
-            except Exception:
+            except Exception:  # broad: the ticker thread must never die
                 log.exception("queue check failed")
             try:
                 self.morning_summary()
-            except Exception:
+            except Exception:  # broad: the ticker thread must never die
                 log.exception("the morning summary failed")
+            try:
+                if time.time() - self._maintenance_at >= 600:
+                    self._maintenance_at = time.time()
+                    self.tell_maintenance()
+            except Exception:  # broad: the ticker thread must never die
+                log.exception("the maintenance check failed")
 
     def morning_summary(self, now: float | None = None) -> dict | None:
         """The daily summary, at the time you chose, to every notification target (once a day)."""
@@ -287,6 +301,13 @@ class App:
                 job["printer"], "warning", "queue_ready",
                 f"{job['printer']} is free. Next in the queue: {run['plate']}, {job['loops']} loop"
                 f"{'s' if job['loops'] != 1 else ''}. Send or download it under Printers › Overview."))
+
+    def tell_maintenance(self, now: float | None = None) -> None:
+        """A notice for each maintenance task that has come due (once; see monitor/maintenance.py)."""
+        from proofloop.monitor.maintenance import notices
+
+        for printer, text in notices(self, now):
+            self._emit(self.store.add_event(printer, "warning", "maintenance_due", text))
 
     def add_printer(self, p: PrinterConfig) -> PrinterWatch:
         if any(x.name == p.name for x in self.settings.printers):
@@ -332,6 +353,7 @@ class App:
 
     def shutdown(self) -> None:
         self._stop.set()
+        self.homeassistant.stop()
         for w in self.watches.values():
             close = getattr(w.link, "close", None)
             if close:

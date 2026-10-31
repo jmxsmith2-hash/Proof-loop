@@ -1,5 +1,13 @@
 # Printer setup
 
+## Which printers
+
+* **Design check, G-code check and the printer monitor** work with the Bambu Lab X1 Carbon, X1, X1E,
+  P1S, P1P, A1, A1 mini, A2L, P2S, H2D (and H2D Pro), H2S, H2C and X2D, plus the Prusa MK4, Ender 3
+  and generic printers.
+* **Loop files are for the P2S only.** The FarmLoop kit moves are published only for the P2S, and
+  ProofLoop doesn't guess them for other printers (see [sources](sources.md)).
+
 ## Making and sending loop files
 
 No printer setup is needed to make loop files. ProofLoop only writes them. Send them with Bambu

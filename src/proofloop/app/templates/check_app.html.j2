@@ -29,6 +29,9 @@
 .progress i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
 .open { display: inline-block; margin-top: 4px; font-weight: 600; }
 .hosts { font-size: 12px; color: var(--muted); margin-top: 8px; }
+.fixes { margin-top: 8px; font-size: 14px; } .fixes ul, .rounds ul { margin: 4px 0; padding-left: 18px; font-size: 13px; }
+.rounds { margin-top: 8px; font-size: 14px; } .rounds summary { color: var(--accent); }
+.rounds h4 { margin: 8px 0 0; font-size: 13.5px; }
 </style>
 </head>
 <body><main>
@@ -58,7 +61,9 @@
     <label class="check"><input type="checkbox" id="cad-eject"> Printed in a FarmLoop loop (check the pusher clears it; copies per plate)</label>
     {% if slicer %}<label class="check" id="cad-slice-box"><input type="checkbox" id="cad-slice" checked> Slice it with {{ slicer }} too and check the G-code (ready-to-print verdict)</label>
     <div class="row" id="cad-slice-opts"><div><label for="cad-support">Support</label><select id="cad-support"><option value="">As the preset has it</option><option value="on">On (tree)</option><option value="off">Off</option></select></div>
-      <div><label for="cad-loops">Also make a loop file, loops</label><input type="number" id="cad-loops" min="0" max="50" value="0"></div></div>{% endif %}
+      <div><label for="cad-loops">Also make a loop file, loops</label><input type="number" id="cad-loops" min="0" max="50" value="0"></div></div>
+    <label class="check" id="cad-fix-box"><input type="checkbox" id="cad-fix"> Apply the slicer fixes and slice again <span class="muted">(shows each setting it changed)</span></label>
+    {% else %}<p class="hosts">Install Bambu Studio (free) and CAD files also get a print-ready verdict and one-click fixes. Open it once after installing, so it downloads its printer presets.</p>{% endif %}
     <div class="err" id="cad-err" role="alert"></div>
   </section>
 
@@ -92,7 +97,8 @@ function uploader(kind) {
       const proc = document.getElementById("cad-process").value;
       if (proc === "print") { pick("cad-printer", "printer");
         const sl = document.getElementById("cad-slice");
-        if (sl && sl.checked) { q.set("slice", "1"); pick("cad-support", "support"); const l = document.getElementById("cad-loops"); if (l && +l.value) q.set("loops", l.value); } }
+        if (sl && sl.checked) { q.set("slice", "1"); pick("cad-support", "support"); const l = document.getElementById("cad-loops"); if (l && +l.value) q.set("loops", l.value);
+          if (document.getElementById("cad-fix").checked) q.set("fix", "1"); } }
       else { q.set("process", proc); if (proc === "injection") pick("cad-pull", "pull"); }
       if (document.getElementById("cad-handheld").checked) q.set("handheld", "1");
       if (document.getElementById("cad-eject").checked) q.set("auto_eject", "1"); }
@@ -124,8 +130,11 @@ document.getElementById("cad-process").addEventListener("change", (e) => {
   sel.innerHTML = (MATERIALS[proc] || []).map(m => `<option${proc === "print" && m === DEFAULT_MATERIAL ? " selected" : ""}>${m}</option>`).join("");
   document.getElementById("cad-printer-box").hidden = proc !== "print";
   document.getElementById("cad-pull-box").hidden = proc !== "injection";
-  for (const id of ["cad-slice-box", "cad-slice-opts"]) { const el = document.getElementById(id); if (el) el.hidden = proc !== "print"; }
+  for (const id of ["cad-slice-box", "cad-slice-opts", "cad-fix-box"]) { const el = document.getElementById(id); if (el) el.hidden = proc !== "print"; }
 });
+const sliceBox = document.getElementById("cad-slice");
+if (sliceBox) sliceBox.addEventListener("change", () => {  // fixing needs the slice
+  const fix = document.getElementById("cad-fix"); fix.disabled = !sliceBox.checked; if (!sliceBox.checked) fix.checked = false; });
 // a file dropped anywhere else goes to the right card by its type
 window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("drop", (e) => { if (e.target.closest(".drop")) return; e.preventDefault();
@@ -136,8 +145,32 @@ window.addEventListener("drop", (e) => { if (e.target.closest(".drop")) return; 
 
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 const LABEL = {cad: "CAD", gcode: "G-code"}, STATUS = {done: "ok", failed: "bad", running: "info"};
+const NO_SLICER = {{ no_slicer|tojson }}, SLICE_AGAIN_NOTE = {{ slice_again_note|tojson }};
+const setting = (st) => `${esc(st.label)} = <b>${esc(st.value)}</b>`;
+// slicer settings that would fix a check, what a fix run changed, and the files it made
+function fixHtml(j, jobs) {
+  const other = (id) => jobs.find(o => o.id === id);
+  let h = "";
+  if (j.fix_of) { const o = other(j.fix_of);
+    h += `<div class="muted small">Fixed and sliced again from ${o ? esc(o.title) : "an earlier check"}.</div>`; }
+  if (j.rounds && j.rounds.length) {
+    const n = j.rounds.reduce((a, r) => a + r.applied.length, 0);
+    h += `<details class="rounds" open><summary>What was changed: ${n} slicer setting${n === 1 ? "" : "s"}, sliced ${j.rounds.length} more time${j.rounds.length === 1 ? "" : "s"}</summary>
+      ${j.rounds.map((r, i) => `<h4>Round ${i + 1}: ${r.blocking_before} problem${r.blocking_before === 1 ? "" : "s"} that stop${r.blocking_before === 1 ? "s" : ""} it printing, then ${r.blocking_after}</h4>
+        <ul>${r.applied.map(st => `<li>${esc(st.label)}: ${st.old === null || st.old === undefined ? "not set" : esc(st.old)} &rarr; <b>${esc(st.value)}</b>
+          <span class="muted">${esc(st.why)}</span></li>`).join("")}</ul>`).join("")}</details>`; }
+  if (j.downloads && j.downloads.length)
+    h += `<div>${j.downloads.map(d => `<a class="open" style="margin-right:14px" href="${d.url}" download>${esc(d.label)}</a>`).join("")}</div>`;
+  const list = j.fixes && j.fixes.length ? `<ul>${j.fixes.slice(0, 5).map(st => `<li>${setting(st)}</li>`).join("")}${j.fixes.length > 5 ? `<li class="muted">and ${j.fixes.length - 5} more</li>` : ""}</ul>` : "";
+  if (j.can_fix) h += `<div class="fixes"><b>Slicer settings that would fix it:</b>${list}
+      <button type="button" class="btn primary small" data-fix="${esc(j.id)}" title="Changes these settings, slices again and checks again">Fix and slice again</button></div>`;
+  else if (j.needs_slicer) h += `<div class="fixes"><b>Slicer settings that would fix it:</b>${list}<div class="muted">${esc(NO_SLICER)}</div></div>`;
+  else if (j.needs_model) h += `<div class="fixes"><b>Slicer settings that would fix it:</b>${list}<div class="muted">${esc(SLICE_AGAIN_NOTE)}</div></div>`;
+  else if (j.fixed_by && other(j.fixed_by)) h += `<div class="muted small">Fix and slice again: see ${esc(other(j.fixed_by).title)}.</div>`;
+  return h;
+}
 async function refresh() {
-  let jobs = [];
+  let jobs;
   try { jobs = await (await fetch(P + "/api/jobs")).json(); } catch (e) { return; }
   const box = document.getElementById("jobs");
   if (!jobs.length) { box.innerHTML = '<p class="muted" id="nojobs">Nothing yet. Results appear here and are kept until you remove them.</p>';
@@ -158,6 +191,7 @@ async function refresh() {
       ${j.summary.length ? `<ul>${j.summary.map(s => `<li>${esc(s)}</li>`).join("")}</ul>` : ""}
       ${j.report_url ? `<a class="open" href="${j.report_url}" target="_blank" rel="noopener">Open the report</a>` : ""}
       ${j.download ? `<a class="open" style="margin-left:14px" href="${j.download}" download>Download the loop file</a>` : ""}
+      ${fixHtml(j, jobs)}
       ${j.can_loop && j.status === "done" ? `<div class="loop"><b>Loop file:</b>
         <input type="number" min="1" max="500" value="${LOOPS[j.id] || 5}" aria-label="Loops" id="loops-${esc(j.id)}"> loops
         <button type="button" class="btn primary small" data-loop="${esc(j.id)}" title="Uses your saved loop-file settings: profile, sweep floor, push depth, cooldown">Make it now</button>
@@ -209,6 +243,11 @@ document.getElementById("jobs").addEventListener("click", async (e) => {
       body: JSON.stringify(body)}); if (!r.ok) alert((await r.json()).error); } catch (x) { alert("That didn't work"); }
     refresh(); return;
   }
+  const fx = e.target.closest("button[data-fix]");
+  if (fx) { fx.disabled = true;
+    try { const r = await fetch(P + "/api/fix", {method: "POST", headers: {...H, "Content-Type": "application/json"},
+      body: JSON.stringify({job: fx.dataset.fix})}); if (!r.ok) alert((await r.json()).error); } catch (x) { alert("Could not start it"); }
+    refresh(); return; }
   const o = e.target.closest("button[data-open-loop]");
   if (o && SHELL) { window.parent.postMessage({proofloop: "open-in-loop-files", job: o.dataset.openLoop}, SHELL); return; }
   const b = e.target.closest("button[data-loop]"); if (!b) return;

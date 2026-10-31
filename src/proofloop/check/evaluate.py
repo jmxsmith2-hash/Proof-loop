@@ -82,8 +82,7 @@ def spec_comparison(category: str, product: ProductSpec, complaint: Complaint) -
     for key in SPEC_KEYS.get(category, []):
         if key not in ours:
             continue
-        others = [(p.name, flat_spec(p.spec).get(key)) for p in product.similar_products]
-        others = [(n, v) for n, v in others if v is not None]
+        others = [(p.name, v) for p in product.similar_products if (v := flat_spec(p.spec).get(key)) is not None]
         if len(others) < 2:
             return Evidence("spec", f"{key} is {ours[key]:g}; not enough similar products to compare", {"key": key})
         values = [v for _, v in others]
@@ -121,7 +120,7 @@ class HeuristicPhysicalEvaluator:
                     risk *= 1.0 + min(0.8, abs(spec.data.get("ratio", 1) - 1) * 2)
                 elif spec.data.get("on_complaint_side") is False:
                     risk *= 0.5
-            phrase = max(c.phrases, key=c.phrases.get) if c.phrases else c.category
+            phrase = max(c.phrases, key=lambda k: c.phrases[k]) if c.phrases else c.category
             detail = (f"Reviews of similar products often say “{phrase}” ({c.mentions} reviews). "
                       + (spec.detail + ". " if spec else "No spec value to compare, so this risk is carried over "
                                                          "from similar products. "))

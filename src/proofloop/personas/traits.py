@@ -89,7 +89,7 @@ class TraitEvidence:
 
     def add(self, trait: str, value: Any, quote: str = "", weight: float = 1.0) -> None:
         self.values[trait].append(value)
-        self.weights[trait][value] += weight
+        self.weights[trait][value] += weight  # type: ignore[assignment]  # Counter's stubs want int; weights are floats
         if quote and len(self.quotes[trait]) < 5:
             self.quotes[trait].append(quote)
 

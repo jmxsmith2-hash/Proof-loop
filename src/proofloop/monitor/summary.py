@@ -104,6 +104,10 @@ def summary(app, hours: float = 12, since: float | None = None) -> dict[str, Any
                                          f"{'s' if o['late_by_days'] != 1 else ''} late ({o['made']} of "
                                          f"{o['quantity']} made)"})
 
+    from proofloop.monitor.maintenance import due as maintenance_due
+
+    maintenance = [{k: m[k] for k in ("printer", "task", "name", "state", "pct")} for m in maintenance_due(app, now)]
+
     out = {
         "since": since, "until": now, "hours": round((now - since) / HOUR, 1),
         "parts": sum(p["parts"] for p in printers), "loops": sum(p["loops"] for p in printers),
@@ -112,6 +116,7 @@ def summary(app, hours: float = 12, since: float | None = None) -> dict[str, Any
         "filament": {"used_g": round(sum(by_material.values()), 1), "by_material": by_material, "low": low,
                      "unassigned_g": unmatched},
         "queue": queue,
+        "maintenance": maintenance,
         "orders": [{k: o[k] for k in ("id", "customer", "plate", "quantity", "made", "due", "eta", "on_time",
                                       "late_by_days")} for o in orders],
     }
@@ -162,6 +167,9 @@ def _text(s: dict) -> str:
         lines.append("Orders: " + "; ".join(
             f"{o['customer']} {o['made']}/{o['quantity']}" + (f", due {o['due']}" if o["due"] else "")
             + (" (late)" if o["on_time"] is False else "") for o in s["orders"]) + ".")
+    if s["maintenance"]:
+        lines.append("Maintenance due: " + "; ".join(f"{m['printer']}: {m['name'].lower()}" for m in s["maintenance"])
+                     + ".")
     q = s["queue"]
     if q["waiting"] or q["printing"]:
         lines.append(f"Queue: {q['printing']} printing, {q['waiting']} waiting.")

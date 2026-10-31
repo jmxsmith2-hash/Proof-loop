@@ -1,0 +1,4 @@
+include CHANGELOG.md LICENSE README.md constraints.txt
+recursive-include examples *
+recursive-include docs *.md
+global-exclude __pycache__ *.py[cod]

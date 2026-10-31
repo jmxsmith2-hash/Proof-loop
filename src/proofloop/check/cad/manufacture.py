@@ -28,18 +28,12 @@ from typing import Any
 import numpy as np
 from scipy import ndimage
 
-from proofloop.check.cad.checks import (
-    CadFinding,
-    Context,
-    _loc,
-    check_clearances,
-    check_mesh,
-    check_sharp_edges,
-    check_stability,
-    exterior_faces,
-    find_holes,
-)
+from proofloop.check.cad.clearance import check_clearances
+from proofloop.check.cad.context import CadFinding, Context, _loc, exterior_faces
+from proofloop.check.cad.holes import find_holes
 from proofloop.check.cad.load import Model
+from proofloop.check.cad.mesh import check_mesh, check_sharp_edges
+from proofloop.check.cad.stability import check_stability
 from proofloop.check.cad.voxel import VoxelGrid, choose_pitch, voxelize
 from proofloop.core.config import ConfigError, load_yaml_file
 from proofloop.core.logging import get_logger
@@ -128,7 +122,7 @@ def best_pull(grid: VoxelGrid) -> str:
 
 
 def check_undercuts(ctx: Context, pull: str) -> None:
-    grid = ctx.grid
+    grid = ctx.voxels
     ax = AXES[pull]
     trapped = _trapped(grid.solid, ax)
     clusters, labels = _clusters(trapped, grid, min_mm3=max(2.0, 8 * grid.pitch ** 3))
@@ -194,7 +188,7 @@ def check_draft(ctx: Context, pull: str, min_deg: float) -> None:
 
 
 def check_walls(ctx: Context, lo: float, hi: float, *, process: str) -> np.ndarray:
-    grid = ctx.grid
+    grid = ctx.voxels
     ridge, thick = _thickness(grid)
     values = thick[ridge]
     if not values.size:
@@ -256,7 +250,7 @@ def check_inside_corners(ctx: Context, wall: float) -> None:
 
 
 def injection_estimates(ctx: Context, pull: str, walls: np.ndarray) -> None:
-    grid, mat, proc = ctx.grid, ctx.material, ctx.printer
+    grid, mat, proc = ctx.voxels, ctx.material, ctx.printer
     volume = grid.volume_mm3
     grams = volume * mat["density_g_cm3"] / 1000
     projected = float(grid.solid.any(axis=AXES[pull]).sum()) * grid.pitch ** 2
@@ -289,7 +283,7 @@ def _to_remove(grid: VoxelGrid) -> np.ndarray:
 
 def check_reach(ctx: Context) -> list[str]:
     """Which material (inside the stock box) a straight tool reaches from each of the six sides."""
-    grid = ctx.grid
+    grid = ctx.voxels
     empty = ~grid.solid
     remove = _to_remove(grid)
     ctx.cache["cnc_remove"] = remove
@@ -327,7 +321,7 @@ def check_reach(ctx: Context) -> list[str]:
 
 def check_tool_size(ctx: Context, tool: float, min_tool: float) -> None:
     """Inside corners and slots a round end mill can't follow, seen along each set-up direction."""
-    grid = ctx.grid
+    grid = ctx.voxels
     vis = ctx.cache.get("cnc_vis", {})
     if not vis:
         return
@@ -341,9 +335,9 @@ def check_tool_size(ctx: Context, tool: float, min_tool: float) -> None:
     for name, v in vis.items():
         ax = AXES[name[1].lower()]
         for k in range(v.shape[ax]):
-            sl = [slice(None)] * 3
-            sl[ax] = k
-            sl = tuple(sl)
+            index: list[slice | int] = [slice(None)] * 3
+            index[ax] = k
+            sl = tuple(index)
             plane = v[sl]
             if not plane.any():
                 continue
@@ -413,7 +407,7 @@ def _disc2(r: float) -> np.ndarray:
 
 def check_pockets(ctx: Context, ratio: float) -> None:
     """Pockets much deeper than they are wide need long, thin tools that chatter (from the main set-up)."""
-    grid = ctx.grid
+    grid = ctx.voxels
     setups = ctx.metrics.get("setups") or ["+Z"]
     name = setups[0]
     ax = AXES[name[1].lower()]
@@ -460,7 +454,7 @@ def check_pockets(ctx: Context, ratio: float) -> None:
 
 
 def check_cnc_holes(ctx: Context, max_ratio: float, min_tool: float) -> None:
-    grid = ctx.grid
+    grid = ctx.voxels
     for axis in (2, 0, 1):
         for h in find_holes(grid, axis):
             dia, depth = h["diameter"], h["depth"]
@@ -479,7 +473,7 @@ def check_cnc_holes(ctx: Context, max_ratio: float, min_tool: float) -> None:
 
 
 def cnc_estimates(ctx: Context) -> None:
-    grid, mat = ctx.grid, ctx.material
+    grid, mat = ctx.voxels, ctx.material
     size = ctx.mesh.extents + 2.0                         # 1 mm to face off on every side
     stock = float(np.prod(size))
     part = grid.volume_mm3
@@ -512,7 +506,7 @@ def run_process_checks(model: Model, process: dict, material: dict, use: dict | 
     if kind == "injection":
         chosen = (pull or "auto").lower()
         if chosen == "auto":
-            chosen = best_pull(ctx.grid)
+            chosen = best_pull(ctx.voxels)
         if chosen not in AXES:
             raise ConfigError("--pull must be x, y, z or auto")
         ctx.metrics["pull"] = chosen

@@ -11,6 +11,7 @@ import webbrowser
 from proofloop import __version__
 from proofloop.core.output import emit
 from proofloop.core.paths import PRINTERS_DB, home
+from proofloop.monitor.exports import BY
 from proofloop.monitor.printer.ams import label as tray_label
 from proofloop.monitor.service import App
 
@@ -78,6 +79,37 @@ def cmd_orders(a) -> int:
     return 0
 
 
+def cmd_export(a) -> int:
+    """Orders, print history or production and costs as a spreadsheet (CSV, or JSON for programs)."""
+    from pathlib import Path
+
+    from proofloop.monitor import exports
+
+    try:
+        since, until = exports.date_range(a.date_from, a.date_to)
+    except ValueError as e:
+        print(f"proofloop: {e}", file=sys.stderr)
+        return 2
+    app = App(home(), connect=False)
+    try:
+        if a.what == "orders":
+            columns, rows = exports.ORDER_COLUMNS, exports.orders_rows(app, since, until)
+        elif a.what == "history":
+            columns, rows = exports.HISTORY_COLUMNS, exports.history_rows(app, since, until)
+        else:
+            columns, rows = exports.cost_columns(a.by), exports.costs_rows(app, since, until, a.by)
+    finally:
+        app.shutdown()
+    if a.json:
+        emit(rows)
+    elif a.out:
+        Path(a.out).write_bytes(exports.to_csv(columns, rows))  # with a BOM, for Excel
+        print(f"Wrote {len(rows)} row{'' if len(rows) == 1 else 's'} to {a.out}")
+    else:
+        sys.stdout.write(exports.csv_text(columns, rows).replace("\r\n", "\n"))  # the console adds its own
+    return 0
+
+
 def cmd_serve(a) -> int:
     """Loop files & Printers alone, e.g. in Docker or on an always-on computer, reachable on your network."""
     import uvicorn
@@ -92,7 +124,7 @@ def cmd_serve(a) -> int:
     if a.browser:
         try:
             webbrowser.open(url)
-        except Exception:  # noqa: BLE001 - no browser (Docker, a server): fine
+        except (webbrowser.Error, OSError):  # no browser (Docker, a server): fine
             pass
     try:
         uvicorn.run(create_app(app), host=a.host, port=a.port, log_level="warning")
@@ -121,6 +153,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--all", action="store_true", help="include finished and cancelled orders")
     p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p.set_defaults(fn=cmd_orders)
+
+    p = sub.add_parser("export", help="orders, print history or production and costs as a spreadsheet (CSV)")
+    p.add_argument("what", choices=["orders", "history", "costs"])
+    p.add_argument("--from", dest="date_from", metavar="YYYY-MM-DD", help="first day (default: from the start)")
+    p.add_argument("--to", dest="date_to", metavar="YYYY-MM-DD", help="last day, included (default: until now)")
+    p.add_argument("--by", choices=list(BY), default="order", help="costs: one row per order (default), day or month")
+    out = p.add_mutually_exclusive_group()
+    out.add_argument("--out", metavar="FILE", help="write the CSV here (UTF-8 with a BOM, for Excel) instead of printing it")
+    out.add_argument("--json", action="store_true", help="the rows as JSON (for programs and assistants)")
+    p.set_defaults(fn=cmd_export)
 
     p = sub.add_parser("serve", help="serve Loop files & Printers alone (Docker, an always-on computer)")
     p.add_argument("--host", default="127.0.0.1", help="use 0.0.0.0 to reach it from other devices on your network")

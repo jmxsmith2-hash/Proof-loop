@@ -251,7 +251,7 @@ def cost(
         f"pick a spool with a price and weight for {', '.join(mat_missing)}" if mat_missing else "",
     )
 
-    if None in (c.electricity_per_kwh, c.watts_printing):
+    if c.electricity_per_kwh is None or c.watts_printing is None:
         add(
             "energy",
             "Electricity",
@@ -360,7 +360,8 @@ def cost(
         "complete": not rep.missing,
     }
 
-    rep.selling = _selling(c, run / parts) if c.price_per_part is not None else None
+    price = c.price_per_part
+    rep.selling = _selling(c, run / parts, price) if price is not None else None
     if times.cooldown_s is not None and times.known_s > 0:
         rep.capacity = _capacity(c, times.known_s, parts_per_plate, rep.selling)
     return rep
@@ -382,8 +383,7 @@ def _net_share(c: CostSettings) -> float:
     return 1 / (1 + c.tax_included_pct / 100) - (c.marketplace_fee_pct + c.payment_fee_pct) / 100
 
 
-def _selling(c: CostSettings, cost_per_part: float) -> dict:
-    price = c.price_per_part
+def _selling(c: CostSettings, cost_per_part: float, price: float) -> dict:
     tax = price - price / (1 + c.tax_included_pct / 100)
     pct_fees = price * (c.marketplace_fee_pct + c.payment_fee_pct) / 100
     fixed = _per_order_fixed(c)

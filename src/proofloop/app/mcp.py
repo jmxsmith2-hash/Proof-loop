@@ -28,7 +28,10 @@ from typing import Any
 
 from proofloop import __version__
 from proofloop.app.config import DEFAULT_PORT
+from proofloop.core.logging import get_logger
 from proofloop.core.output import dumps
+
+log = get_logger(__name__)
 
 PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 MAX_IMAGES = 4  # renders and finding pictures returned with a check
@@ -169,7 +172,10 @@ class Server:
                 result = self.call(params.get("name", ""), params.get("arguments") or {})
             else:
                 return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"no method {method}"}}
-        except Exception as e:  # noqa: BLE001 - the server must answer, whatever happens
+        except ValueError as e:  # a mistake in the request, like an unknown prompt
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(e)}}
+        except Exception as e:  # noqa: BLE001 - the server must answer, whatever happens; the log has the traceback
+            log.exception("%s failed", method)
             return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(e)}}
         return {"jsonrpc": "2.0", "id": mid, "result": result}
 

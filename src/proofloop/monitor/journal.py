@@ -13,11 +13,12 @@ stop a plate check.
 from __future__ import annotations
 
 import logging
+import sqlite3
 import time
 from pathlib import Path
 
 from proofloop.monitor.printer.ams import valid_tray
-from proofloop.monitor.watch import is_loop_job, job_names
+from proofloop.monitor.watch import CAMERA_ERRORS, is_loop_job, job_names
 
 log = logging.getLogger(__name__)
 
@@ -176,7 +177,7 @@ class PrintJournal:
             rec["layer"] = max(rec["layer"], rec["total_layers"])
         try:
             rid = self.store.add_outcome(rec)
-        except Exception:
+        except (sqlite3.Error, TypeError, ValueError):  # the database, or a record that isn't JSON
             log.exception("%s: could not record the print", w.name)
             return None
         self._last[w.name] = (rid, rec["ended"])
@@ -185,8 +186,9 @@ class PrintJournal:
     def _picture(self, w, rid: int, what: str) -> None:
         try:
             jpeg = w.link.snapshot()
-        except Exception:
-            return  # no camera picture: the record is still kept
+        except CAMERA_ERRORS as e:
+            log.debug("%s: no camera picture for the record: %s", w.name, e)
+            return  # the record is still kept
         data = self.store.outcome(rid)
         if data is not None:
             data["picture"] = self._save_picture(rid, what, jpeg)

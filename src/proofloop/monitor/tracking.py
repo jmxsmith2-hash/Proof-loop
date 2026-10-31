@@ -10,6 +10,7 @@ their usage isn't known.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from proofloop.loopfiles.gcode.usage import layer_usage, used_by_layer
 from proofloop.monitor.filament import available, resolve
@@ -61,7 +62,7 @@ def register_job(store, filename: str, items: list[tuple], profile_id: str) -> d
 class FilamentTracker:
     """The ``filament`` hooks a PrinterWatch calls."""
 
-    def __init__(self, app):
+    def __init__(self, app: Any) -> None:
         self.app = app
         self._sig: dict[str, tuple] = {}
         self._unknown_told: set[str] = set()

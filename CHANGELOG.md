@@ -3,6 +3,61 @@
 What changed in each version of ProofLoop. `proofloop update` shows the parts that are new to you,
 and the window shows them under *More › What's new*.
 
+## 0.5.0 · 2026-10-31
+
+### New
+- **Spaghetti watch.** The failure watch also notices a print that has turned to spaghetti or come
+  loose: it compares the camera picture every 10% of the layers with the last good look and alerts
+  (or pauses, if you chose that) after two bad looks in a row. It's a heuristic, and can be set to
+  look only halfway and at 80%.
+- **Camera view.** Each printer's card shows a new picture every second or two while it's open, and
+  stops when you hide it or switch away.
+- **Timelapse** (off unless you turn it on): a picture every few layers while a print runs, made
+  into a small animation when it ends; each printer's last few are on its card to view or save.
+- **Maintenance.** *Printers › Maintenance* counts print hours, prints and loops per printer since
+  each job was last done (the build plate, nozzle, belts, rods and more, with intervals you can
+  change), shows what is due, and tells you once when something comes due.
+- **Email and Telegram.** Send notices to your email or a Telegram chat as well as ntfy, Discord and
+  webhooks, each with its own lowest level and a *Send test* button; the camera picture comes along.
+- **Home Assistant.** Optionally share each printer's state with your own MQTT broker, and Home
+  Assistant finds the printers by itself. It only publishes: nothing on the broker can control a
+  printer.
+- **Invoices.** Press *Invoice* on an order for a page to print or save as PDF, numbered once and
+  never changed; mark orders paid, and see what each customer has earned and still owes.
+- **Spreadsheets.** Download orders, print history, and production and costs as CSV for Excel or
+  Sheets, or run `proofloop printers export`.
+- **Fix and slice again in Check.** A print-ready result that lists slicer settings that would fix
+  it now has a *Fix and slice again* button (or tick it at upload): it slices again with the settings
+  changed, shows each change with its old and new value and the problems before and after, and lets
+  you download the fixed plate and the presets to import.
+- **Two kinds of phone.** *More › Phone* pairs a phone as **Watch only** (sees everything, changes
+  nothing) or **Operator** (as before); phones paired earlier stay operators, and *Forget phones*
+  unpairs both.
+- **More printers for the checks.** Design and G-code checks have their own profiles for the P1S,
+  P1P, A1, A1 mini, A2L, H2C and X2D, each value with its source in `docs/sources.md`. Loop files stay
+  P2S-only.
+- **A Windows installer** (no Python needed) and a package ready for PyPI, built by the release.
+
+### Changed
+- `settings.json`, the queue and orders carry a format version. A file written by a newer ProofLoop
+  is never overwritten, an older one is upgraded (with a one-time `.v0.bak` copy), and a backup from a
+  newer ProofLoop is refused before anything is replaced. Files are written whole or not at all.
+- A phone can no longer download a backup: it holds your printers' access codes and passwords.
+- `proofloop update` says what to run for a pip, pipx or installer copy, and *What's new* works there
+  too.
+- Inside: the Loop files & Printers server is one module per part (`app/routes/`), the CAD and
+  G-code checks are split by kind, every module is type-checked, and errors are caught by kind and
+  logged instead of swallowed.
+- CI lints the page scripts, drives the window in a real browser, and pins its actions to commits.
+
+### Fixed
+- Saving the notification form wiped a saved access token.
+- Taking an order when `orders.json` came from a newer ProofLoop left an unfollowed run in the queue.
+- The print-ready check crashed when the slicer itself reported a problem, and its report when a fix
+  changed only filament settings.
+- Sensor logs without a time zone gave a busiest hour that depended on your computer's time zone.
+- A camera snapshot for an unknown printer said "camera error" instead of "no such printer".
+
 ## 0.4.0 · 2026-10-30
 
 ### New

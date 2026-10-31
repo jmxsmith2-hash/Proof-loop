@@ -17,6 +17,7 @@ import math
 import re
 import secrets
 import time
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -279,7 +280,7 @@ class Inventory:
 
     def daily(self, days: int = 30) -> list[dict]:
         start = day_start(time.time()) - (days - 1) * DAY
-        out = [{"day": start + i * DAY, "by_material": {}} for i in range(days)]
+        out: list[dict[str, Any]] = [{"day": start + i * DAY, "by_material": {}} for i in range(days)]
         for r in self.store.usage(start, limit=100000):
             if r["kind"] not in ("loop", "partial", "manual"):
                 continue
@@ -305,13 +306,13 @@ class Inventory:
                     used[d] += r["grams"]
                     if sp and sp.per_kg is not None:
                         cost[d] += r["grams"] / 1000 * sp.per_kg
-        known = [s for s in spools if s.remaining_g is not None]
+        known = [(s, s.remaining_g) for s in spools if s.remaining_g is not None]
         return {
             "spools": len(spools),
-            "on_hand_g": round(sum(max(0.0, s.remaining_g) for s in known), 1),
+            "on_hand_g": round(sum(max(0.0, g) for _, g in known), 1),
             "unknown_remaining": len(spools) - len(known),
             "value": round(
-                sum(s.per_kg * max(0.0, s.remaining_g) / 1000 for s in known if s.per_kg is not None), 2
+                sum(s.per_kg * max(0.0, g) / 1000 for s, g in known if s.per_kg is not None), 2
             ),
             "low": [s.id for s in spools if s.status(low) in ("low", "empty")],
             "used_g": {str(k): round(v, 1) for k, v in used.items()},
@@ -411,7 +412,7 @@ def available(
     vals = [by_id[i].remaining_g for i in ids if i in by_id]
     if not vals or any(v is None for v in vals):
         return None, ids
-    return sum(max(0.0, v) for v in vals), ids
+    return sum(max(0.0, v) for v in vals if v is not None), ids
 
 
 def requirements(
@@ -470,7 +471,7 @@ def prices_for(
             for s in spools.values()
             if not s.archived and s.material == p["material"].upper() and s.color == p["color"]
         ]
-        if same and all(s.per_kg is not None for s in same) and len({round(s.per_kg, 6) for s in same}) == 1:
+        if same and all(s.per_kg is not None for s in same) and len({round(s.per_kg, 6) for s in same if s.per_kg is not None}) == 1:
             out[sid] = {
                 "spool": None,
                 "name": f"any of {len(same)} matching spools",

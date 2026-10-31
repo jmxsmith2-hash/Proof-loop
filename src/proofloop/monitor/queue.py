@@ -26,6 +26,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from proofloop.core import schema
 from proofloop.monitor.journal import CANCELLED_ERROR
 from proofloop.monitor.send import BUSY, match_trays
 from proofloop.monitor.tracking import job_key
@@ -108,16 +109,16 @@ class Queue:
 
     def _load(self) -> list[dict[str, Any]]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            doc, _ = schema.upgrade("queue", json.loads(self.path.read_text(encoding="utf-8")), self.path.name,
+                                    newer_ok=True)  # a newer file is read, never written over
         except (OSError, ValueError):
             return []
-        return data if isinstance(data, list) else []
+        runs = doc.get("runs") if isinstance(doc, dict) else None
+        return runs if isinstance(runs, list) else []
 
     def _save(self, runs: list[dict[str, Any]]) -> None:
-        self.folder.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(runs, indent=2), encoding="utf-8")
-        tmp.replace(self.path)
+        schema.check_write("queue", self.path)
+        schema.write_json(self.path, schema.stamp("queue", {"runs": runs}))
 
     def runs(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -139,6 +140,7 @@ class Queue:
         run = {"id": rid, "plate": plate_name, "parts": plan["parts"], "created": time.time(),
                "settings": {k: v for k, v in settings.items() if k != "loops"}, "jobs": jobs}
         with self._lock:
+            schema.check_write("queue", self.path)  # before the plate is written, not after
             self.folder.mkdir(parents=True, exist_ok=True)
             (self.folder / f"{rid}.gcode.3mf").write_bytes(plate)
             runs = self._load()

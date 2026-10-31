@@ -7,6 +7,7 @@ service runs without one and the window does everything.
 from __future__ import annotations
 
 import logging
+import subprocess
 import webbrowser
 
 from proofloop.app import autostart
@@ -36,8 +37,11 @@ def run(service, open_window) -> bool:
     """Show the tray icon until ProofLoop quits. False when there is no tray to show it in."""
     try:
         import pystray
-    except Exception:  # noqa: BLE001 - not installed, or no desktop to draw on
-        log.info("no system tray here; running without an icon")
+    except ImportError:
+        log.info("no system tray here (pystray isn't installed); running without an icon")
+        return False
+    except Exception:  # noqa: BLE001 - pystray's backends fail in their own ways when there is no desktop
+        log.info("no system tray here; running without an icon", exc_info=True)
         return False
 
     def open_(icon=None, item=None):
@@ -62,7 +66,7 @@ def run(service, open_window) -> bool:
     def toggle_autostart(icon, item):
         try:
             autostart.disable() if autostart.enabled() else autostart.enable()
-        except Exception:  # noqa: BLE001
+        except (OSError, subprocess.SubprocessError, KeyError):  # KeyError: no APPDATA
             log.exception("autostart")
         icon.update_menu()
 
@@ -82,7 +86,7 @@ def run(service, open_window) -> bool:
     )
     try:
         icon = pystray.Icon("ProofLoop", icon_image(), service.summary(), menu)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - the icon is optional and its backend fails in its own ways: run without it
         log.exception("tray icon")
         return False
 

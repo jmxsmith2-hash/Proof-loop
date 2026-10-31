@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "proofloop"
-version = "0.4.0"
+version = "0.5.0"
 description = "Check designs, make FarmLoop loop files and watch your Bambu Lab printers, in one app on your own computer"
 readme = "README.md"
 license = "AGPL-3.0-or-later"
@@ -13,9 +13,21 @@ requires-python = ">=3.11"
 authors = [{ name = "ProofLoop contributors" }]
 keywords = ["3d-printing", "bambu-lab", "p2s", "farmloop", "print-farm", "auto-eject", "cad", "g-code"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Environment :: Web Environment",
+    "Intended Audience :: Manufacturing",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Printing",
+    "Topic :: Scientific/Engineering",
 ]
 dependencies = [
     "pydantic>=2.5",
@@ -34,6 +46,13 @@ dependencies = [
     "qrcode>=7.4",                                                         # pairing a phone
     "pystray>=0.19; sys_platform == 'win32' or sys_platform == 'darwin'",  # the icon next to the clock
 ]
+
+[project.urls]
+Homepage = "https://github.com/jmxsmith2-hash/Proof-loop"
+Source = "https://github.com/jmxsmith2-hash/Proof-loop"
+Issues = "https://github.com/jmxsmith2-hash/Proof-loop/issues"
+Changelog = "https://github.com/jmxsmith2-hash/Proof-loop/blob/main/CHANGELOG.md"
+Documentation = "https://github.com/jmxsmith2-hash/Proof-loop/tree/main/docs"
 
 [project.optional-dependencies]
 step = ["cascadio>=0.0.13"]  # read STEP files directly (otherwise export STL/3MF/OBJ from your CAD tool)
@@ -58,8 +77,12 @@ proofloop = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The browser tests run on their own (`pytest -m browser`): Playwright keeps an event loop running
+# for the whole session, which the asyncio code in the other tests can't share.
+addopts = '-m "not browser"'
 markers = [
     "e2e: the CAD examples end to end (slower)",
+    "browser: the window in a real browser (Playwright's Chromium); only with -m browser",
 ]
 
 [tool.ruff]
@@ -78,17 +101,3 @@ python_version = "3.11"
 plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
 warn_unused_ignores = true
-
-# Not type-checked yet: older numeric code (mostly values that may be missing). Take a module off this
-# list once `mypy src` is clean for it; everything else is checked in CI.
-[[tool.mypy.overrides]]
-module = [
-    "proofloop.check.cad.checks", "proofloop.check.cad.detail", "proofloop.check.cad.ergonomics",
-    "proofloop.check.cad.manufacture", "proofloop.check.cad.threemf", "proofloop.check.evaluate",
-    "proofloop.check.gcode.checks", "proofloop.check.gcode.parse", "proofloop.check.learn",
-    "proofloop.check.sensors", "proofloop.loopfiles.importer", "proofloop.loopfiles.threemf",
-    "proofloop.monitor.costing", "proofloop.monitor.filament", "proofloop.monitor.store",
-    "proofloop.monitor.tracking", "proofloop.personas.design", "proofloop.personas.generate",
-    "proofloop.personas.traits",
-]
-ignore_errors = true

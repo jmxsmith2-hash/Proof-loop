@@ -156,8 +156,7 @@ def import_profile(raw: SlicedFile, farmloop: SlicedFile, name: str | None = Non
             (i for i in range(sweep_start + 1, len(end)) if SENTINEL.match(_code(end[i]))), len(end)
         )
 
-    waits = [(i, COOLDOWN_WAIT.match(_code(ln))) for i, ln in enumerate(end)]
-    waits = [(i, m) for i, m in waits if m]
+    waits = [(i, m) for i, ln in enumerate(end) if (m := COOLDOWN_WAIT.match(_code(ln)))]
     cooldown_repeat = len(waits)
     if cooldown_repeat:
         found.append(

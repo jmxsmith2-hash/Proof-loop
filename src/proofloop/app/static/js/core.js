@@ -23,7 +23,7 @@ async function saveBlob(resp, fallback) { const name = resp.headers.get('X-Proof
 // ---------- tabs ----------
 // The sections belong to two tabs of the ProofLoop window: Loop files and Printers. On their own
 // (a phone, proofloop printers serve) both groups are shown.
-const PARTS = {loopfiles: ['make', 'check', 'costs', 'calibrate', 'profiles'], printers: ['overview', 'monitor', 'filament', 'orders']};
+const PARTS = {loopfiles: ['make', 'check', 'costs', 'calibrate', 'profiles'], printers: ['overview', 'monitor', 'filament', 'orders', 'maintenance']};
 const partOf = (tab) => Object.keys(PARTS).find(p => PARTS[p].includes(tab));
 let PART = null;  // inside the window: the tab chosen there
 const lastIn = {};
@@ -33,6 +33,7 @@ function setPart(part, tab) {
   show(tab && partOf(tab) === part ? tab : (lastIn[part] || PARTS[part][0]));
 }
 function show(tab) {
+  if (WATCH_ONLY() && partOf(tab) === 'loopfiles') tab = 'overview';  // nothing to make or check from a watch-only phone
   if (PART && partOf(tab) !== PART) {  // a link to the other tab: the window switches to it
     window.parent.postMessage({proofloop: 'show', part: partOf(tab), tab}, location.origin);
     return;
@@ -46,6 +47,7 @@ function show(tab) {
   if (tab === 'filament') loadFil();
   if (tab === 'overview') refreshOverview();
   if (tab === 'orders') refreshOrders();
+  if (tab === 'maintenance') refreshMaintenance();
 }
 $$('nav button').forEach(b => b.onclick = () => show(b.dataset.tab));
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) { e.preventDefault(); show(g.dataset.goto); } });
@@ -57,10 +59,38 @@ function dropZone(zone, input, onFile) {
   input.addEventListener('change', () => { if (input.files[0]) onFile(input.files[0]); input.value = ''; });
 }
 
+// ---------- a watch-only phone ----------
+// The server refuses every change from a watch-only phone (STATE.role === 'watch', see app/phone.py). This only
+// hides what would be refused, so the page doesn't offer it. It hides every button and field in the page except
+// the ones listed here (reading, filtering, looking at a picture): a control added later is hidden until it is
+// listed, or carries a data-watch attribute.
+const WATCH_ONLY = () => !!STATE && STATE.role === 'watch';
+const WATCH_KEEP = [
+  '[data-watch]', '[data-goto]', '[data-ordergo]', '[data-x]',
+  '[data-act="snap"]', '[data-act="diff"]', '[data-act="outpic"]', '[data-sa="history"]', '[data-sa="label"]', '[data-sa="again"]',
+  'select[data-link]', 'select[data-pick]', '#sumHours', '#ordersAll', '#filSearch', '#filMat', '#filSort', '#filArchived', '#usageDays', '#shopCopy',
+];
+const WATCH_HIDE = ['[data-part="loopfiles"]', '#sumSchedule'];  // what is only controls, so no label is left behind
+const WATCH_HIDE_CARDS = ['.card:has(form)', '.card:has(#failureWatch, #sendToggle, #restoreBtn)'];  // a rule of its own: a browser without :has() loses only this one
+const watchRules = () =>
+  WATCH_HIDE.map(c => 'body.watch-only ' + c).join(',') + '{display:none !important}' +
+  'body.watch-only main :is(button,input,select,textarea,form):not(' + WATCH_KEEP.join(',') + '){display:none !important}' +
+  WATCH_HIDE_CARDS.map(c => 'body.watch-only ' + c).join(',') + '{display:none !important}' +
+  'body.watch-only select[data-link],body.watch-only select[data-pick]{pointer-events:none}';
+function applyRole() {
+  const watch = WATCH_ONLY();
+  document.body.classList.toggle('watch-only', watch);
+  if (watch && !$('#watchOnlyStyle')) {
+    const st = document.createElement('style'); st.id = 'watchOnlyStyle'; st.textContent = watchRules();
+    document.head.appendChild(st);
+  }
+  $('#ver').textContent = 'v' + STATE.version + (watch ? ' · watch only' : '');
+}
+
 async function loadState() {
   STATE = await json('/api/state');
+  applyRole();
   COSTS = JSON.parse(JSON.stringify(STATE.costs)); bindCosts(); coolOptions(); filPrinters();
-  $('#ver').textContent = 'v' + STATE.version;
   $('#calBanner').classList.toggle('hidden', !!STATE.defaults.floor_calibrated);
   $('#modelSelect').innerHTML = Object.entries(STATE.printers).map(([id, n]) => `<option value="${esc(id)}" ${id === 'N7' ? 'selected' : ''}>${esc(n)}</option>`).join('');
   const opts = STATE.profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('');

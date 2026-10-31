@@ -13,10 +13,15 @@ import tempfile
 import time
 from pathlib import Path
 
+import yaml
+
 from proofloop import __version__
 from proofloop.app import autostart
 from proofloop.app.config import DEFAULT_PORT, Settings
+from proofloop.core.logging import get_logger
 from proofloop.core.paths import home
+
+log = get_logger(__name__)
 
 OK, WARN, BAD, INFO = "ok", "warning", "problem", "info"
 STEP_TITLE = {"mqtt": "logs in", "reports": "sends its status", "ftps": "takes files"}
@@ -80,7 +85,7 @@ def _check_checks(add, slice_test: bool) -> None:
 
     try:
         found = find_slicer()
-    except Exception as e:  # noqa: BLE001
+    except (OSError, RuntimeError) as e:
         found = None
         add(BAD, "The slicer couldn't be checked", str(e))
     if found is None:
@@ -101,7 +106,7 @@ def _check_checks(add, slice_test: bool) -> None:
             machine = lib.machine((pr.get("names") or [pr["name"]])[0], float(pr["nozzle"]))
             add(OK, f"Slicer presets for your printer: {machine}",
                 f"{lib.process(machine, 0.2)} · {lib.filament(machine, mat['name'])}")
-        except Exception as e:  # noqa: BLE001
+        except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as e:  # ConfigError is a ValueError
             add(BAD, "The slicer has no presets for your printer", str(e))
         if slice_test:
             _slice_test(add, load_settings(cfg))
@@ -124,7 +129,8 @@ def _slice_test(add, settings) -> None:
             add(OK, f"Slice test: {part.name} sliced in {time.time() - t0:.0f} s",
                 f"{r['slicer']['name']}, {r['layers']} layers, {r['grams']} g; "
                 + ("ready to print" if r["ready"] else f"{r['blocking']} problems found (expected for a test part)"))
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 - a diagnostic: whatever the slice hit is the answer
+            log.warning("slice test failed", exc_info=True)
             add(BAD, "Slice test failed", str(e)[-900:])
         finally:
             db.close()
@@ -187,7 +193,7 @@ def _loop_checks(add, shell, send_test: bool, printer_test: bool = False) -> Non
                 "check your phone" if sent else "check the URLs under Printers › Monitor")
     else:
         add(WARN, "No notifications set up",
-            "You won't hear about failures or stops when you're away. Add ntfy, Discord or a webhook in "
+            "You won't hear about failures or stops when you're away. Add ntfy, Discord, Telegram, email or a webhook in "
             "Printers › Monitor.")
 
 

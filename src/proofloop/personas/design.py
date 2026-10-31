@@ -88,14 +88,15 @@ def _anchor_from_group(group: list[dict[str, Any]], rng: random.Random) -> Trait
 def data_anchors(records: list[SourceRecord], limit: int, rng: random.Random) -> list[tuple[Traits, list[SourceRecord]]]:
     """Group records by their strongest traits; the biggest groups become anchors."""
     groups: dict[tuple, list[tuple[dict[str, Any], SourceRecord]]] = {}
+    band: dict[Any, str] = {1: "low", 2: "low", 3: "mid", 4: "high", 5: "high"}
     for record in records:
         traits = record_traits(record)
         if len([k for k in traits if k != "goal"]) < 1:
             continue
         key = (
             traits.get("device"),
-            {1: "low", 2: "low", 3: "mid", 4: "high", 5: "high"}.get(traits.get("tech_skill"), None),
-            {1: "low", 2: "low", 3: "mid", 4: "high", 5: "high"}.get(traits.get("patience"), None),
+            band.get(traits.get("tech_skill")),
+            band.get(traits.get("patience")),
             traits.get("eyesight") not in (None, "normal") or traits.get("motor") not in (None, "none"),
         )
         groups.setdefault(key, []).append((traits, record))

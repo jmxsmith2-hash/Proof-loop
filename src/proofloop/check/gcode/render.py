@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from proofloop.check.gcode.checks import GcodeContext
+from proofloop.check.gcode.context import GcodeContext
 
 SIZE = 520
 BG = (250, 250, 247)
@@ -56,7 +56,7 @@ def _draw_layer(ctx: GcodeContext, layer: int, view: _View, draw: ImageDraw.Imag
             col = _colour(t.features[t.feature[i]])
         draw.line([view.pt(t.x0[i], t.y0[i]), view.pt(t.x1[i], t.y1[i])], fill=col, width=width)
     if travels:
-        from proofloop.check.gcode.checks import travels_over_air, unretracted_travels
+        from proofloop.check.gcode.travel import travels_over_air, unretracted_travels
 
         for i in travels_over_air(ctx, unretracted_travels(ctx) & (t.layer == layer)):
             draw.line([view.pt(t.x0[i], t.y0[i]), view.pt(t.x1[i], t.y1[i])], fill=(220, 20, 20), width=2)
@@ -133,8 +133,7 @@ def render_all(ctx: GcodeContext, out_dir: Path) -> dict[str, str]:
     valid = np.flatnonzero(~np.isnan(ctx.layer_h))
     if not len(valid):
         return {}
-    if ctx.layer_loop is not None:
-        valid = valid[ctx.layer_loop[valid] == ctx.layer_loop[valid[0]]]   # a loop file: its first loop
+    valid = valid[ctx.layer_loop[valid] == ctx.layer_loop[valid[0]]]   # a loop file: its first loop
     images: dict[str, str] = {}
     first = int(valid[0])
     images["plate"] = plate(ctx, out_dir / "plate.png", first).name

@@ -25,7 +25,7 @@ from typing import Any
 
 import numpy as np
 
-from proofloop.check.cad.checks import CadFinding, _loc
+from proofloop.check.cad.context import CadFinding, _loc
 from proofloop.core.paths import home
 
 

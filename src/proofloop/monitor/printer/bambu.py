@@ -61,6 +61,9 @@ class BambuPrinter:
         self.state = PrinterState()
         self._listeners: list[Callable[[PrinterState], None]] = []
         self._lock = threading.Lock()
+        # One camera request at a time: the plate check, the failure watch, a timelapse and the camera view
+        # can all want a picture at once, and the A1/P1 camera may refuse a second connection.
+        self._camera = threading.Lock()
         self._client: Any = None
 
     def add_listener(self, fn: Callable[[PrinterState], None]) -> None:
@@ -143,12 +146,13 @@ class BambuPrinter:
             raise SendError("the file is on the printer, but ProofLoop couldn't tell it to start: not connected")
 
     def snapshot(self, timeout: float = 20.0) -> bytes:
-        if self.snapshot_url:
-            with urllib.request.urlopen(self.snapshot_url, timeout=timeout) as r:
-                return r.read()
-        if self.model_id in CHAMBER_IMAGE_MODELS:
-            return chamber_image_frame(self.host, self.access_code, timeout)
-        return rtsps_frame(self.host, self.access_code, timeout)
+        with self._camera:
+            if self.snapshot_url:
+                with urllib.request.urlopen(self.snapshot_url, timeout=timeout) as r:
+                    return r.read()
+            if self.model_id in CHAMBER_IMAGE_MODELS:
+                return chamber_image_frame(self.host, self.access_code, timeout)
+            return rtsps_frame(self.host, self.access_code, timeout)
 
 
 def chamber_image_frame(host: str, access_code: str, timeout: float = 15.0, port: int = 6000) -> bytes:

@@ -19,6 +19,7 @@ loop-end pause stays waiting when a spool can't cover the next loop.
 
 from __future__ import annotations
 
+import http.client
 import logging
 import threading
 import time
@@ -28,9 +29,13 @@ from functools import partial
 from proofloop.monitor.printer.ams import valid_tray
 from proofloop.monitor.printer.state import PrinterState
 from proofloop.monitor.store import Store
-from proofloop.monitor.vision import BedCheck, BedVerifier
+from proofloop.monitor.vision import BedCheck, BedVerifier, PrintLook, judge_look
 
 log = logging.getLogger(__name__)
+
+# What a camera frame (or comparing it) can fail with: sockets, TLS, ffmpeg and picture files (OSError,
+# which includes PIL's UnidentifiedImageError), HTTP, and a frame that isn't a usable picture.
+CAMERA_ERRORS = (OSError, http.client.HTTPException, RuntimeError, ValueError)
 
 PHASE = {
     1: "starting",
@@ -42,6 +47,16 @@ PHASE = {
 
 SAFETY_PAUSE = 6.0
 WATCH_AT = (0.5, 0.8)  # the failure watch looks at the plate halfway through a loop, and again at 80%  # routines.SAFETY_PAUSE_SIGNAL: the first-sweep safety pause comes next
+BAD_LOOKS = 2  # looks in a row that must find the print gone wrong before it is an alert
+
+
+def look_marks(every_pct: int) -> tuple[float, ...]:
+    """Where in a print the failure watch looks: halfway and at 80% (the plate must not be empty), and
+    with ``every_pct`` also every that many percent of the layers (the print must not have gone wrong)."""
+    marks = set(WATCH_AT)
+    if every_pct:
+        marks |= {k * every_pct / 100 for k in range(1, 100 // every_pct + 1) if k * every_pct < 100}
+    return tuple(sorted(marks))
 
 SENTINEL_TEXT = {
     1: "FarmBoard reset: print starting, door closing",
@@ -82,13 +97,24 @@ class PrinterWatch:
         filament=None,
         journal=None,
         failure_watch: Callable[[], str] | None = None,
+        look_every: Callable[[], int] | None = None,
+        timelapse=None,
     ):
         self.name = name
         # "off", "alert" or "pause": what to do when the plate still looks empty part-way through a print
         # (ProofLoop passes your setting; a watch made without one doesn't look)
         self.failure_watch = failure_watch or (lambda: "off")
+        # Percent of the layers between looks for a print gone wrong; a watch made without one only
+        # looks halfway and at 80%, for an empty plate
+        self.look_every = look_every or (lambda: 0)
         self._watched: set[float] = set()
         self._watch_empty = 0
+        self._good_look: PrintLook | None = None  # the last look at this print that was fine
+        self._failure_paused = False  # ProofLoop paused this print because it looked wrong
+        self._bad_looks = 0
+        self._wrong_told = False
+        # Timelapse (monitor/timelapse.py): an object with frame / end, or None
+        self.timelapse = timelapse
         self.link = link
         self.verifier = verifier
         self.store = store
@@ -153,6 +179,7 @@ class PrinterWatch:
 
             self._track_loop(s)
             self._look_for_failure(s)
+            self._timelapse_frame(s)
             self._call("on_ams", s)
             self._log("on_state", s)
 
@@ -226,9 +253,15 @@ class PrinterWatch:
         st = s.gcode_state
         if st in ("RUNNING", "PREPARE"):
             self.waiting_for_you = False
+            self._failure_paused = False  # someone pressed Resume
             self.status = f"printing {s.subtask_name}" if s.subtask_name else "printing"
         elif st == "PAUSE":
-            if self._safety_pause:
+            if self._failure_paused:
+                # ProofLoop paused this print because it looked wrong. Even on the last layer that is not
+                # the loop's own pause: a part dragged off the plate would look like an empty plate.
+                self.waiting_for_you = True
+                self.status = "paused: the print may have failed"
+            elif self._safety_pause:
                 self._safety_pause = False
                 self.waiting_for_you = True
                 self.status = "safety pause: check the push heights, then press Resume on the printer"
@@ -250,12 +283,14 @@ class PrinterWatch:
                     "the printer paused (not a loop-end pause); ProofLoop won't resume it",
                 )
         elif st == "FINISH" and prev:
+            self._timelapse_end("finished")
             if is_loop_job(s):
                 self._loop_printed(s)
             self._log("printed", s)
             self.status = "finished: checking the plate"
             self._start_check("finished")
         elif st == "FAILED" and prev:
+            self._timelapse_end("failed")
             self.status = "print failed or cancelled"
             self.event("error", "failed", "the print failed or was cancelled; check the plate")
             self._log("failed", s)
@@ -271,46 +306,102 @@ class PrinterWatch:
         self._printed, self._trays_loop, self._max_layer = False, [], 0
         self._safety_pause = False
         self._watched, self._watch_empty = set(), 0
+        self._good_look, self._bad_looks, self._wrong_told = None, 0, False
+        self._failure_paused = False
 
     # ---- the failure watch ---------------------------------------------------------------
     def _look_for_failure(self, s: PrinterState) -> None:
-        """Part-way through a print the plate must no longer look empty. If it still does at both
-        looks, the part has most likely come loose or the nozzle is clogged (printing into the air)."""
+        """Part-way through a print, look at the plate now and then. Two things are wrong: the plate still
+        looks empty at both of the first two looks (the part has most likely come loose or the nozzle is
+        clogged, printing into the air), or the picture has changed all over, raggedly, since the last good
+        look, twice in a row (spaghetti, or a part dragged loose)."""
         if self.failure_watch() == "off" or s.gcode_state != "RUNNING" or not s.layer_num:
             return
         total = self._call("loop_layers", s) or s.total_layers
         if not total or total < 10 or not self.verifier.references:
             return
-        for mark in WATCH_AT:
-            if s.layer_num >= mark * total and mark not in self._watched:
-                self._watched.add(mark)
-                self.run_async(partial(self._failure_check, s.layer_num, total))
-                return
+        due = [m for m in look_marks(self.look_every()) if s.layer_num >= m * total and m not in self._watched]
+        if due:
+            # One look now. Spaghetti marks passed together (after a restart) count as one; the empty-plate
+            # marks (50% and 80%) each need a picture of their own, so a second one waits for the next update.
+            empty = [m for m in due if m in WATCH_AT]
+            self._watched.update([m for m in due if m not in WATCH_AT] + empty[:1])
+            self.run_async(partial(self._failure_check, s.layer_num, total, empty[0] if empty else due[-1]))
 
-    def _failure_check(self, layer: int, total: int) -> None:
+    def _failure_check(self, layer: int, total: int, mark: float = 0.0) -> None:
         try:
             jpeg = self.link.snapshot()
-            check = self.verifier.check(jpeg, want_diff=False)
-        except Exception:  # no picture: never an alert on a guess
+        except CAMERA_ERRORS as e:  # no picture: never an alert on a guess
+            log.debug("%s: failure check without a picture: %s", self.name, e)
             return
+        check = printed = None
+        try:
+            check = self.verifier.check(jpeg, want_diff=False) if mark in WATCH_AT else None
+        except CAMERA_ERRORS as e:
+            log.debug("%s: empty-plate look skipped: %s", self.name, e)
+        try:  # a picture the spaghetti look can't use doesn't cost the empty-plate look its answer
+            printed = self.verifier.look(jpeg) if self.look_every() else None
+        except CAMERA_ERRORS as e:
+            log.debug("%s: spaghetti look skipped: %s", self.name, e)
         with self.lock:
-            if not check.clear:  # something is on the plate, as there should be
-                self._watch_empty = 0
-                return
-            self._watch_empty += 1
-            if self._watch_empty < len(WATCH_AT) or self.link.state.gcode_state != "RUNNING":
-                return
-            message = (f"printing layer {layer} of {total}, but the plate still looks empty: the part may have "
-                       "come loose, or the nozzle may be clogged")
-            if self.failure_watch() == "pause" and self.link.pause():
-                message += ". ProofLoop paused the printer"
-                self.waiting_for_you = True
-                self.status = "paused: the plate looks empty part-way through the print"
-            self.event("error", "failure_watch", message + ".", check.as_dict(), image=jpeg)
+            if check is not None:
+                self._empty_look(check, layer, total, jpeg)
+            if printed is not None:
+                self._wrong_look(printed, layer, total, jpeg)
+
+    def _empty_look(self, check: BedCheck, layer: int, total: int, jpeg: bytes) -> None:
+        if not check.clear:  # something is on the plate, as there should be
+            self._watch_empty = 0
+            return
+        self._watch_empty += 1
+        if self._watch_empty < len(WATCH_AT) or self.link.state.gcode_state != "RUNNING":
+            return
+        message = (f"printing layer {layer} of {total}, but the plate still looks empty: the part may have "
+                   "come loose, or the nozzle may be clogged")
+        self._alert(message, check.as_dict(), jpeg)
+
+    def _wrong_look(self, printed: PrintLook, layer: int, total: int, jpeg: bytes) -> None:
+        tangle = judge_look(printed, self._good_look)
+        if tangle.state == "unclear":  # a lamp, a bumped camera or a torn frame: neither good nor bad
+            return
+        if tangle.state == "ok":
+            self._good_look, self._bad_looks = printed, 0
+            return
+        self._bad_looks += 1  # the last good look stays what the next looks are compared with
+        if self._bad_looks < BAD_LOOKS or self._wrong_told or self.link.state.gcode_state != "RUNNING":
+            return
+        self._wrong_told = True  # once for each print
+        message = f"the print looks like it has come loose or turned to spaghetti at layer {layer} of {total}"
+        self._alert(message, tangle.as_dict(), jpeg)
+
+    def _alert(self, message: str, data: dict, jpeg: bytes) -> None:
+        if self.failure_watch() == "pause" and self.link.pause():
+            self._failure_paused = True  # never resumed by ProofLoop: only you can
+            message += ". ProofLoop paused the printer"
+            self.waiting_for_you = True
+            self.status = "paused: the print may have failed"
+        self.event("error", "failure_watch", message + ".", data, image=jpeg)
+
+    # ---- the timelapse ----------------------------------------------------------------------
+    def _timelapse_frame(self, s: PrinterState) -> None:
+        if self.timelapse is not None:
+            total = self._call("loop_layers", s) or s.total_layers
+            self._timelapse("frame", s, total, self.link.snapshot, self.run_async)
+
+    def _timelapse_end(self, outcome: str) -> None:
+        if self.timelapse is not None:
+            self._timelapse("end", outcome, self.link.snapshot, self.run_async)
+
+    def _timelapse(self, what: str, *args) -> None:
+        try:
+            getattr(self.timelapse, what)(*args)
+        except Exception:  # the timelapse must never stop the plate check
+            log.exception("%s: timelapse %s failed", self.name, what)
 
     def _loop_printed(self, s: PrinterState) -> None:
         if not self._printed and is_loop_job(s):
             self._printed = True
+            self._timelapse_end("finished")
             self._call("loop_done", s)
             self._log("printed", s)
 
@@ -374,7 +465,10 @@ class PrinterWatch:
                     jpeg = self.link.snapshot()
                     check = self.verifier.check(jpeg)
                     break
+                # Broad on purpose: whatever fails here must still reach _finish_check, which tells you
+                # the printer is waiting; an escaped error would leave it paused and silent.
                 except Exception as e:  # cameras drop frames; retry before giving up
+                    log.warning("%s: plate check attempt %d failed", self.name, attempt + 1, exc_info=True)
                     err = e
                     if attempt + 1 < self.attempts:
                         time.sleep(self.retry_s)
@@ -507,4 +601,5 @@ class PrinterWatch:
                 "pending_resume": self.pending_resume,
                 "timings": self.store.timings(self.name),
                 "bends": self.store.counter(self.name, "bends"),
+                "timelapses": self.timelapse.listing() if self.timelapse else [],
             }

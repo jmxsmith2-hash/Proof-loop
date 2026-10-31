@@ -36,15 +36,17 @@ def notes(text: str, version: str) -> str:
 
 
 def read() -> str | None:
-    """This checkout's changelog (none when ProofLoop wasn't installed from the repository)."""
+    """The changelog: the checkout's, else the copy inside the package (a pip, pipx or Windows-installer
+    install), else None."""
     from proofloop.app.autostart import repo_root
 
     root = repo_root()
-    path = (root / "CHANGELOG.md") if root else None
-    try:
-        return path.read_text(encoding="utf-8") if path else None
-    except OSError:
-        return None
+    for path in ([root / "CHANGELOG.md"] if root else []) + [Path(__file__).parents[1] / "CHANGELOG.md"]:
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+    return None
 
 
 def as_text(found: list[dict]) -> str:

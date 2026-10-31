@@ -68,7 +68,7 @@ class Service:
         mon = self.shell.monitor
         try:
             mon.notifier.send(mon.store.add_event(None, level, "proofloop", message), None, wait=wait)
-        except Exception:  # noqa: BLE001 - a failed notice must never stop the service
+        except Exception:  # noqa: BLE001 - a failed notice must never stop the service; logged with its traceback
             log.exception("could not send a notice")
 
     # ---- run ------------------------------------------------------------------------
@@ -125,7 +125,7 @@ class Service:
             for fn in list(self.on_beat):
                 try:
                     fn()
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001 - a broken callback must not stop the heartbeat thread
                     log.exception("beat callback")
             if self.thread and not self.thread.is_alive() and not self.stopped.is_set():
                 # The window's server died on its own: bring it back (the monitor kept running).
@@ -163,7 +163,7 @@ class Service:
         for fn in list(self.on_stop):
             try:
                 fn()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - one failing callback must not stop the others, or the stop itself
                 log.exception("stop callback")
         log.info("ProofLoop service stopped: %s", reason)
         self.done.set()

@@ -184,21 +184,20 @@ def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
             if not info.print_seconds and meta.get("prediction"):
                 info.print_seconds = _num(meta["prediction"])
             for o in p.findall("object"):
-                if o.get("identify_id"):
-                    info.object_names[o.get("identify_id")] = o.get("name", "")
+                oid = o.get("identify_id")
+                if oid:
+                    info.object_names[oid] = o.get("name", "")
             for f in p.findall("filament"):
-                if f.get("id", "").isdigit():
-                    idx_by_slot[f.get("id")] = int(f.get("id")) - 1  # slice_info ids are 1-based
-                if f.get("type"):
-                    used.append(f.get("type"))
-                    info.filament_slots.append(
-                        (f.get("id", ""), f.get("type", ""), (f.get("color") or "").upper())
-                    )
+                fid = f.get("id", "")
+                ftype = f.get("type")
+                if fid.isdigit():
+                    idx_by_slot[fid] = int(fid) - 1  # slice_info ids are 1-based
+                if ftype:
+                    used.append(ftype)
+                    info.filament_slots.append((fid, ftype, (f.get("color") or "").upper()))
                 info.filament_grams += _num(f.get("used_g"))
-                if f.get("id"):
-                    info.slot_grams[f.get("id")] = info.slot_grams.get(f.get("id"), 0.0) + _num(
-                        f.get("used_g")
-                    )
+                if fid:
+                    info.slot_grams[fid] = info.slot_grams.get(fid, 0.0) + _num(f.get("used_g"))
     plate_json = entries.get(f"Metadata/plate_{plate}.json")
     if plate_json and not info.bed_type:
         try:
@@ -264,9 +263,9 @@ def _presets(config: dict, slots, idx_by_slot: dict[str, int]) -> dict[str, dict
                 ("filament_dev_ams_drying_temperature", "ams_drying_temp"),
                 ("filament_dev_ams_drying_time", "ams_drying_hours"),
             ):
-                vals = {x.strip() for x in config.get(key, "").split(",") if x.strip()}
-                if len(vals) == 1:
-                    p[name] = _num(vals.pop())
+                agreed = {x.strip() for x in config.get(key, "").split(",") if x.strip()}
+                if len(agreed) == 1:
+                    p[name] = _num(agreed.pop())
         out[sid] = p
     return out
 

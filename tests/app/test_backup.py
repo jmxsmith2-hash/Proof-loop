@@ -88,11 +88,11 @@ def test_a_backup_that_could_write_anywhere_else_is_refused(tmp_path):
     assert not (tmp_path.parent / "outside.txt").exists()
 
 
-def test_a_phone_can_download_a_backup_but_not_restore_one(tmp_path):
+def test_a_phone_can_neither_download_a_backup_nor_restore_one(tmp_path):
     app, _ = setup(tmp_path)
     phone = TestClient(create_app(app, allow_send=False))
-    backup = phone.get("/api/backup")
-    assert backup.status_code == 200
+    assert phone.get("/api/backup").status_code == 403  # it holds the printers' access codes
+    backup = TestClient(create_app(app)).get("/api/backup")
     assert phone.post("/api/restore", files={"file": ("b.zip", backup.content)}).status_code == 403
     assert not phone.get("/api/state").json()["can_send"]
 
@@ -104,3 +104,16 @@ def test_the_copy_of_results_is_a_working_database(tmp_path):
     con = sqlite3.connect(tmp_path / "copy.db")
     assert con.execute("SELECT v FROM kept").fetchall() == [("a design check",)]
     con.close()
+
+
+def test_a_restore_over_files_from_a_newer_proofloop_changes_nothing(tmp_path):
+    app, _ = setup(tmp_path)
+    c = TestClient(create_app(app))
+    backup = c.get("/api/backup").content
+    newer = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
+    newer["schema_version"] = 99  # a newer ProofLoop has run in this folder since
+    (tmp_path / "settings.json").write_text(json.dumps(newer), encoding="utf-8")
+    r = c.post("/api/restore", files={"file": ("b.zip", backup)})
+    assert r.status_code == 422 and "newer ProofLoop" in r.json()["detail"]
+    assert list(app.watches) == ["p2s"]  # still watched
+    assert json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))["schema_version"] == 99

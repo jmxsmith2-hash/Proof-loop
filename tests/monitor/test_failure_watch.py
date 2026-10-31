@@ -73,3 +73,24 @@ def test_each_loop_is_watched_afresh():
     for layer in range(1, 101):
         print_to(w, link, layer)
     assert len(alerts(w)) == 2
+
+
+def test_after_a_restart_past_both_looks_each_still_gets_its_own_picture():
+    w, link = watching([True, True])  # ProofLoop started again at layer 85: both marks are behind it
+    print_to(w, link, 85)
+    assert not alerts(w)  # one picture can't be both looks
+    print_to(w, link, 86)
+    assert len(alerts(w)) == 1
+
+
+def test_a_pause_proofloop_made_for_a_failure_is_never_resumed_even_on_the_last_layer():
+    w, link = watching([True, True, True, True], mode="pause")
+    for layer in range(2, 100):
+        print_to(w, link, layer)
+    assert link.paused == 1
+    link.state.layer_num, link.state.gcode_state = 100, "PAUSE"  # the pause lands on the loop's last layer
+    w.on_state(link.state)
+    assert link.resumed == 0 and w.waiting_for_you and "may have failed" in w.status
+    link.state.gcode_state = "RUNNING"  # you pressed Resume: the next loop-end pause is the loop's own again
+    w.on_state(link.state)
+    assert not w._failure_paused

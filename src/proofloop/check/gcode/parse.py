@@ -203,20 +203,20 @@ def parse_stream(stream: IO[str], source: str = "") -> GcodeTrace:
         elif cmd == "G92":
             moved = False
             for p in parts[1:]:
-                val = _num(p[1:])
-                if val is None:
+                num = _num(p[1:])
+                if num is None:
                     continue
                 key = p[0]
                 if key == "E":
-                    e = val
+                    e = num
                 elif key in "XYZ":
                     moved = True
                     if key == "X":
-                        x = val
+                        x = num
                     elif key == "Y":
-                        y = val
+                        y = num
                     else:
-                        z = val
+                        z = num
             if moved:
                 reset_ev.append((len(xs), x, y, z))
         elif cmd == "M82":
@@ -228,28 +228,28 @@ def parse_stream(stream: IO[str], source: str = "") -> GcodeTrace:
         elif cmd == "G91":
             abs_xyz = False
         elif cmd in ("M104", "M109"):
-            val = _param(parts, "S")
-            if val is None:
-                val = _param(parts, "R")
-            if val is not None and _param(parts, "T") in (None, 0.0):
-                nozzle_ev.append((len(xs), val, cmd == "M109"))
+            temp = _param(parts, "S")
+            if temp is None:
+                temp = _param(parts, "R")
+            if temp is not None and _param(parts, "T") in (None, 0.0):
+                nozzle_ev.append((len(xs), temp, cmd == "M109"))
         elif cmd in ("M140", "M190"):
-            val = _param(parts, "S")
-            if val is None:
-                val = _param(parts, "R")
-            if val is not None:
-                bed_ev.append((len(xs), val))
+            temp = _param(parts, "S")
+            if temp is None:
+                temp = _param(parts, "R")
+            if temp is not None:
+                bed_ev.append((len(xs), temp))
         elif cmd == "M106":
             if _param(parts, "P") in (None, 0.0, 1.0):          # Bambu: P1 part fan, P2 aux, P3 chamber
-                val = _param(parts, "S")
-                fan_ev.append((len(xs), min(1.0, (val if val is not None else 255.0) / 255.0)))
+                speed = _param(parts, "S")
+                fan_ev.append((len(xs), min(1.0, (speed if speed is not None else 255.0) / 255.0)))
         elif cmd == "M107":
             if _param(parts, "P") in (None, 0.0, 1.0):
                 fan_ev.append((len(xs), 0.0))
         elif cmd == "M204":
-            val = _param(parts, "S") or _param(parts, "P")
-            if val:
-                accel_ev.append((len(xs), val))
+            accel = _param(parts, "S") or _param(parts, "P")
+            if accel:
+                accel_ev.append((len(xs), accel))
         elif cmd == "M400" and len(parts) > 1 and parts[1] == "U1":
             marks["loop_pauses"] += 1              # Bambu's pause: a loop file waiting for its plate check
         elif cmd == "M400" and len(parts) > 1 and parts[1].startswith("S"):
@@ -257,8 +257,8 @@ def parse_stream(stream: IO[str], source: str = "") -> GcodeTrace:
             dwell += wait
             dwell_ev.append((len(xs), wait))
         elif cmd == "G4":
-            p, sec = _param(parts, "P"), _param(parts, "S")
-            wait = (p or 0.0) / 1000.0 + (sec or 0.0)
+            ms, sec = _param(parts, "P"), _param(parts, "S")
+            wait = (ms or 0.0) / 1000.0 + (sec or 0.0)
             dwell += wait
             dwell_ev.append((len(xs), wait))
         elif cmd == "G28":

@@ -101,9 +101,14 @@ angle your printer really manages. The next check applies them and tells you whi
 
 `examples/cad/` has a phone stand with planted flaws (v1) and its fixed v2, a tool handle with a
 too-small USB-C opening, and a plain block as a control (`python examples/cad/make_examples.py`
-regenerates them). The default printer is the Bambu Lab P2S; H2D, H2S, X1, Prusa MK4, Ender 3 and
-generic FDM and resin profiles are included, and slicer material names ("PLA Basic", "PETG HF") are
-understood. Add your own printer by putting a `printers.yaml` in `~/.proofloop/config` (start from
+regenerates them). The default printer is the Bambu Lab P2S. Profiles are included for the X1
+Carbon, X1 and X1E (`bambu_x1`), P1S, P1P, A1, A1 mini, A2L, H2D (and H2D Pro), H2S, H2C and X2D,
+plus the Prusa MK4, Ender 3 and generic FDM and resin printers; a G-code file is matched to its
+profile by the `printer_model` the slicer wrote into it. Slicer material names ("PLA Basic", "PETG
+HF") are understood. These profiles serve the design and G-code checks (and the printer monitor
+recognises the same Bambu models); **loop files are still made for the P2S only**, because the
+FarmLoop kit moves are published only for the P2S. Where each printer value comes from is in
+[sources](sources.md#printer-profiles-design-and-g-code-checks). Add your own printer by putting a `printers.yaml` in `~/.proofloop/config` (start from
 `src/proofloop/data/printers.yaml`). From Blender, export STL or 3MF; from Fusion, *File > 3D Print*
 or *Export > 3MF*.
 
@@ -134,6 +139,16 @@ proofloop check prepare part.stl --fix                   # apply the setting fix
   fan, first-layer height, temperatures, Arachne walls ...), slices again and checks again, up to
   twice, and shows what changed and how many problems were left.
 * In the window, tick "Slice it with Bambu Studio too" on the CAD card.
+* **Fix and slice again** in the window: when a print-ready result lists slicer settings that would
+  fix findings, the job has a *Fix and slice again* button. It starts a new job on the same file
+  with the same options and the fixes applied, linked to the first. Its result lists each setting it
+  changed (preset, name, old value, new value, why) and the problems that stop it printing before and
+  after each round, and the report shows the same. You can download the fixed sliced plate
+  (`.gcode.3mf`) and the process / filament presets ProofLoop wrote (File › Import › Import Configs in
+  Bambu Studio or OrcaSlicer), or send the fixed plate on with *Make it now* or *Fine-tune in Loop
+  files*. To do it at upload, tick "Apply the slicer fixes and slice again". A job that was only
+  G-code lists the fixes but can't slice again: that needs the 3D model, so upload the STL, 3MF or
+  STEP. With no slicer installed the button gives way to a note to install Bambu Studio.
 
 The command line follows Bambu Studio's own option definitions (`--slice`, `--export-3mf`,
 `--load-settings`, `--load-filaments`); the tests use a stand-in with the same command line, and CI
