@@ -36,6 +36,9 @@ opens the right tab and outlines the exact form. Open it again any time from *Mo
   your saved settings, checked and ready to download) and **Fine-tune in Loop files**, which opens
   it in *Make a loop file* to set push heights per part, cooldown, costs and batches. A plate in
   *Make a loop file* has **Full print check**, which sends it back to *Check*.
+- **Files with several plates.** A file exported with *Export all sliced file* is split into one
+  file per plate: *Make a loop file* lets you pick a plate or add them all to a batch, and *Check*
+  checks every plate.
 - **One list of printers.** The printers you add under *Printers › Monitor* are the ones designs
   are checked for, listed first.
 - **Learning from your printers.** *Check* reads the print history and learns, per printer and

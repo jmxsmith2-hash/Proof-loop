@@ -41,3 +41,28 @@ def test_a_file_that_is_not_a_plate_is_refused_with_a_message(window, tmp_path):
     page.locator("#makeFile").set_input_files(junk)
     expect(page.locator("#makeError")).to_be_visible()
     expect(page.locator("#makeResult")).to_be_hidden()
+
+
+def test_a_file_with_two_sliced_plates_offers_both_and_adds_them_to_the_batch(window, tmp_path):
+    from tests.plates import two_plates
+
+    page = window.tab("loopfiles", "make")
+    plate = (EXAMPLES / "bracket_plate.gcode.3mf").read_bytes()
+    pair = tmp_path / "pair.gcode.3mf"
+    pair.write_bytes(two_plates(plate, plate))
+    page.locator("#makeFile").set_input_files(pair)
+
+    expect(page.locator("#plateTitle")).to_have_text("pair-plate1.gcode.3mf")
+    pick = page.locator("#platePick")
+    expect(pick).to_contain_text("2 sliced plates in this file")
+    pick.get_by_role("button", name="Plate 2").click()
+    expect(page.locator("#plateTitle")).to_have_text("pair-plate2.gcode.3mf")
+    expect(pick.get_by_role("button", name="Plate 2")).to_have_attribute("aria-pressed", "true")
+    pick.get_by_role("button", name="+ Add all 2 to the batch").click()
+    rows = page.locator("#batchRows .batch-row")
+    expect(rows).to_have_count(2)
+    expect(rows.nth(0)).to_contain_text("pair-plate1.gcode.3mf")
+    expect(rows.nth(1)).to_contain_text("pair-plate2.gcode.3mf")
+    expect(page.locator("#batchOut")).to_contain_text("of printing plus cooldowns")
+    expect(page.locator("#batchOut .ic.danger")).to_have_count(0)  # the two plates go together in one file
+    expect(pick.get_by_role("button", name="✓ All in the batch")).to_be_disabled()

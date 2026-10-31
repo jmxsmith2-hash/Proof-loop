@@ -273,9 +273,28 @@ class Checks:
                 self.jobs.pop(job.id, None)
             shutil.rmtree(folder, ignore_errors=True)
             raise
+        plates = self._sliced_plates(path) if kind == "gcode" and not options.get("plate") else []
+        if len(plates) > 1:  # 'Export all sliced file': one check per plate, each on that plate alone
+            data = path.read_bytes()
+            with self.lock:
+                self.jobs.pop(job.id, None)
+            shutil.rmtree(folder, ignore_errors=True)
+            from proofloop.loopfiles import threemf
+
+            jobs = [self.submit_bytes(threemf.plate_name(name, n), threemf.only_plate(data, n), options)
+                    for n in plates]
+            return jobs[0]
         work = self._cad_work if kind == "cad" else self._gcode_work
         self.checks.submit(self._run, job, lambda j: work(j, path, options))
         return job
+
+    @staticmethod
+    def _sliced_plates(path: Path) -> list[int]:
+        if not path.name.lower().endswith(".3mf"):
+            return []
+        from proofloop.loopfiles import threemf
+
+        return threemf.sliced_plates(path.read_bytes())
 
     def _cad_work(self, job: Job, path: Path, opt: dict[str, str]) -> None:
         from proofloop.check.cad.pipeline import check_design, design_spec

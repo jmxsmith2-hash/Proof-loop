@@ -215,3 +215,26 @@ def farmloop_version(gcode: str, stage: int = 2, natural_cooldown: bool = True) 
 
 def farmloop_3mf(boxes=SMALL, stage=2, natural_cooldown=True) -> bytes:
     return make_3mf(farmloop_version(plate_gcode(boxes), stage, natural_cooldown), boxes)
+
+
+def two_plates(a: bytes, b: bytes) -> bytes:
+    """What 'Export all sliced file' writes for two plates: file ``a`` is plate 1, file ``b`` plate 2."""
+    import re
+    import xml.etree.ElementTree as ET
+
+    za, zb = zipfile.ZipFile(io.BytesIO(a)), zipfile.ZipFile(io.BytesIO(b))
+    config = ET.fromstring(za.read("Metadata/slice_info.config"))
+    second = next(ET.fromstring(zb.read("Metadata/slice_info.config")).iter("plate"))
+    for m in second.findall("metadata"):
+        if m.get("key") == "index":
+            m.set("value", "2")
+    config.append(second)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        for n in za.namelist():
+            z.writestr(n, ET.tostring(config) if n == "Metadata/slice_info.config" else za.read(n))
+        for n in zb.namelist():
+            if re.match(r"^Metadata/plate_1[._]", n):
+                z.writestr(n.replace("plate_1", "plate_2", 1), zb.read(n))
+        z.writestr("Metadata/top_2.png", b"\x89PNG")
+    return buf.getvalue()

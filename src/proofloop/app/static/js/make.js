@@ -7,7 +7,10 @@ dropZone($('#makeDrop'), $('#makeFile'), async (file) => {
   $('#makeDrop strong').textContent = 'Reading ' + file.name + '…';
   try {
     const fd = new FormData(); fd.append('file', file);
-    showOpened(await json('/api/plates', {method: 'POST', body: fd}));
+    const res = await json('/api/plates', {method: 'POST', body: fd});
+    PLATES = res.plates || [];
+    showOpened(res);
+    if (PLATES.length) toast(`${file.name} has ${PLATES.length} sliced plates: pick one above, or add them all to the batch`);
   } catch (e) { makeError(e); }
   $('#makeDrop strong').textContent = 'Drop another plate, or click to choose';
 });
@@ -16,8 +19,39 @@ function showOpened(res) {
   if (res.no_profile) { showNoProfile(res); $('#makeResult').classList.add('hidden'); return; }
   const kept = PLATE && BATCH.find(x => x.token === PLATE.token);
   if (kept) kept.part_push = {...partPush};  // the plate leaving the screen keeps its own heights
-  partPush = {}; PLATE = res; renderPlate(res);
+  partPush = {}; PLATE = res; renderPlate(res); renderPlatePick();
 }
+
+// ---------- a file with several sliced plates ('Export all sliced file') ----------
+// The server keeps each plate as its own file; this picks which one is on screen.
+let PLATES = [];
+function renderPlatePick() {
+  const on = !!PLATE && PLATES.some(p => p.token === PLATE.token);
+  $('#platePick').classList.toggle('hidden', !on);
+  if (!on) { $('#platePick').innerHTML = ''; return; }
+  const all = PLATES.every(p => BATCH.some(b => b.token === p.token));
+  $('#platePick').innerHTML = `<span class="hint">${PLATES.length} sliced plates in this file:</span>` +
+    PLATES.map(p => `<button type="button" class="btn${p.token === PLATE.token ? ' primary' : ''}" data-plate="${esc(p.token)}" aria-pressed="${p.token === PLATE.token}">Plate ${p.plate}</button>`).join('') +
+    `<button type="button" class="linkbtn" id="addAllPlates" ${all ? 'disabled' : ''}>${all ? '✓ All in the batch' : `+ Add all ${PLATES.length} to the batch`}</button>`;
+}
+$('#platePick').addEventListener('click', async (e) => {
+  const t = e.target.closest('button');
+  if (!t || t.disabled) return;
+  try {
+    if (t.dataset.plate) { if (t.dataset.plate !== PLATE.token) showOpened(await send(`/api/plates/${encodeURIComponent(t.dataset.plate)}/open`, {})); return; }
+    if (t.id !== 'addAllPlates') return;
+    let added = 0;
+    for (const p of PLATES) {
+      if (BATCH.some(b => b.token === p.token)) continue;
+      const a = p.token === PLATE.token ? PLATE : await send(`/api/plates/${encodeURIComponent(p.token)}/open`, {});
+      if (a.no_profile) throw new Error(`No hardware profile for the ${a.printer} yet`);
+      BATCH.push({token: p.token, file: a.file, parts: a.parts.length, count: +$('#sLoops').value || 1, part_push: p.token === PLATE.token ? {...partPush} : {}});
+      added++;
+    }
+    $('#addToBatch').textContent = '✓ In the batch';
+    renderBatch(); toast(`Added ${added} plate${added === 1 ? '' : 's'} to the batch`);
+  } catch (err) { toast(err.message); }
+});
 
 // ---------- inside the ProofLoop window ----------
 // The window shows this page as its Loop files and Printers tabs, and hands plates to and from Check.
@@ -367,6 +401,7 @@ function renderBatch() {
     <div class="row"><button class="linkbtn" data-up="${i}" ${i ? '' : 'disabled'}>↑</button><button class="linkbtn" data-rm="${i}">remove</button></div></div>`).join('');
   $('#batchDownload').classList.toggle('hidden', !BATCH.length);
   if (BATCH.length) previewBatch(); else $('#batchOut').innerHTML = '';
+  renderPlatePick();
 }
 $('#batchRows').addEventListener('click', (e) => {
   const t = e.target;

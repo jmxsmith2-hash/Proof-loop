@@ -42,6 +42,9 @@ input[type=number]{max-width:140px}
 .anim-bar select{width:auto}
 .batch-row{display:grid;grid-template-columns:minmax(0,1fr) 120px auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
 .batch-row:first-child{border-top:0}
+.plate-pick{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 12px}
+.plate-pick button.btn{padding:4px 11px;font-size:13px}
+.plate-pick .hint{margin:0 4px 0 0}
 .stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .stepper button{border:0;background:var(--soft);color:var(--ink);width:30px;height:30px;font:inherit;cursor:pointer}
 .stepper span{min-width:34px;text-align:center;font-variant-numeric:tabular-nums}
@@ -235,6 +238,7 @@ input[type=number]{max-width:140px}
     <div class="grid">
       <div class="card">
         <div class="spread"><h2 id="plateTitle">Plate</h2><span id="plateChip"></span></div>
+        <div id="platePick" class="plate-pick hidden" role="group" aria-label="Sliced plates in this file"></div>
         <dl class="kv" id="plateFacts"></dl>
         <button class="btn hidden" id="toCheck" type="button" title="Layer previews, flow, temperatures and the slicer settings that fix each problem">Full print check</button>
         <h3>Top view <span class="muted" style="font-weight:400">· front of the printer at the bottom</span></h3>

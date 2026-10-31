@@ -20,6 +20,10 @@ from pathlib import Path
 from proofloop.core import printers
 
 _PLATE_RE = re.compile(r"^Metadata/plate_(\d+)\.gcode$")
+# One plate's own entries: G-code and checksum, pictures and plate settings (plate_2.png, top_2.png, ...)
+_PLATE_FILE_RE = re.compile(
+    r"^Metadata/(?:plate|plate_no_light|top|pick)_(\d+)(?:_small)?\.(?:gcode|gcode\.md5|png|json)$"
+)
 _HEADER_KV = re.compile(r"^;\s*([^:=]+?)\s*:\s*(.*?)\s*$")
 _CONFIG_KV = re.compile(r"^;\s*([a-z0-9_]+)\s*=\s*(.*?)\s*$")
 
@@ -135,6 +139,44 @@ def loads(raw: bytes, name: str = "", plate: int | None = None) -> SlicedFile:
     gcode = entries[f"Metadata/plate_{plate}.gcode"].decode("utf-8", errors="replace")
     info = read_info(gcode, entries, plate)
     return SlicedFile(gcode=gcode, plate=plate, info=info, name=name, _entries=entries, _order=order)
+
+
+def sliced_plates(raw: bytes) -> list[int]:
+    """The plates sliced in a file: one for 'Export plate sliced file', several for 'Export all sliced file'."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            return sorted(int(m.group(1)) for n in z.namelist() if (m := _PLATE_RE.match(n)))
+    except (zipfile.BadZipFile, ValueError, OSError, EOFError):
+        return []
+
+
+def only_plate(raw: bytes, plate: int) -> bytes:
+    """The file with just one of its sliced plates, the way Bambu Studio exports a single plate.
+
+    The plate keeps its number (the printer is told to start ``Metadata/plate_<n>.gcode``); the other
+    plates' G-code, checksums, pictures and plate settings are left out, everything else is kept as it is.
+    """
+    def other(name: str) -> bool:
+        m = _PLATE_FILE_RE.match(name)
+        return m is not None and int(m.group(1)) != plate
+
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        if f"Metadata/plate_{plate}.gcode" not in z.namelist():
+            raise PlateFileError(f"plate {plate} is not sliced in this file")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as out:
+            for info in z.infolist():
+                if not other(info.filename):
+                    out.writestr(info.filename, z.read(info))
+    return buf.getvalue()
+
+
+def plate_name(name: str, plate: int) -> str:
+    """``widget.gcode.3mf`` -> ``widget-plate2.gcode.3mf``: each plate of a multi-plate file gets its own name."""
+    for ext in (".gcode.3mf", ".3mf"):
+        if name.lower().endswith(ext):
+            return f"{name[: -len(ext)]}-plate{plate}{name[-len(ext):]}"
+    return f"{name}-plate{plate}"
 
 
 def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:

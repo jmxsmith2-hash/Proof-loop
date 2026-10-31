@@ -36,6 +36,10 @@ and the window shows them under *More › What's new*.
 - **More printers for the checks.** Design and G-code checks have their own profiles for the P1S,
   P1P, A1, A1 mini, A2L, H2C and X2D, each value with its source in `docs/sources.md`. Loop files stay
   P2S-only.
+- **Files with several sliced plates.** Drop a file made with *Export all sliced file* and every
+  plate is used, not just the first: *Make a loop file* shows a button per plate and *Add all to the
+  batch*, and *Check* checks each plate as its own job. Each plate is kept as its own file
+  (`name-plate2.gcode.3mf`), so sending it starts that plate.
 - **A Windows installer** (no Python needed) and a package ready for PyPI, built by the release.
 
 ### Changed

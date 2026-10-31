@@ -55,8 +55,21 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
     @api.post("/api/plates", dependencies=guard)
     async def upload_plate(file: UploadFile = File(...)):
         data = await read_upload(file)
-        sf = threemf.loads(data, name=Path(file.filename or "plate.gcode.3mf").name)
-        return open_plate(app.uploads.put(data, sf.name), sf)
+        name = Path(file.filename or "plate.gcode.3mf").name
+        sf = threemf.loads(data, name=name)
+        numbers = threemf.sliced_plates(data)
+        if len(numbers) < 2:
+            return open_plate(app.uploads.put(data, sf.name), sf)
+        # 'Export all sliced file': each plate is kept as its own file, so everything after this
+        # (settings, batch, queue, sending) works on one plate at a time.
+        plates: list[dict] = []
+        for n in numbers:
+            own = threemf.plate_name(name, n)
+            plates.append({"plate": n, "file": own, "token": app.uploads.put(threemf.only_plate(data, n), own)})
+        token = plates[0]["token"]
+        out = open_plate(token, app.uploads.get(token))
+        out["plates"] = plates
+        return out
 
     @api.post("/api/plates/{token}/open", dependencies=guard)
     def open_uploaded(token: str):
