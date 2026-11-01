@@ -6,6 +6,12 @@ and the window shows them under *More › What's new*.
 ## 0.5.0 · 2026-10-31
 
 ### New
+- **Slice here.** Drop an STL, OBJ or STEP (or a Bambu Studio project) on *Make a loop file* and
+  slice it without opening the slicer: pick the printer, and the nozzle, nozzle flow and the
+  filament in its AMS come from it, with your own saved presets listed first. Ask for copies, or
+  **Fill the plate** with as many as fit; parts are kept out of the strip the pusher comes down in.
+  A project keeps its own settings and only takes the printer's nozzle flow, so a plate sliced for
+  the wrong nozzle is fixed by dropping its project. Needs Bambu Studio (or OrcaSlicer) installed.
 - **Spaghetti watch.** The failure watch also notices a print that has turned to spaghetti or come
   loose: it compares the camera picture every 10% of the layers with the last good look and alerts
   (or pauses, if you chose that) after two bad looks in a row. It's a heuristic, and can be set to

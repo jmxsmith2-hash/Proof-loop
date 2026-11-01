@@ -104,6 +104,9 @@ input[type=number]{max-width:140px}
 .run{padding:12px 0;border-top:1px solid var(--line)}
 .run:first-child{border-top:0}
 .thumb{width:100%;border-radius:8px;border:1px solid var(--line);background:var(--soft);aspect-ratio:4/3;object-fit:cover}
+.slice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px;align-items:start}
+.slice-grid select,.slice-grid input[type=number]{width:100%}
+#sliceCard.project .sl-mesh{display:none}
 .cam-live{position:relative;margin:10px 0 4px;border-radius:var(--radius);overflow:hidden;background:#0b0d10;aspect-ratio:16/9;box-shadow:0 1px 0 var(--line)}
 .cam-live img{display:block;width:100%;height:100%;object-fit:contain;cursor:zoom-in}
 .cam-live img:not([src]){visibility:hidden}
@@ -244,10 +247,29 @@ input[type=number]{max-width:140px}
   <h1>Make a loop file</h1>
   <p class="sub">Drop a plate you sliced. ProofLoop adds the cooldown, FarmLoop hardware steps and a sweep that reaches every part, then gives you a file to send to the printer.</p>
   <div id="calBanner" class="banner warn hidden"><span class="ic warning">!</span><div><b>Your sweep floor isn't calibrated yet.</b> ProofLoop starts at Z2 (FarmLoop's push rule reaches Z2 on a 12 mm part). Run the <a href="#" data-goto="calibrate">sweep-floor test</a> once to measure your pusher, so short parts get swept without touching the plate.</div></div>
-  <label class="drop" id="makeDrop"><input type="file" accept=".3mf" hidden id="makeFile">
-    <strong>Drop a sliced plate here, or click to choose</strong>
-    <small>.gcode.3mf from Bambu Studio or OrcaSlicer: <em>File › Export › Export plate sliced file</em>. Use the plain slice, not a FarmLoop file.</small>
+  <label class="drop" id="makeDrop"><input type="file" accept=".3mf,.stl,.obj,.step,.stp" hidden id="makeFile">
+    <strong>Drop a model or a sliced plate here, or click to choose</strong>
+    <small>A model (.stl, .obj, .step) or a Bambu Studio project (.3mf) is sliced here, with Bambu Studio's own engine. A sliced plate (.gcode.3mf, the plain slice, not a FarmLoop file) opens as it is.</small>
   </label>
+
+  <div id="sliceCard" class="card hidden" style="margin-top:16px">
+    <div class="spread"><h2 id="sliceTitle">Slice</h2><span class="chip" id="sliceKind"></span></div>
+    <p class="hint" id="sliceHint"></p>
+    <div id="sliceErr" class="banner bad hidden"></div>
+    <div class="slice-grid">
+      <label class="field"><span>For printer</span><select id="slPrinter"></select><div class="hint" id="slPrinterHint"></div></label>
+      <label class="field"><span>Nozzle</span><select id="slMachine"></select></label>
+      <label class="field"><span>Nozzle flow</span><select id="slFlow"><option value="Standard">Standard</option><option value="High Flow">High Flow</option></select></label>
+      <label class="field sl-mesh"><span>Process</span><select id="slProcess"></select></label>
+      <label class="field sl-mesh"><span>Filament</span><select id="slFilament"></select></label>
+      <label class="field sl-mesh"><span>Build plate</span><select id="slPlate"><option>Textured PEI Plate</option><option>Cool Plate</option><option>Engineering Plate</option><option>High Temp Plate</option><option>Supertack Plate</option></select></label>
+      <label class="field sl-mesh"><span>Supports</span><select id="slSupport"><option value="">As the process has them</option><option value="on">On</option><option value="off">Off</option></select></label>
+      <label class="field sl-mesh"><span>Copies</span><input type="number" id="slCopies" min="1" max="100" value="1"></label>
+      <label class="toggle sl-mesh"><input type="checkbox" id="slFill"><span><b>Fill the plate</b><span class="hint">As many copies as fit, keeping the strip the pusher comes down in clear.</span></span></label>
+      <label class="toggle sl-mesh"><input type="checkbox" id="slOrient"><span><b>Turn it to its best side</b><span class="hint">Let the slicer pick the side it prints best on.</span></span></label>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="sliceBtn" type="button">Slice</button><span class="hint" id="sliceWait" aria-live="polite"></span></div>
+  </div>
 
   <div id="makeError" class="banner bad hidden" style="margin-top:16px"></div>
 

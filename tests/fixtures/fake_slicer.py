@@ -1,7 +1,8 @@
 """A stand-in for Bambu Studio's command line, for tests (the real slicer can't run in CI).
 
-It takes the same options (--slice --export-3mf --load-settings --load-filaments --arrange --orient
---outputdir model) and writes a .gcode.3mf in Bambu Studio's layout. Like a real slicer it cuts the
+It takes the same options (--slice --export-3mf --load-settings --load-filaments --clone-objects --arrange
+--orient --outputdir model) and writes a .gcode.3mf in Bambu Studio's layout. A project .3mf is sliced with
+the settings saved in it (its parts are taken to be a 10 mm cube), and copies past PER_PLATE go on more plates. Like a real slicer it cuts the
 model into layers, leaves out anything narrower than the nozzle, and adds support under overhangs
 only when the process preset has enable_support on. Lines are straight passes across each layer.
 """
@@ -25,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from proofloop.check.cad.detail import _disc, section_mask  # noqa: E402
 
 FIL_AREA = math.pi * (1.75 / 2) ** 2
+PER_PLATE = 25  # copies that fit on one plate
 
 
 def first(v, default=None):
@@ -39,19 +41,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--export-3mf", dest="out")
     ap.add_argument("--load-settings", dest="settings")
     ap.add_argument("--load-filaments", dest="filaments")
+    ap.add_argument("--clone-objects", dest="clones", type=int, default=1)
     ap.add_argument("--arrange")
     ap.add_argument("--orient")
     ap.add_argument("--outputdir")
     ap.add_argument("model")
     a = ap.parse_args(argv)
-    machine, process = (json.loads(Path(p).read_text(encoding="utf-8")) for p in a.settings.split(";"))
-    filament = json.loads(Path(a.filaments.split(";")[0]).read_text(encoding="utf-8"))
+    if a.settings:
+        machine, process = (json.loads(Path(p).read_text(encoding="utf-8")) for p in a.settings.split(";"))
+        filament = json.loads(Path(a.filaments.split(";")[0]).read_text(encoding="utf-8"))
+        mesh = trimesh.load(a.model, force="mesh")
+    else:  # a project: everything comes from the settings saved in it
+        machine = process = filament = json.loads(zipfile.ZipFile(a.model).read("Metadata/project_settings.config"))
+        mesh = trimesh.creation.box((10, 10, 10))
     layer = float(first(process.get("layer_height"), 0.2))
     nozzle = float(first(machine.get("nozzle_diameter"), 0.4))
     support = str(first(process.get("enable_support"), "0")) == "1"
     noz_c = int(float(first(filament.get("nozzle_temperature"), 220)))
     bed_c = int(float(first(filament.get("hot_plate_temp"), 55)))
-    mesh = trimesh.load(a.model, force="mesh")
     mesh.apply_translation([128 - mesh.bounds[:, 0].mean(), 128 - mesh.bounds[:, 1].mean(), -mesh.bounds[0, 2]])
     pitch = nozzle / 4
     (x0, y0, _), (x1, y1, top) = mesh.bounds
@@ -103,9 +110,11 @@ def main(argv: list[str] | None = None) -> int:
             f"; nozzle_diameter = {nozzle}", f"; filament_type = {first(filament.get('filament_type'), 'PLA')}",
             f"; filament_settings_id = \"{filament.get('name', '')}\"", f"; layer_height = {layer}",
             f"; enable_support = {int(support)}", "; filament_diameter = 1.75",
+            f"; nozzle_volume_type = {first(machine.get('nozzle_volume_type'), 'Standard')}",
+            f"; bed_exclude_area = {','.join(machine.get('bed_exclude_area') or [])}",
             f"; printable_area = {','.join(machine.get('printable_area') or ['0x0', '256x0', '256x256', '0x256'])}",
             f"; printable_height = {first(machine.get('printable_height'), 256)}",
-            "; curr_bed_type = Textured PEI Plate", "; CONFIG_BLOCK_END", "",
+            f"; curr_bed_type = {first(process.get('curr_bed_type'), 'Cool Plate')}","; CONFIG_BLOCK_END", "",
             "; EXECUTABLE_BLOCK_START",
             # like the real slicer: the printer preset's own start G-code, with temperatures filled in
             *str(machine.get("machine_start_gcode") or "G28").replace("[bed_temperature_initial_layer_single]",
@@ -116,16 +125,23 @@ def main(argv: list[str] | None = None) -> int:
     end = str(machine.get("machine_end_gcode") or "M400\nM140 S0\nM104 S0\nM106 S0").splitlines()
     tail = ["; MACHINE_END_GCODE_START", *end, "; EXECUTABLE_BLOCK_END", ""]
     data = "\n".join(head + body + tail).encode()
-    info = ('<?xml version="1.0" encoding="UTF-8"?><config><plate><metadata key="index" value="1"/>'
-            '<metadata key="prediction" value="1980"/>'  # like the real command line: no printer_model_id
-            f'<metadata key="weight" value="{grams:.2f}"/><object identify_id="1" name="{Path(a.model).stem}" />'
-            f'<filament id="1" type="{first(filament.get("filament_type"), "PLA")}" color="#FFFFFF" used_m="1" '
-            f'used_g="{grams:.2f}"/></plate></config>')
+    copies = [PER_PLATE] * (a.clones // PER_PLATE) + [a.clones % PER_PLATE]
+    copies = [c for c in copies if c] or [1]
+    stem = Path(a.model).stem
+    plates = "".join(
+        f'<plate><metadata key="index" value="{n}"/>'
+        '<metadata key="prediction" value="1980"/>'  # like the real command line: no printer_model_id
+        f'<metadata key="weight" value="{grams:.2f}"/>'
+        + "".join(f'<object identify_id="{k + 1}" name="{stem}" />' for k in range(count))
+        + f'<filament id="1" type="{first(filament.get("filament_type"), "PLA")}" color="#FFFFFF" used_m="1" '
+        f'used_g="{grams:.2f}"/></plate>' for n, count in enumerate(copies, 1))
+    info = f'<?xml version="1.0" encoding="UTF-8"?><config>{plates}</config>'
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("3D/3dmodel.model", "<model/>")
-        zf.writestr("Metadata/plate_1.gcode", data)
-        zf.writestr("Metadata/plate_1.gcode.md5", hashlib.md5(data).hexdigest().upper())
+        for n in range(1, len(copies) + 1):
+            zf.writestr(f"Metadata/plate_{n}.gcode", data)
+            zf.writestr(f"Metadata/plate_{n}.gcode.md5", hashlib.md5(data).hexdigest().upper())
         zf.writestr("Metadata/slice_info.config", info)
     # Like Bambu Studio and Orca: the export name goes inside --outputdir (an absolute path fails, -13)
     if Path(a.out).is_absolute():

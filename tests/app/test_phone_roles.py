@@ -42,6 +42,7 @@ REVIEWED_GETS = {
     "/api/monitor/{name}/live",  # the camera as video; opens the camera while watched, changes nothing
     "/api/monitor/{name}/timelapses", "/api/monitor/{name}/timelapses/{id}",
     "/api/camera-settings",
+    "/api/slice/options",  # the slicer presets and your printers' nozzles and AMS trays; changes nothing
     "/api/home-assistant",  # a phone gets "on or off" and the status, not the broker or its password
     "/api/maintenance", "/api/maintenance/log",
     "/api/orders/customers",

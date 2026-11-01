@@ -8,11 +8,85 @@ dropZone($('#makeDrop'), $('#makeFile'), async (file) => {
   try {
     const fd = new FormData(); fd.append('file', file);
     const res = await json('/api/plates', {method: 'POST', body: fd});
+    if (res.model) { await openSlice(res.model); } else {
+      $('#sliceCard').classList.add('hidden');
+      PLATES = res.plates || [];
+      showOpened(res);
+      if (PLATES.length) toast(`${file.name} has ${PLATES.length} sliced plates: pick one above, or add them all to the batch`);
+    }
+  } catch (e) { makeError(e); }
+  $('#makeDrop strong').textContent = 'Drop another model or plate, or click to choose';
+});
+
+// ---------- slicing a model here ----------
+// A model or a Bambu Studio project dropped above: pick the printer and presets, then it is sliced by the
+// slicer on this computer and opens below like any sliced plate.
+let MODEL = null, SLICE = null;
+async function openSlice(model) {
+  MODEL = model;
+  const card = $('#sliceCard');
+  card.classList.remove('hidden'); card.classList.toggle('project', model.kind === 'project');
+  $('#sliceTitle').textContent = 'Slice ' + model.name;
+  $('#sliceKind').textContent = model.kind === 'project' ? 'Bambu Studio project' : 'model';
+  $('#sliceHint').textContent = model.kind === 'project'
+    ? `Sliced with the project's own settings: painting, supports and modifiers stay as you made them. Only the nozzle flow follows the printer${model.nozzle_flow ? ` (the project is set for ${model.nozzle_flow})` : ''}.`
+    : 'Pick the printer it is for: the nozzle and flow come from it, and the filament from what is in its AMS.';
+  $('#sliceErr').classList.add('hidden'); $('#makeResult').classList.add('hidden'); $('#sliceWait').textContent = '';
+  if (!SLICE) {
+    $('#sliceWait').textContent = 'Reading the slicer presets…';
+    SLICE = await json('/api/slice/options');
+    $('#sliceWait').textContent = '';
+  }
+  if (!SLICE.slicer) { sliceError(SLICE.error); $('#sliceBtn').disabled = true; return; }
+  $('#sliceBtn').disabled = false;
+  $('#slPrinter').innerHTML = SLICE.printers.map(p => `<option value="${esc(p.name)}">${esc(p.name)}${p.nozzle ? ` · ${p.nozzle} mm ${esc(p.nozzle_flow || '')}` : ''}</option>`).join('')
+    + `<option value="">Any ${esc(SLICE.printer_model.replace('Bambu Lab ', ''))}</option>`;
+  $('#slMachine').innerHTML = SLICE.machines.map(m => `<option value="${esc(m.name)}">${esc(m.nozzle)} mm${m.mine ? ` · ${esc(m.name)}` : ''}</option>`).join('');
+  slicePrinterChanged();
+}
+function sliceError(msg) { $('#sliceErr').innerHTML = `<span class="ic danger">✖</span><div>${esc(msg)}</div>`; $('#sliceErr').classList.remove('hidden'); }
+function slicePrinter() { return SLICE.printers.find(p => p.name === $('#slPrinter').value); }
+function slicePrinterChanged() {
+  const p = slicePrinter();
+  if (p && p.machine) $('#slMachine').value = p.machine;
+  else if (!$('#slMachine').value) $('#slMachine').value = (SLICE.machines.find(m => m.nozzle === '0.4') || SLICE.machines[0] || {}).name;
+  if (p && p.nozzle_flow) $('#slFlow').value = p.nozzle_flow;
+  $('#slPrinterHint').textContent = !p ? 'Pick the nozzle and flow yourself.' : !p.online ? `${p.name} isn't connected: its nozzle and AMS are as last seen.` : p.nozzle ? `${p.nozzle} mm ${p.nozzle_flow || ''} nozzle fitted.` : '';
+  sliceMachineChanged();
+}
+function sliceMachineChanged() {
+  const name = $('#slMachine').value, m = SLICE.machines.find(x => x.name === name) || {};
+  for (const opt of $('#slFlow').options) opt.disabled = !(m.flows || ['Standard']).includes(opt.value);
+  if ($('#slFlow').selectedOptions[0]?.disabled) $('#slFlow').value = 'Standard';
+  const procs = SLICE.processes[name] || [];
+  $('#slProcess').innerHTML = procs.map(n => `<option ${n === m.default_process ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  const fils = SLICE.filaments[name] || [], p = slicePrinter();
+  const trays = (p && p.machine === name ? p.trays : []).filter(t => t.preset);
+  const opt = (n, label) => `<option value="${esc(n)}">${esc(label || n)}</option>`;
+  $('#slFilament').innerHTML =
+    (trays.length ? `<optgroup label="In ${esc(p.name)}'s AMS">${trays.map(t => opt(t.preset, `${t.label} · ${t.sub_brand || t.type} ${t.color || ''} → ${t.preset}`)).join('')}</optgroup>` : '')
+    + (fils.some(f => f.mine) ? `<optgroup label="Yours">${fils.filter(f => f.mine).map(f => opt(f.name)).join('')}</optgroup>` : '')
+    + `<optgroup label="All for this nozzle">${fils.filter(f => !f.mine).map(f => opt(f.name)).join('')}</optgroup>`;
+  if (!trays.length && m.default_filament) $('#slFilament').value = m.default_filament;
+}
+$('#slPrinter').addEventListener('change', slicePrinterChanged);
+$('#slMachine').addEventListener('change', sliceMachineChanged);
+$('#slFill').addEventListener('change', () => { $('#slCopies').disabled = $('#slFill').checked; });
+$('#sliceBtn').addEventListener('click', async () => {
+  if (!MODEL) return;
+  const b = $('#sliceBtn'), sup = $('#slSupport').value;
+  const body = {model_id: SLICE.model_id, machine: $('#slMachine').value, nozzle_flow: $('#slFlow').value};
+  if (MODEL.kind === 'mesh') Object.assign(body, {process: $('#slProcess').value, filament: $('#slFilament').value, plate: $('#slPlate').value,
+    copies: +$('#slCopies').value || 1, fill: $('#slFill').checked, orient: $('#slOrient').checked, support: sup ? sup === 'on' : null});
+  b.disabled = true; $('#sliceErr').classList.add('hidden'); $('#sliceWait').textContent = 'Slicing with ' + SLICE.slicer + '…';
+  try {
+    const res = await send(`/api/models/${MODEL.token}/slice`, body);
+    $('#sliceWait').textContent = '✓ Sliced' + (res.slice_notes?.length ? ': ' + res.slice_notes.join('; ') : '') + '. Change anything and slice again, or carry on below.';
     PLATES = res.plates || [];
     showOpened(res);
-    if (PLATES.length) toast(`${file.name} has ${PLATES.length} sliced plates: pick one above, or add them all to the batch`);
-  } catch (e) { makeError(e); }
-  $('#makeDrop strong').textContent = 'Drop another plate, or click to choose';
+    $('#makeResult').scrollIntoView({behavior: 'smooth', block: 'start'});
+  } catch (e) { sliceError(e.message); $('#sliceWait').textContent = ''; }
+  b.disabled = false;
 });
 function makeError(e) { $('#makeError').innerHTML = `<span class="ic danger">✖</span><div>${esc(e.message)}</div>`; $('#makeError').classList.remove('hidden'); $('#makeResult').classList.add('hidden'); }
 function showOpened(res) {

@@ -115,11 +115,12 @@ def check(name: str, state, model_id: str, file_model_id: str, slots: list[tuple
     except ValueError:
         want = 0.0
     if fitted and want and abs(fitted - want) > 1e-3:
-        reasons.append(f"the file was sliced for a {want:g} mm nozzle, {name} has a {fitted:g} mm one")
+        reasons.append(f"the file was sliced for a {want:g} mm nozzle, {name} has a {fitted:g} mm one: "
+                       f"drop its project or model on Make a loop file to slice it for {name}")
     has_flow = getattr(state, "nozzle_flow", "")
     if has_flow and nozzle_flow and has_flow != nozzle_flow:
-        notes.append(f"sliced for a {nozzle_flow} nozzle, but {name} has a {has_flow} one: slice it again in "
-                     f"Bambu Studio with the nozzle flow set to {has_flow}")
+        notes.append(f"sliced for a {nozzle_flow} nozzle, but {name} has a {has_flow} one: drop its project or "
+                     f"model on Make a loop file to slice it for {name}")
     if not state.online:
         reasons.append(f"{name} isn't connected")
     elif not getattr(state, "reports", 1) and not state.gcode_state:

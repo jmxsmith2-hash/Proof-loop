@@ -27,6 +27,7 @@ from proofloop.app.routes import (
     plates,
     profiles,
     queue,
+    slicing,
     state,
     summary,
 )
@@ -34,6 +35,7 @@ from proofloop.app.routes import (
 MODULES = [
     state,
     plates,
+    slicing,
     queue,
     summary,
     orders,

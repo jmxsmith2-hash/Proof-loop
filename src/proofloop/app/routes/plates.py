@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -16,9 +18,10 @@ from proofloop.app.routes.common import (
     send_made,
 )
 from proofloop.core import printers
-from proofloop.loopfiles import threemf
+from proofloop.loopfiles import slicing, threemf
 from proofloop.loopfiles.api import pick_profile
 from proofloop.loopfiles.gcode.processor import analyze, changes
+from proofloop.loopfiles.gcode.sweep import SweepSettings
 from proofloop.monitor.service import App
 
 
@@ -52,10 +55,7 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             }
         return analysis_payload(token, {"profile_id": profile.id})
 
-    @api.post("/api/plates", dependencies=guard)
-    async def upload_plate(file: UploadFile = File(...)):
-        data = await read_upload(file)
-        name = Path(file.filename or "plate.gcode.3mf").name
+    def opened(data: bytes, name: str) -> dict:
         sf = threemf.loads(data, name=name)
         numbers = threemf.sliced_plates(data)
         if len(numbers) < 2:
@@ -69,6 +69,42 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         token = plates[0]["token"]
         out = open_plate(token, app.uploads.get(token))
         out["plates"] = plates
+        return out
+
+    @api.post("/api/plates", dependencies=guard)
+    async def upload_plate(file: UploadFile = File(...)):
+        """A sliced plate opens as it is; a model or a slicer project comes back as ``model``, to slice first."""
+        data = await read_upload(file)
+        name = Path(file.filename or "plate.gcode.3mf").name
+        kind = slicing.kind_of(name, data)
+        if kind in ("mesh", "project"):
+            return {"model": {"token": app.uploads.put(data, name), "name": name, "kind": kind,
+                              "nozzle_flow": slicing.project_flow(data) if kind == "project" else "",
+                              "size": len(data)}}
+        return opened(data, name)
+
+    @api.post("/api/models/{token}/slice", dependencies=guard)
+    def slice_model(token: str, body: dict):
+        """Slice a model or project dropped earlier with the slicer on this computer, then open the result."""
+        data, name = app.uploads.raw(token)
+        model_id = str(body.get("model_id") or printers.P2S)
+        try:
+            choice = slicing.Choice.from_dict(body)
+        except (TypeError, ValueError) as e:
+            raise HTTPException(422, str(e)) from e
+        profile = pick_profile(app.profiles, model_id, app.settings.defaults.profile_id)
+        if profile is not None and not choice.clear_behind_y:  # parts stay where the sweep can reach them
+            choice.clear_behind_y = profile.sweep.y_rear - SweepSettings().rear_clearance - 2
+        work = Path(tempfile.mkdtemp(prefix="slice-", dir=app.data_dir))
+        try:
+            sliced, out_name, notes = slicing.slice_upload(data, name, choice, work, model_id=model_id)
+        except slicing.SliceError as e:
+            raise HTTPException(422, str(e)) from e
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        out = opened(sliced, out_name)
+        out["slice_notes"] = notes
+        out["sliced_from"] = {"token": token, "name": name}
         return out
 
     @api.post("/api/plates/{token}/open", dependencies=guard)

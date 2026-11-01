@@ -111,11 +111,12 @@ def test_a_plate_sliced_for_another_nozzle_flow_is_flagged_before_sending(farm):
     assert (s.nozzle_flow, s.nozzle_diameter, s.as_dict()["nozzle"]["flow"]) == ("High Flow", 0.4, "High Flow")
     slots = [("1", "PLA", "#F2F2F2")]
     p, reasons = check("p2s", s, "N7", "N7", slots, [], nozzle="0.4", nozzle_flow="Standard")
-    assert not reasons and p.notes == ["sliced for a Standard nozzle, but p2s has a High Flow one: slice it again in "
-                                       "Bambu Studio with the nozzle flow set to High Flow"]
+    assert not reasons and p.notes == ["sliced for a Standard nozzle, but p2s has a High Flow one: drop its "
+                                       "project or model on Make a loop file to slice it for p2s"]
     assert check("p2s", s, "N7", "N7", slots, [], nozzle="0.4", nozzle_flow="High Flow")[0].notes == []
     _, reasons = check("p2s", s, "N7", "N7", slots, [], nozzle="0.6", nozzle_flow="High Flow")
-    assert reasons == ["the file was sliced for a 0.6 mm nozzle, p2s has a 0.4 mm one"]
+    assert reasons == ["the file was sliced for a 0.6 mm nozzle, p2s has a 0.4 mm one: drop its project or "
+                       "model on Make a loop file to slice it for p2s"]
     s.nozzle_type = "hardened_steel"  # older firmware: no flow in the code, so nothing to compare
     assert check("p2s", s, "N7", "N7", slots, [], nozzle="0.4", nozzle_flow="Standard")[0].notes == []
 

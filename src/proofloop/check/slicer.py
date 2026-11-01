@@ -37,6 +37,7 @@ class Slicer:
     kind: str                 # bambu | orca
     exe: Path
     profile_dirs: list[Path] = field(default_factory=list)   # folders holding BBL/{machine,process,filament}
+    user_dirs: list[Path] = field(default_factory=list)      # your own presets: {machine,process,filament}/*.json
 
     @property
     def label(self) -> str:
@@ -89,11 +90,26 @@ def profile_dirs_for(kind: str, exe: Path) -> list[Path]:
     return [d.resolve() for d in dirs if (d / "BBL").is_dir()]
 
 
+def user_dirs_for(kind: str) -> list[Path]:
+    """Where the slicer keeps the presets you saved yourself: one folder per account (``user/<id>``)
+    and ``user/default`` when signed out, each with ``machine``, ``process`` and ``filament`` in it."""
+    app = {"bambu": "BambuStudio", "orca": "OrcaSlicer"}[kind]
+    if sys.platform == "win32" and os.environ.get("APPDATA"):
+        base = Path(os.environ["APPDATA"]) / app / "user"
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support" / app / "user"
+    else:
+        base = Path.home() / ".config" / app / "user"
+    if not base.is_dir():
+        return []
+    return sorted(d for d in base.iterdir() if d.is_dir() and any((d / k).is_dir() for k in ("machine", "process", "filament")))
+
+
 def find_slicer(explicit: str | Path | None = None) -> Slicer | None:
     pairs = [("orca" if "orca" in str(explicit).lower() else "bambu", Path(explicit))] if explicit else _candidates()
     for kind, exe in pairs:
         if exe.is_file():
-            return Slicer(kind, exe, profile_dirs_for(kind, exe))
+            return Slicer(kind, exe, profile_dirs_for(kind, exe), user_dirs_for(kind))
     if explicit:
         raise ConfigError(f"no slicer at {explicit}")
     return None
@@ -104,9 +120,11 @@ def find_slicer(explicit: str | Path | None = None) -> Slicer | None:
 class PresetLibrary:
     """System presets of one vendor (BBL), found by name, flattened with their parents and templates."""
 
-    def __init__(self, dirs: list[Path], vendor: str = "BBL"):
+    def __init__(self, dirs: list[Path], vendor: str = "BBL", user_dirs: list[Path] | None = None):
         self.by_name: dict[str, dict[str, Any]] = {}
         self.kind_of: dict[str, str] = {}
+        self.user: set[str] = set()  # presets you saved yourself in the slicer
+        self._flat: dict[str, dict[str, Any]] = {}
         for d in reversed(dirs):                       # earlier folders win (the user's updated copy)
             root = Path(d) / vendor
             for kind in ("machine", "process", "filament"):
@@ -118,8 +136,22 @@ class PresetLibrary:
                     if isinstance(data, dict) and data.get("name"):
                         self.by_name[data["name"]] = data
                         self.kind_of[data["name"]] = kind
+        for d in user_dirs or []:
+            for kind in ("machine", "process", "filament"):
+                for f in sorted((Path(d) / kind).glob("*.json")):
+                    try:
+                        data = json.loads(f.read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        continue
+                    name = data.get("name") if isinstance(data, dict) else None
+                    if name and name not in self.by_name:  # never hides a system preset of the same name
+                        self.by_name[name] = {**data, "instantiation": "true"}
+                        self.kind_of[name] = kind
+                        self.user.add(name)
 
     def flat(self, name: str) -> dict[str, Any]:
+        if name in self._flat:
+            return dict(self._flat[name])
         if name not in self.by_name:
             raise ConfigError(f"the slicer has no preset called {name!r}")
         chain, seen, cur = [], set(), name
@@ -140,7 +172,16 @@ class PresetLibrary:
         merged.pop("inherits", None)
         merged["from"] = "User"
         merged["instantiation"] = "true"
-        return merged
+        self._flat[name] = merged
+        return dict(merged)
+
+    def system_base(self, name: str) -> str:
+        """The system preset one of yours is based on (itself for a system preset)."""
+        seen = set()
+        while name in self.user and name not in seen:
+            seen.add(name)
+            name = self.by_name[name].get("inherits") or name
+        return name
 
     def names(self, kind: str) -> list[str]:
         return [n for n, k in self.kind_of.items() if k == kind and self.by_name[n].get("instantiation") == "true"]
@@ -215,12 +256,15 @@ def write_presets(lib: PresetLibrary, folder: Path, machine: str, process: str, 
         data = lib.flat(name)
         for key, value in overrides.get(kind, {}).items():
             current = data.get(key)
-            data[key] = [str(value)] * len(current) if isinstance(current, list) else str(value)
+            if isinstance(value, list):  # a whole list (points of an area): taken as it is
+                data[key] = [str(v) for v in value]
+            else:
+                data[key] = [str(value)] * max(len(current), 1) if isinstance(current, list) else str(value)
         # Written the way Bambu Studio exports a user preset: "from": "User" plus "inherits" naming the
         # system preset. The CLI finds the system printer through "inherits" to check that the process
         # is compatible with it (without it: exit -17, process not compatible), and these ids name
         # them the way a project file does.
-        data["from"], data["inherits"] = "User", name
+        data["from"], data["inherits"] = "User", lib.system_base(name)
         if kind == "machine":
             data["printer_settings_id"] = name
         elif kind == "process":
@@ -244,18 +288,25 @@ def _slicer_reason(out_dir: Path) -> str:
     return str(data.get("error_string") or data.get("message") or "").strip()
 
 
-def slice_model(slicer: Slicer, model: Path, presets: Presets, out_dir: Path, *, arrange: bool = True,
-                orient: bool = False, timeout: int = 900) -> tuple[Path, str]:
-    """Run the slicer. Returns (the sliced .gcode.3mf, the slicer's log). Raises ConfigError on failure."""
+def slice_model(slicer: Slicer, model: Path, presets: Presets | None, out_dir: Path, *, arrange: bool = True,
+                orient: bool = False, copies: int = 1, timeout: int = 900) -> tuple[Path, str]:
+    """Run the slicer. Returns (the sliced .gcode.3mf, the slicer's log). Raises ConfigError on failure.
+
+    Without ``presets`` a project 3MF is sliced with its own settings. ``copies`` puts that many of
+    the model on the plate (``--clone-objects``), arranged by the slicer.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"{Path(model).name.split('.')[0]}.gcode.3mf"
     # --export-3mf takes a file name: the slicers put it inside --outputdir themselves (an absolute
     # path there becomes <outputdir>/<absolute path> and the export fails with exit -13).
-    cmd = [str(slicer.exe), "--slice", "0", "--export-3mf", out.name,
-           "--load-settings", f"{presets.files['machine']};{presets.files['process']}",
-           "--load-filaments", str(presets.files["filament"]),
-           "--arrange", "1" if arrange else "0", "--orient", "1" if orient else "0",
-           "--outputdir", str(out_dir), str(model)]
+    cmd = [str(slicer.exe), "--slice", "0", "--export-3mf", out.name]
+    if presets is not None:
+        cmd += ["--load-settings", f"{presets.files['machine']};{presets.files['process']}",
+                "--load-filaments", str(presets.files["filament"])]
+    if copies > 1:
+        cmd += ["--clone-objects", str(copies)]  # "--repetitions" only works when slicing one plate
+    cmd += ["--arrange", "1" if arrange else "0", "--orient", "1" if orient else "0",
+            "--outputdir", str(out_dir), str(model)]
     if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and shutil.which("xvfb-run") \
             and not str(slicer.exe).endswith(".py"):
         cmd = ["xvfb-run", "-a", *cmd]                 # the slicer's toolkit wants a display even headless
