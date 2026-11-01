@@ -107,9 +107,12 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
     def put_send(body: dict):
         if not allow_send:
             raise HTTPException(403, "this can only be changed in the ProofLoop window")
-        app.settings.send_to_printer = bool(body.get("on"))
+        if "on" in body:
+            app.settings.send_to_printer = bool(body.get("on"))
+        if "confirm" in body:
+            app.settings.send_confirm = bool(body.get("confirm"))
         app.save_settings()
-        return {"send_to_printer": app.settings.send_to_printer}
+        return {"send_to_printer": app.settings.send_to_printer, "send_confirm": app.settings.send_confirm}
 
     @api.post("/api/plates/{token}/changes", dependencies=guard)
     def plate_changes(token: str, body: dict):

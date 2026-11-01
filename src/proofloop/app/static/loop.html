@@ -310,10 +310,15 @@ input[type=number]{max-width:140px}
       </div>
       <div class="card" id="batchCard">
         <div class="spread"><h2>Batch</h2><button class="btn" id="addToBatch">+ Add this plate</button></div>
-        <p class="hint" id="batchHint">Mix plates in one file, for example 3× plate A then 2× plate B. Drop another plate after adding this one. Every plate must use the same filament slots, build plate and nozzle, because the printer maps filament once per file.</p>
+        <p class="hint" id="batchHint">Mix plates in one file, for example 3× plate A then 2× plate B. Drop another plate after adding this one. Plates may use different filaments, as long as a slot number means the same filament on every plate (it does for plates from one Bambu Studio project). Every plate must use the same build plate and nozzle.</p>
         <div id="batchRows"></div>
         <div id="batchOut"></div>
         <button class="btn primary hidden" id="batchDownload" style="width:100%;justify-content:center;margin-top:10px">Download batch file</button>
+        <div id="batchSend" class="hidden" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+          <div class="spread"><b>Or send the batch to a printer and start it</b><button type="button" class="linkbtn" id="batchRefresh">Check again</button></div>
+          <div id="batchTargets" class="send-targets" role="radiogroup" aria-label="Printer to send the batch to"></div>
+          <button type="button" class="btn primary" id="batchSendBtn" style="width:100%;justify-content:center" disabled>Send and start</button>
+        </div>
       </div>
       <div class="card">
         <button class="btn primary big" id="download" style="width:100%;justify-content:center">Download loop file</button>
@@ -324,6 +329,7 @@ input[type=number]{max-width:140px}
             <button type="button" class="btn" id="sendTurnOn">Turn on sending to printers</button></div>
           <div id="sendTargets" class="send-targets" role="radiogroup" aria-label="Printer to send to"></div>
           <button type="button" class="btn primary" id="sendBtn" style="width:100%;justify-content:center" disabled>Send and start</button>
+          <label class="inline hint" style="margin-top:6px"><input type="checkbox" id="sendAsk" checked> Ask before each send</label>
           <p class="hint">Only to a connected, idle printer of the model the plate was sliced for, with the right filament loaded, and only if the loop-file checks pass. You confirm each time.</p>
         </div>
       </div>

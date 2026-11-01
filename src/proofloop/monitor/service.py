@@ -345,7 +345,7 @@ class App:
                                         + (f" ({mapping})" if mapping else "")))
         return {"printer": name, "file": filename, "use_ams": p.use_ams, "ams_mapping": p.ams_mapping, "notes": p.notes}
 
-    def send_readiness(self, sf) -> list[dict]:
+    def send_readiness(self, sf, slots: list[tuple[str, str, str]] | None = None) -> list[dict]:
         """For each printer, whether this plate could go to it now, and which AMS tray feeds each slot.
 
         The loop-file checks run on the finished file when you press Send; everything else is here.
@@ -358,16 +358,17 @@ class App:
             w = self.watches.get(cfg.name)
             if w is None:
                 continue
+            need = sf.info.filament_slots if slots is None else slots
             p, reasons = check(cfg.name, w.link.state, cfg.model_id, sf.info.printer_model_id or "",
-                               sf.info.filament_slots, [], plate=sf.plate or 1, nozzle=sf.info.nozzle,
+                               need, [], plate=sf.plate or 1, nozzle=sf.info.nozzle,
                                nozzle_flow=sf.info.nozzle_flow)
-            slots = []
-            for sid, ftype, colour in sf.info.filament_slots:
+            rows = []
+            for sid, ftype, colour in need:
                 i = int(sid) - 1 if str(sid).isdigit() else -1
                 tray = p.ams_mapping[i] if p.use_ams and 0 <= i < len(p.ams_mapping) else -1
-                slots.append({"slot": sid, "type": ftype, "color": colour,
-                              "tray": tray if tray >= 0 else None, "tray_label": label(tray) if tray >= 0 else None})
-            out.append({"printer": cfg.name, "ready": not reasons, "reasons": reasons, "slots": slots,
+                rows.append({"slot": sid, "type": ftype, "color": colour,
+                             "tray": tray if tray >= 0 else None, "tray_label": label(tray) if tray >= 0 else None})
+            out.append({"printer": cfg.name, "ready": not reasons, "reasons": reasons, "slots": rows,
                         "use_ams": p.use_ams, "notes": p.notes,
                         "state": (w.link.state.gcode_state or "").lower(), "online": w.link.state.online})
         return out

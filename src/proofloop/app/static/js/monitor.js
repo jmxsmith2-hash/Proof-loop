@@ -31,6 +31,14 @@ async function cameraLoop() {
 function cameraToggle(name) {
   if (name in cameraOn) { if (cameraOn[name]) URL.revokeObjectURL(cameraOn[name]); delete cameraOn[name]; } else { cameraOn[name] = ''; cameraStart(); }
 }
+// What's in each AMS, as the printer reports it: colour, type, how full, which tray is feeding.
+function amsStrip(p) {
+  const a = p.ams || {units: [], trays: []};
+  if (!a.trays.length) return p.online ? '<p class="hint">No AMS report from this printer yet. If it stays empty, check its serial number below.</p>' : '';
+  const units = (a.units || []).filter(u => u.humidity_pct != null).map(u => `${esc(u.name)} ${u.humidity_pct.toFixed(0)}% RH`).join(' · ');
+  return `<div class="ams-strip" aria-label="AMS trays">${a.trays.map(t => t.empty ? `<span class="muted">${esc(t.label)} empty</span>`
+    : `<span class="${a.tray_now === t.tray ? 'on' : ''}" title="${esc((t.sub_brand || t.type) + (t.spool ? ' · ' + t.spool.label : '') + (a.tray_now === t.tray ? ' · feeding now' : ''))}">${swatch(t.color)}<b>${esc(t.label)}</b> ${esc(t.sub_brand || t.type)}${t.spool && t.spool.remaining_g != null ? ' · ' + Math.round(t.spool.remaining_g) + ' g' : t.remain_pct != null ? ' · ' + t.remain_pct + '%' : ''}</span>`).join('')}</div>${units ? `<div class="hint">${units}</div>` : ''}`;
+}
 async function refreshMonitor() {
   try {
     STATE = await json('/api/state');
@@ -45,7 +53,7 @@ async function refreshMonitor() {
       return `<div class="card"><div class="spread"><h2>${esc(m.name)}</h2>${chip}</div>
         <p style="margin:0 0 8px">${esc(m.status)}</p>
         ${m.loop_no ? `<div class="phase">${['starting', 'printing', 'cooling, door open', 'bending the plate', 'safety check', 'door closing'].map(ph => `<span class="${(m.phase || '').startsWith(ph.split(' ')[0]) ? 'on' : ''}">${esc(ph.split(',')[0])}</span>`).join('')}</div>` : ''}
-        ${p.ams && p.ams.trays.length ? `<div class="ams-strip">${p.ams.trays.map(t => t.empty ? `<span class="muted">${esc(t.label)} empty</span>` : `<span class="${p.ams.tray_now === t.tray ? 'on' : ''}" title="${esc((t.sub_brand || t.type) + (t.spool ? ' · ' + t.spool.label : ''))}">${swatch(t.color)}${esc(t.label)} ${esc(t.type)}${t.spool && t.spool.remaining_g != null ? ' · ' + Math.round(t.spool.remaining_g) + ' g' : t.remain_pct != null ? ' · ' + t.remain_pct + '%' : ''}</span>`).join('')}</div>` : ''}
+        ${amsStrip(p)}
         <dl class="kv">${m.loop_no ? `<dt>Loop</dt><dd><b>${m.loop_no}</b>${m.job_loops ? ' of ' + m.job_loops : ''} · ${esc(m.phase || '—')}</dd>` : ''}<dt>Job</dt><dd>${esc(p.job || '—')}</dd><dt>Progress</dt><dd>${p.percent}% · layer ${p.layer}/${p.total_layers}</dd><dt>Bed</dt><dd>${p.bed_temp.toFixed(0)} °C</dd><dt>Last check</dt><dd>${lc}</dd><dt>Empty-plate pictures</dt><dd>${m.references ? m.references : '<span class="chip warn">none yet</span>'}</dd><dt>This week</dt><dd>${m.stats.checks} loop checks, ${m.stats.resumed} resumed automatically</dd>
           <dt>Measured</dt><dd>${m.timings.cooldown ? `cooldown ${fmtDur(m.timings.cooldown.avg)} avg (${m.timings.cooldown.n})` : 'cooldown not timed yet'}${m.timings.loop ? ` · loop ${fmtDur(m.timings.loop.avg)}` : ''}</dd>
           <dt>Plate bends</dt><dd>${m.bends.value}${m.bends.since ? ` since ${new Date(m.bends.since * 1000).toLocaleDateString()}` : ''} <button class="linkbtn" data-act="bends" data-n="${n}">new plate</button></dd></dl>

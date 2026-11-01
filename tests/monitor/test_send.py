@@ -95,7 +95,7 @@ def test_send_from_make_a_loop_file(farm):
     r = c.post(f"/api/plates/{token}/send", json=body)
     assert r.status_code == 409 and "sending to printers is off" in r.json()["detail"]
     assert c.get("/api/state").json()["send_to_printer"] is False
-    assert c.put("/api/send-to-printer", json={"on": True}).json() == {"send_to_printer": True}
+    assert c.put("/api/send-to-printer", json={"on": True}).json() == {"send_to_printer": True, "send_confirm": True}
     assert c.post(f"/api/plates/{token}/send", json={**body, "confirm": "other"}).status_code == 400
     farm.watches["p2s"].link.state.gcode_state = "RUNNING"
     r = c.post(f"/api/plates/{token}/send", json=body)

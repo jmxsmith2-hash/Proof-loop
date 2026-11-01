@@ -95,3 +95,19 @@ def test_the_send_panel_shows_which_printer_is_ready_and_turns_sending_on_in_pla
         expect(box.locator("#sendOff")).to_be_hidden()
     else:
         expect(box.locator("#sendOff")).to_be_visible()
+
+
+def test_a_batch_can_be_sent_from_its_own_card(window, tmp_path):
+    from tests.plates import two_plates
+
+    page = window.tab("loopfiles", "make")
+    plate = (EXAMPLES / "bracket_plate.gcode.3mf").read_bytes()
+    pair = tmp_path / "pair2.gcode.3mf"
+    pair.write_bytes(two_plates(plate, plate))
+    page.locator("#makeFile").set_input_files(pair)
+    page.locator("#platePick").get_by_role("button", name="+ Add all 2 to the batch").click()
+    box = page.locator("#batchSend")
+    expect(box).to_be_visible()
+    expect(box.locator(".send-target")).to_have_count(3)  # every printer, with what it would feed each filament from
+    expect(box.locator(".send-target").first).to_contain_text("PLA → A1")
+    expect(page.locator("#sendAsk")).to_be_checked()  # asks before each send unless you turn that off

@@ -47,6 +47,10 @@ and the window shows them under *More › What's new*.
   before sending warns when it differs from the printer's: a plate sliced for a Standard nozzle on a
   printer with a High Flow one, for example. A different nozzle size stops the send. ProofLoop never
   changes the file's nozzle settings; slice again in Bambu Studio with the right nozzle flow.
+- **Batches mix plates with different filaments.** A slot number only has to mean the same filament
+  on every plate (as it does for plates of one Bambu Studio project); the batch file lists every
+  filament, and sending maps each to the AMS tray that holds it. A batch can be sent to a printer
+  from its own card, and *Ask before each send* can be turned off for one-click sending.
 - **Every AMS tray as a spool in one click.** *Filament › In your printers* adds a spool for each
   loaded tray, linked to it. Bambu spools come with their weight and what's left from the RFID tag.
 

@@ -261,7 +261,8 @@ class Settings(_Model):
     printers: list[PrinterConfig] = Field(default_factory=list)
     notifications: list[Notifier] = Field(default_factory=list)
     app_token: str | None = None  # optional: require this token for the app's API
-    send_to_printer: bool = False  # let ProofLoop copy a loop file to a printer and start it (you confirm each time)
+    send_to_printer: bool = False  # let ProofLoop copy a loop file to a printer and start it
+    send_confirm: bool = True  # ask "Start ... on ...?" before each send; off: the Send button alone starts it
     failure_watch: Literal["off", "alert", "pause"] = "alert"  # the plate still looks empty part-way through
     camera: CameraSettings = Field(default_factory=CameraSettings)
     summary_at: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")  # "07:30": a daily summary

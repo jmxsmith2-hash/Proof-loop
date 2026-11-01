@@ -18,7 +18,7 @@ from proofloop.loopfiles.gcode.routines import (
 )
 from proofloop.loopfiles.gcode.sweep import SweepPlan, plan_sweep, sweep_path, sweep_seconds
 from proofloop.loopfiles.profiles import HardwareProfile
-from proofloop.loopfiles.threemf import SlicedFile, layout
+from proofloop.loopfiles.threemf import SlicedFile, layout, with_filaments
 
 # Materials FarmLoop names as needing natural cooldown (warp when cooled fast), and rigid-only support.
 WARP_PRONE = ("ASA", "ABS", "PC")
@@ -343,20 +343,41 @@ def changes(sliced: SlicedFile, profile: HardwareProfile, settings: LoopSettings
     }
 
 
-def compatibility(first: SlicedFile, other: SlicedFile) -> list[str]:
-    """Reasons two plates can't share one file. The printer takes its filament list from the first plate."""
+def _filament(slot: tuple[str, str, str]) -> tuple[str, str]:
+    """(type, #RRGGBB) of a slot, so the same filament written two ways (alpha, case) is the same."""
+    return slot[1].strip().upper(), slot[2].strip().upper()[:7]
+
+
+def merged_slots(plates: list[SlicedFile]) -> list[tuple[str, str, str]]:
+    """Every filament slot the plates use, once, in slot order: what a batch of them needs loaded.
+
+    Plates may use different filaments; the printer maps the file's slots to AMS trays once, so a
+    slot number must mean the same filament on every plate (it does for plates of one Bambu Studio project).
+    """
+    seen: dict[str, tuple[str, str, str]] = {}
+    for sf in plates:
+        for slot in sf.info.filament_slots:
+            seen.setdefault(slot[0], slot)
+    return sorted(seen.values(), key=lambda s: (not s[0].isdigit(), int(s[0]) if s[0].isdigit() else 0, s[0]))
+
+
+def compatibility(first: SlicedFile, other: SlicedFile, earlier: list[SlicedFile] | None = None) -> list[str]:
+    """Reasons ``other`` can't share one file with ``first`` (and the ``earlier`` plates of the batch)."""
     a, b = first.info, other.info
     out = []
     if a.printer_model_id != b.printer_model_id:
         out.append(
             f"{other.name} was sliced for a different printer ({printers.model_name(b.printer_model_id)})"
         )
-    if a.filament_slots != b.filament_slots:
-        out.append(
-            f"{other.name} uses different filaments or slots ({', '.join(f'{t} {c}' for _, t, c in b.filament_slots)} "
-            f"vs {', '.join(f'{t} {c}' for _, t, c in a.filament_slots)}). The printer maps filaments once per "
-            "file, so every plate in a batch must use the same filament slots"
-        )
+    before = {s[0]: (s, sf) for sf in (earlier or [first]) for s in sf.info.filament_slots}
+    for slot in b.filament_slots:
+        if slot[0] in before and _filament(before[slot[0]][0]) != _filament(slot):
+            (_, t, c), owner = before[slot[0]]
+            out.append(
+                f"{other.name} uses slot {slot[0]} for {slot[1]} {slot[2][:7]}, but {owner.name} uses slot {slot[0]} "
+                f"for {t} {c[:7]}. The printer maps each slot to one AMS tray for the whole file: in Bambu Studio, "
+                "give each filament its own slot (slicing the plates in one project does this)"
+            )
     if a.bed_type != b.bed_type:
         out.append(f"{other.name} is sliced for a different build plate ({b.bed_type} vs {a.bed_type})")
     if a.nozzle != b.nozzle:
@@ -379,7 +400,8 @@ def process_batch(items: list[tuple], profile: HardwareProfile, settings: LoopSe
     if not items:
         raise ProcessError("add at least one plate with a count of 1 or more")
     first = items[0][0]
-    problems = [p for sf, _, _ in items[1:] for p in compatibility(first, sf)]
+    plates = list({id(sf): sf for sf, _, _ in items}.values())
+    problems = [p for i, sf in enumerate(plates[1:], 1) for p in compatibility(first, sf, plates[:i])]
     if problems:
         raise ProcessError("; ".join(problems))
     total = sum(n for _, n, _ in items)
@@ -401,4 +423,6 @@ def process_batch(items: list[tuple], profile: HardwareProfile, settings: LoopSe
     text = _join_loops(bodies)
     base = (first.name or "plate.gcode.3mf").rsplit("/", 1)[-1]
     name = output_name(base if len(items) == 1 else f"batch-{total}x-{base}", profile)
-    return Result(first.to_bytes(text), text, name, plans[0][1])
+    slots = merged_slots(plates)
+    extra = {} if slots == first.info.filament_slots else {"Metadata/slice_info.config": with_filaments(first, plates)}
+    return Result(first.to_bytes(text, extra), text, name, plans[0][1])

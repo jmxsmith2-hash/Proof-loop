@@ -19,7 +19,7 @@ function showOpened(res) {
   if (res.no_profile) { showNoProfile(res); $('#makeResult').classList.add('hidden'); return; }
   const kept = PLATE && BATCH.find(x => x.token === PLATE.token);
   if (kept) kept.part_push = {...partPush};  // the plate leaving the screen keeps its own heights
-  partPush = {}; PLATE = res; renderPlate(res); renderPlatePick(); refreshTargets(true);
+  partPush = {}; PLATE = res; renderPlate(res); renderPlatePick(); refreshTargets('plate', true);
 }
 
 // ---------- a file with several sliced plates ('Export all sliced file') ----------
@@ -224,64 +224,87 @@ $('#download').onclick = async () => {
 };
 // ---------- send to a printer (only when turned on, never from a phone) ----------
 function renderSend() {
-  const on = !!(STATE && STATE.send_to_printer), mons = (STATE && STATE.monitor) || [];
-  $('#sendCard').classList.toggle('hidden', !(STATE && STATE.can_send));
-  $('#restoreBtn').classList.toggle('hidden', !(STATE && STATE.can_send));  // a phone can't restore
+  const on = !!(STATE && STATE.send_to_printer), mons = (STATE && STATE.monitor) || [], can = !!(STATE && STATE.can_send);
+  $('#sendCard').classList.toggle('hidden', !can);
+  $('#restoreBtn').classList.toggle('hidden', !can);  // a phone can't restore
   $('#sendToggle').checked = on;
-  $('#sendBox').classList.toggle('hidden', !(STATE && STATE.can_send) || !mons.length);
+  $('#sendAsk').checked = !STATE || STATE.send_confirm !== false;
+  $('#sendBox').classList.toggle('hidden', !can || !mons.length);
+  $('#batchSend').classList.toggle('hidden', !can || !mons.length || !BATCH.length);
   $('#sendOff').classList.toggle('hidden', on);
   $('#spreadBtn').classList.toggle('hidden', !mons.length);
-  refreshTargets();
+  refreshTargets('plate'); refreshTargets('batch');
 }
-// Which printers the plate on screen could go to now, asked again with each plate and every few seconds.
-let TARGETS = null, TARGETS_AT = 0, TARGETS_FOR = '';
-async function refreshTargets(force) {
-  if (!PLATE || !PLATE.token || $('#sendBox').classList.contains('hidden')) return;
-  if (!force && TARGETS_FOR === PLATE.token && Date.now() - TARGETS_AT < 5000) return;
-  TARGETS_AT = Date.now(); TARGETS_FOR = PLATE.token;
-  try { TARGETS = (await send(`/api/plates/${encodeURIComponent(PLATE.token)}/printers`, {})).printers; }
-  catch (e) { TARGETS = null; $('#sendTargets').innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; return; }
-  renderTargets();
+// Sending the plate on screen, or the batch: which printers it could go to now (asked again with each
+// change and every few seconds), the AMS tray feeding each filament, and one button to send and start.
+const SENDERS = {
+  plate: {box: '#sendBox', list: '#sendTargets', btn: '#sendBtn', ask: '/api/plates/{t}/printers', go: '/api/plates/{t}/send',
+    key: () => PLATE && PLATE.token, body: () => currentSettings(),
+    what: () => { const n = +$('#sLoops').value || 1; return `${PLATE.file} (${n} loop${n > 1 ? 's' : ''})`; }},
+  batch: {box: '#batchSend', list: '#batchTargets', btn: '#batchSendBtn', ask: '/api/batch/printers', go: '/api/batch/send',
+    key: () => BATCH.length ? JSON.stringify(batchBody().items) : '', body: () => batchBody(),
+    what: () => { const n = BATCH.reduce((a, b) => a + b.count, 0); return `the batch (${BATCH.length} plates, ${n} loops)`; }},
+};
+const sendUrl = (k, url) => url.replace('{t}', encodeURIComponent(SENDERS[k].key() || ''));
+async function refreshTargets(k, force) {
+  const S = SENDERS[k], key = S.key();
+  if (!key || $(S.box).classList.contains('hidden')) return;
+  if (!force && S.for === key && Date.now() - (S.at || 0) < 5000) return;
+  S.at = Date.now(); S.for = key;
+  try { S.targets = (await send(sendUrl(k, S.ask), k === 'batch' ? S.body() : {})).printers; }
+  catch (e) { S.targets = null; $(S.list).innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; updateSendBtn(k); return; }
+  renderTargets(k);
 }
-function renderTargets() {
-  const box = $('#sendTargets'), keep = (box.querySelector('input:checked') || {}).value;
-  const pick = (TARGETS.find(t => t.printer === keep && t.ready) || TARGETS.find(t => t.ready) || {}).printer;
-  box.innerHTML = TARGETS.map(t => {
+function renderTargets(k) {
+  const S = SENDERS[k], box = $(S.list), keep = (box.querySelector('input:checked') || {}).value;
+  const pick = (S.targets.find(t => t.printer === keep && t.ready) || S.targets.find(t => t.ready) || {}).printer;
+  box.innerHTML = S.targets.map(t => {
     const state = !t.online ? 'not connected' : (t.state || 'connected');
     const slots = t.slots.map(sl => `<span class="chip${sl.tray == null ? ' bad' : ''}">${swatch(sl.color)} ${esc(sl.type)} → ${sl.tray_label ? esc(sl.tray_label) : (t.use_ams ? 'not loaded' : 'external spool')}</span>`).join('');
-    return `<label class="send-target${t.ready ? '' : ' off'}"><input type="radio" name="sendTo" value="${esc(t.printer)}" ${t.ready ? '' : 'disabled'} ${t.printer === pick ? 'checked' : ''}>
+    return `<label class="send-target${t.ready ? '' : ' off'}"><input type="radio" name="sendTo-${k}" value="${esc(t.printer)}" ${t.ready ? '' : 'disabled'} ${t.printer === pick ? 'checked' : ''}>
       <div><div class="spread"><b>${esc(t.printer)}</b>${t.ready ? '<span class="chip ok">ready</span>' : `<span class="chip">${esc(state)}</span>`}</div>
         ${slots ? `<div class="slots">${slots}</div>` : ''}
         ${t.reasons.length ? `<div class="hint">${t.reasons.map(esc).join('<br>')}</div>` : ''}
         ${t.notes.length ? `<div class="hint" style="color:var(--warn)">${t.notes.map(esc).join('<br>')}</div>` : ''}</div></label>`;
   }).join('');
-  updateSendBtn();
+  updateSendBtn(k);
 }
-function updateSendBtn() {
-  const on = !!(STATE && STATE.send_to_printer), to = ($('#sendTargets').querySelector('input:checked') || {}).value;
-  $('#sendBtn').disabled = !on || !to;
-  $('#sendBtn').textContent = to ? `Send and start on ${to}` : 'Send and start';
+function updateSendBtn(k) {
+  const S = SENDERS[k], on = !!(STATE && STATE.send_to_printer), to = ($(S.list).querySelector('input:checked') || {}).value;
+  $(S.btn).disabled = !on || !to;
+  $(S.btn).textContent = !on ? 'Turn on sending above first' : to ? `Send and start on ${to}` : 'No printer is ready';
 }
-$('#sendTargets').addEventListener('change', updateSendBtn);
-$('#sendRefresh').onclick = () => refreshTargets(true);
-async function setSending(on) {
-  const r = await send('/api/send-to-printer', {on}, 'PUT'); STATE.send_to_printer = r.send_to_printer; renderSend(); updateSendBtn();
-  toast(r.send_to_printer ? 'ProofLoop can send loop files to your printers now' : 'Sending to printers is off');
+async function sendNow(k) {
+  const S = SENDERS[k], printer = ($(S.list).querySelector('input:checked') || {}).value;
+  if (!S.key() || !printer) return;
+  const t = (S.targets || []).find(x => x.printer === printer);
+  const feed = t ? t.slots.filter(sl => sl.tray_label).map(sl => `${sl.type} ${sl.color} from ${sl.tray_label}`).join(', ') : '';
+  if (STATE.send_confirm !== false && !confirm(`Start ${S.what()} on ${printer}?${feed ? '\n\nFilament: ' + feed + '.' : ''}${t && t.notes.length ? '\n\nNote: ' + t.notes.join('\nNote: ') : ''}\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
+  $(S.btn).disabled = true; $(S.btn).textContent = `Sending to ${printer}…`;
+  try { const r = await send(sendUrl(k, S.go), {...S.body(), printer, confirm: printer}); toast(`Started ${r.file} on ${r.printer}`); }
+  catch (e) { toast(e.message); }
+  refreshTargets(k, true);
+}
+for (const k of Object.keys(SENDERS)) {
+  $(SENDERS[k].list).addEventListener('change', () => updateSendBtn(k));
+  $(SENDERS[k].btn).onclick = () => sendNow(k);
+}
+$('#sendRefresh').onclick = () => refreshTargets('plate', true);
+$('#batchRefresh').onclick = () => refreshTargets('batch', true);
+async function setSending(body) {
+  const r = await send('/api/send-to-printer', body, 'PUT');
+  STATE.send_to_printer = r.send_to_printer; STATE.send_confirm = r.send_confirm; renderSend();
+  for (const k of Object.keys(SENDERS)) updateSendBtn(k);
+  return r;
 }
 $('#sendToggle').onchange = async () => {
-  try { await setSending($('#sendToggle').checked); }
+  try { const r = await setSending({on: $('#sendToggle').checked}); toast(r.send_to_printer ? 'ProofLoop can send loop files to your printers now' : 'Sending to printers is off'); }
   catch (e) { $('#sendToggle').checked = !$('#sendToggle').checked; toast(e.message); }
 };
-$('#sendTurnOn').onclick = async () => { try { await setSending(true); } catch (e) { toast(e.message); } };
-$('#sendBtn').onclick = async () => {
-  const printer = ($('#sendTargets').querySelector('input:checked') || {}).value, s = currentSettings();
-  if (!PLATE || !printer) return;
-  const t = (TARGETS || []).find(x => x.printer === printer), feed = t ? t.slots.filter(sl => sl.tray_label).map(sl => `${sl.type} ${sl.color} from ${sl.tray_label}`).join(', ') : '';
-  if (!confirm(`Start ${PLATE.file} (${s.loops} loop${s.loops > 1 ? 's' : ''}) on ${printer}?${feed ? '\n\nFilament: ' + feed + '.' : ''}${t && t.notes.length ? '\n\nNote: ' + t.notes.join('\nNote: ') : ''}\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
-  $('#sendBtn').disabled = true; $('#sendBtn').textContent = `Sending to ${printer}…`;
-  try { const r = await send(`/api/plates/${PLATE.token}/send`, {...s, printer, confirm: printer}); toast(`Started ${r.file} on ${r.printer}`); }
-  catch (e) { toast(e.message); }
-  refreshTargets(true);
+$('#sendTurnOn').onclick = async () => { try { await setSending({on: true}); toast('ProofLoop can send loop files to your printers now'); } catch (e) { toast(e.message); } };
+$('#sendAsk').onchange = async () => {
+  try { const r = await setSending({confirm: $('#sendAsk').checked}); toast(r.send_confirm ? 'ProofLoop asks before each send' : 'Send starts the printer straight away, without asking'); }
+  catch (e) { $('#sendAsk').checked = !$('#sendAsk').checked; toast(e.message); }
 };
 
 $('#saveDefaults').onclick = async () => { try { STATE.defaults = await send('/api/defaults', currentSettings(), 'PUT'); toast('Saved as your defaults'); } catch (e) { toast(e.message); } };
@@ -434,7 +457,7 @@ function renderBatch() {
     <div class="row"><button class="linkbtn" data-up="${i}" ${i ? '' : 'disabled'}>↑</button><button class="linkbtn" data-rm="${i}">remove</button></div></div>`).join('');
   $('#batchDownload').classList.toggle('hidden', !BATCH.length);
   if (BATCH.length) previewBatch(); else $('#batchOut').innerHTML = '';
-  renderPlatePick();
+  renderPlatePick(); renderSend();
 }
 $('#batchRows').addEventListener('click', (e) => {
   const t = e.target;
@@ -454,6 +477,7 @@ async function previewBatch() {
     $('#batchOut').innerHTML = `<p class="hint"><b>${r.loops} loops</b>, ${r.parts} parts, about ${fmtDur(r.print_seconds)} of printing plus cooldowns.</p>` +
       (probs.length || r.notes.length ? `<ul class="list">${probs.map(p => `<li><span class="ic danger">✖</span><div>${esc(p)}</div></li>`).join('')}${r.notes.map(n => `<li><span class="ic info">i</span><div class="hint">${esc(n)}</div></li>`).join('')}</ul>` : '');
     $('#batchDownload').disabled = !r.ok;
+    refreshTargets('batch', true);
   } catch (e) { $('#batchOut').innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; $('#batchDownload').disabled = true; }
 }
 $('#batchDownload').onclick = async () => {

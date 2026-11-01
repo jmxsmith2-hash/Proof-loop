@@ -172,6 +172,45 @@ def only_plate(raw: bytes, plate: int) -> bytes:
     return buf.getvalue()
 
 
+def _plate_element(sf: SlicedFile) -> tuple[ET.Element, ET.Element] | None:
+    """(slice_info root, this plate's <plate>) of a file, or None when it has no readable slice_info."""
+    raw = sf._entries.get("Metadata/slice_info.config")
+    try:
+        root = ET.fromstring(raw) if raw else None
+    except ET.ParseError:
+        return None
+    if root is None:
+        return None
+    for p in root.iter("plate"):
+        if {m.get("key"): m.get("value") for m in p.findall("metadata")}.get("index", "1") == str(sf.plate):
+            return root, p
+    return None
+
+
+def with_filaments(first: SlicedFile, plates: list[SlicedFile]) -> bytes:
+    """``first``'s slice_info listing every filament slot the ``plates`` use, each as its own plate lists it.
+
+    The printer and Bambu Studio take a file's filaments (to map to AMS trays) from slice_info, so a
+    batch whose later plates use slots the first plate doesn't must list them there too.
+    """
+    target = _plate_element(first)
+    if target is None:
+        return first._entries.get("Metadata/slice_info.config", b"")
+    root, plate = target
+    slots: dict[str, ET.Element] = {}
+    for sf in plates:
+        found = target if sf is first else _plate_element(sf)
+        for f in found[1].findall("filament") if found else []:
+            slots.setdefault(f.get("id", ""), f)
+    for f in list(plate.findall("filament")):
+        plate.remove(f)
+    at = next((i for i, el in enumerate(plate) if el.tag not in ("metadata", "object")), len(plate))
+    order = sorted(slots, key=lambda s: (not s.isdigit(), int(s) if s.isdigit() else 0, s))
+    for i, sid in enumerate(order):
+        plate.insert(at + i, slots[sid])
+    return ET.tostring(root, encoding="UTF-8", xml_declaration=True)
+
+
 def plate_name(name: str, plate: int) -> str:
     """``widget.gcode.3mf`` -> ``widget-plate2.gcode.3mf``: each plate of a multi-plate file gets its own name."""
     for ext in (".gcode.3mf", ".3mf"):

@@ -55,6 +55,7 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             "printers": {k: v for k, v in printers.MODEL_IDS.items()},
             "monitor": [monitor_card(w) for w in app.watches.values()],
             "send_to_printer": app.settings.send_to_printer and allow_send,
+            "send_confirm": app.settings.send_confirm,
             "can_send": allow_send,
             "role": role,
             "notifications": [shown(n, role if allow_send else "phone") for n in app.settings.notifications],
