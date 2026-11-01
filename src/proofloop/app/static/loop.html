@@ -103,6 +103,9 @@ input[type=number]{max-width:140px}
 .meter.bad i{background:var(--bad)}
 .run{padding:12px 0;border-top:1px solid var(--line)}
 .run:first-child{border-top:0}
+.rate{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:2px 10px;align-items:center;font-size:13px}
+.rate .meter{margin:4px 0}.rate .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rate .none{grid-column:2/4}
 .thumb{width:100%;border-radius:8px;border:1px solid var(--line);background:var(--soft);aspect-ratio:4/3;object-fit:cover}
 .slice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px;align-items:start}
 .slice-grid select,.slice-grid input[type=number]{width:100%}
@@ -173,9 +176,11 @@ input[type=number]{max-width:140px}
   <div class="grid two">
     <div class="grid" style="align-content:start">
       <div class="card"><h2>Printers</h2><div id="ovRuns"></div></div>
+      <div class="card"><div class="spread"><h2>Parts per hour</h2><span class="hint" id="ovRateFarm">counted from finished loops</span></div><div id="ovRate"></div></div>
       <div class="card"><div class="spread"><h2>Parts made</h2><span class="hint">last 14 days, good loops only</span></div><div class="svgwrap" id="ovChart"></div><p class="hint" id="ovPerPrinter"></p></div>
     </div>
     <div class="grid" style="align-content:start">
+      <div class="card"><div class="spread"><h2>Open orders</h2><a href="#" data-goto="orders" class="linkbtn">All orders</a></div><div id="ovOrders"></div></div>
       <div class="card"><div class="spread"><h2>Queue</h2><span class="hint">nothing starts by itself</span></div><div id="queueOut"></div></div>
       <div class="card"><div class="spread"><h2>Spools running low</h2><a href="#" data-goto="filament" class="linkbtn">All spools</a></div><div id="ovLow"></div></div>
       <div class="card"><div class="spread"><h2>Latest</h2><a href="#" data-goto="monitor" class="linkbtn">Monitor</a></div><ul class="list" id="ovEvents"></ul></div>

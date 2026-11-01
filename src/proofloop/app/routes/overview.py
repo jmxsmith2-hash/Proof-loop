@@ -1,4 +1,4 @@
-"""The Overview: what was made, what is running, what is low."""
+"""The Overview: what was made, what is running, what is low; and the run dashboard."""
 
 from __future__ import annotations
 
@@ -84,3 +84,10 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             ],
             "events": app.store.events(8),
         }
+
+    @api.get("/api/dashboard", dependencies=guard)
+    def get_dashboard():
+        """Parts per hour on each printer, each open order's parts and finish, each printer's next job."""
+        from proofloop.monitor.dashboard import dashboard
+
+        return dashboard(app)
