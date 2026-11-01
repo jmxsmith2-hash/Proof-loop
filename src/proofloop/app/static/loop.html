@@ -499,8 +499,8 @@ input[type=number]{max-width:140px}
           <label class="field"><span>Hands-on minutes per loop</span><input type="number" data-c="labor_min_per_loop" step="0.5" min="0"></label>
           <label class="field"><span>Setup minutes per run</span><input type="number" data-c="labor_min_per_run" step="1" min="0"></label>
           <label class="field"><span>Maintenance, minutes</span><input type="number" data-c="maintenance_min" step="5" min="0"></label>
-          <label class="field"><span>…once every</span><span class="row" style="gap:4px;flex-wrap:nowrap"><input type="number" data-c="maintenance_every" step="1" min="1" style="min-width:0" aria-label="How often">
-            <select data-c="maintenance_unit" data-kind="text" aria-label="Unit"><option value="hours">print hours</option><option value="loops">loops</option><option value="days">days</option></select></span></label>
+          <label class="field"><span>…once every</span><input type="number" data-c="maintenance_every" step="1" min="1"></label>
+          <label class="field"><span>Counted in</span><select data-c="maintenance_unit" data-kind="text"><option value="hours">print hours</option><option value="loops">loops</option><option value="days">days</option></select></label>
           <label class="field"><span>Overhead per month</span><input type="number" data-c="overhead_per_month" step="1" min="0"></label>
           <label class="field"><span>Printer hours per month</span><input type="number" data-c="printer_hours_per_month" step="10" min="1"></label>
           <label class="field"><span>Failed loops, %</span><input type="number" data-c="failure_rate_pct" data-kind="zero" step="0.5" min="0" max="90"></label>
