@@ -148,6 +148,44 @@ def _layer(lib: PresetLibrary, name: str) -> float:
         return 0.0
 
 
+def printer_facts(name: str, state: Any, opts: dict[str, Any], lib: PresetLibrary) -> dict[str, Any]:
+    """A printer as slicing needs it: its nozzle, the system preset for that nozzle, and the filament
+    preset for each loaded AMS tray (from the printer's last report)."""
+    size = float(getattr(state, "nozzle_diameter", 0) or 0)
+    machine = next((m["name"] for m in opts["machines"] if size and m["nozzle"] and abs(float(m["nozzle"]) - size) < 1e-3
+                    and not m["mine"]), "")
+    trays = [{**t, "preset": filament_for_tray(lib, machine, t, opts) if machine else ""}
+             for t in state.ams.trays() if not t.get("empty")]
+    return {"name": name, "online": state.online, "nozzle": size or None, "nozzle_flow": state.nozzle_flow,
+            "machine": machine, "trays": trays}
+
+
+def usual_choice(usual: dict[str, Any], printer: dict[str, Any] | None, opts: dict[str, Any]) -> Choice:
+    """What to slice with when nobody is there to pick: the presets you last used, made to fit the
+    printer (its nozzle size and flow, and what's in its AMS when your filament doesn't fit)."""
+    machines = {m["name"]: m for m in opts["machines"]}
+    machine = usual.get("machine") or ""
+    if printer and printer["machine"]:
+        want = machines[printer["machine"]]["nozzle"]
+        if machine not in machines or machines[machine]["nozzle"] != want:
+            machine = printer["machine"]
+    if machine not in machines:
+        machine = next((m for m in machines if m.endswith(" 0.4 nozzle")), next(iter(machines), ""))
+    process = usual.get("process") or ""
+    if process not in opts["processes"].get(machine, []):
+        process = ""
+    fits = {f["name"] for f in opts["filaments"].get(machine, [])}
+    filament = usual.get("filament") or ""
+    if filament not in fits:
+        loaded = [t["preset"] for t in (printer or {}).get("trays", []) if t.get("preset") in fits]
+        filament = loaded[0] if loaded else ""
+    flow = (printer or {}).get("nozzle_flow") or ""
+    return Choice(machine=machine, process=process, filament=filament,
+                  nozzle_flow=flow if flow in machines.get(machine, {}).get("flows", []) else "",
+                  plate=usual.get("plate") or "", support=usual.get("support"), orient=bool(usual.get("orient")),
+                  copies=int(usual.get("copies") or 1), fill=bool(usual.get("fill")))
+
+
 def filament_for_tray(lib: PresetLibrary, machine: str, tray: dict[str, Any], opts: dict[str, Any]) -> str:
     """The filament preset for what an AMS tray holds: the one its RFID tag names, else one of the same type."""
     fils = opts["filaments"].get(machine, [])

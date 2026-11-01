@@ -38,7 +38,9 @@ opens the right tab and outlines the exact form. Open it again any time from *Mo
   *Make a loop file* has **Full print check**, which sends it back to *Check*.
 - **Models slice in place.** Drop an STL, OBJ, STEP or Bambu Studio project on *Make a loop file*:
   it is sliced by the Bambu Studio on this computer for the printer you pick (its nozzle, nozzle
-  flow and AMS filament), as copies or a full plate, and opens ready to make into a loop file.
+  flow and AMS filament), as copies or a full plate, and opens ready to make into a loop file,
+  priced with your rates. Turn on the **watch folder** and models saved into `Downloads\ProofLoop`
+  are sliced the same way by themselves.
 - **Files with several plates.** A file exported with *Export all sliced file* is split into one
   file per plate: *Make a loop file* lets you pick a plate or add them all to a batch, and *Check*
   checks every plate.

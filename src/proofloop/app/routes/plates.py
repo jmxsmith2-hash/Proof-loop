@@ -18,11 +18,12 @@ from proofloop.app.routes.common import (
     send_made,
 )
 from proofloop.core import printers
+from proofloop.core.settings import SliceUsual
 from proofloop.loopfiles import slicing, threemf
 from proofloop.loopfiles.api import pick_profile
 from proofloop.loopfiles.gcode.processor import analyze, changes
-from proofloop.loopfiles.gcode.sweep import SweepSettings
 from proofloop.monitor.service import App
+from proofloop.monitor.watchfolder import sweep_clear_y
 
 
 def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> None:
@@ -92,9 +93,8 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             choice = slicing.Choice.from_dict(body)
         except (TypeError, ValueError) as e:
             raise HTTPException(422, str(e)) from e
-        profile = pick_profile(app.profiles, model_id, app.settings.defaults.profile_id)
-        if profile is not None and not choice.clear_behind_y:  # parts stay where the sweep can reach them
-            choice.clear_behind_y = profile.sweep.y_rear - SweepSettings().rear_clearance - 2
+        if not choice.clear_behind_y:  # parts stay where the sweep can reach them
+            choice.clear_behind_y = sweep_clear_y(app, model_id)
         work = Path(tempfile.mkdtemp(prefix="slice-", dir=app.data_dir))
         try:
             sliced, out_name, notes = slicing.slice_upload(data, name, choice, work, model_id=model_id)
@@ -102,6 +102,11 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             raise HTTPException(422, str(e)) from e
         finally:
             shutil.rmtree(work, ignore_errors=True)
+        if slicing.kind_of(name, data) == "mesh":  # what the watch folder slices with from now on
+            app.settings.slice_usual = SliceUsual(machine=choice.machine, process=choice.process,
+                                                  filament=choice.filament, plate=choice.plate, support=choice.support,
+                                                  orient=choice.orient, copies=choice.copies, fill=choice.fill)
+            app.save_settings()
         out = opened(sliced, out_name)
         out["slice_notes"] = notes
         out["sliced_from"] = {"token": token, "name": name}

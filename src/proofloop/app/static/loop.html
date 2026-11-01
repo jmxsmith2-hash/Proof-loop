@@ -107,6 +107,11 @@ input[type=number]{max-width:140px}
 .slice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px;align-items:start}
 .slice-grid select,.slice-grid input[type=number]{width:100%}
 #sliceCard.project .sl-mesh{display:none}
+.wf summary{cursor:pointer;list-style:none}
+.wf summary::-webkit-details-marker{display:none}
+.wf[open] summary{margin-bottom:8px}
+.wf-items li{display:flex;align-items:center;gap:10px}
+.wf-items li .btn{margin-left:auto}
 .quote{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin:12px 0 4px;padding:12px 14px;border-radius:var(--radius);background:color-mix(in srgb,var(--accent) 8%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 25%,transparent)}
 .quote .q{display:flex;flex-direction:column}
 .quote .q small{color:var(--muted);font-size:12px}
@@ -258,6 +263,18 @@ input[type=number]{max-width:140px}
     <strong>Drop a model or a sliced plate here, or click to choose</strong>
     <small>A model (.stl, .obj, .step) or a Bambu Studio project (.3mf) is sliced here, with Bambu Studio's own engine. A sliced plate (.gcode.3mf, the plain slice, not a FarmLoop file) opens as it is.</small>
   </label>
+
+  <details class="card wf" id="wfCard" style="margin-top:16px">
+    <summary><span class="spread"><b>Watch folder</b><span class="chip" id="wfChip">off</span></span></summary>
+    <p class="hint">Save a model into this folder and it's sliced with the presets you last used in the Slice card, made to fit the printer below, and waits here to open. Files in the folder are only read, never moved or changed.</p>
+    <div class="row" style="align-items:flex-end">
+      <label class="toggle" style="margin:0"><input type="checkbox" id="wfOn"><span><b>Watch it</b></span></label>
+      <label class="field" style="flex:2;min-width:220px;margin:0"><span>Folder</span><input type="text" id="wfPath" placeholder="Downloads\ProofLoop" spellcheck="false"></label>
+      <label class="field" style="flex:1;min-width:150px;margin:0"><span>For printer</span><select id="wfPrinter"></select></label>
+    </div>
+    <p class="hint" id="wfUsual"></p>
+    <ul class="list wf-items" id="wfItems"></ul>
+  </details>
 
   <div id="sliceCard" class="card hidden" style="margin-top:16px">
     <div class="spread"><h2 id="sliceTitle">Slice</h2><span class="chip" id="sliceKind"></span></div>

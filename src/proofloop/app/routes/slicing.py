@@ -1,11 +1,12 @@
-"""Slice a model in ProofLoop: the presets to choose from (the slicing itself is in plates.py)."""
+"""Slice a model in ProofLoop: the presets to choose from, and the watch folder (the slicing itself is in plates.py)."""
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from proofloop.app.routes.common import Guard
 from proofloop.core import printers
+from proofloop.core.settings import WatchFolder
 from proofloop.loopfiles import slicing
 from proofloop.monitor.service import App
 
@@ -17,14 +18,7 @@ def printer_facts(app: App, opts: dict, lib) -> list[dict]:
         w = app.watches.get(cfg.name)
         if w is None or cfg.model_id != opts["model_id"]:
             continue
-        st = w.link.state
-        size = float(getattr(st, "nozzle_diameter", 0) or 0)
-        machine = next((m["name"] for m in opts["machines"] if size and m["nozzle"] and abs(float(m["nozzle"]) - size) < 1e-3
-                        and not m["mine"]), "")
-        trays = [{**t, "preset": slicing.filament_for_tray(lib, machine, t, opts) if machine else ""}
-                 for t in st.ams.trays() if not t.get("empty")]
-        out.append({"name": cfg.name, "online": st.online, "nozzle": size or None, "nozzle_flow": st.nozzle_flow,
-                    "machine": machine, "trays": trays})
+        out.append(slicing.printer_facts(cfg.name, w.link.state, opts, lib))
     return out
 
 
@@ -40,4 +34,26 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         opts["model_id"] = model_id
         opts["slicer"] = found.label
         opts["printers"] = printer_facts(app, opts, lib)
+        opts["usual"] = app.settings.slice_usual.model_dump()
         return opts
+
+    @api.get("/api/watch-folder", dependencies=guard)
+    def watch_folder():
+        """The watch folder's settings and what it has sliced lately."""
+        return app.folder_watch.as_dict()
+
+    @api.put("/api/watch-folder", dependencies=guard)
+    def put_watch_folder(body: dict):
+        if not allow_send:
+            raise HTTPException(403, "the watch folder can only be set in the ProofLoop window")
+        try:
+            cfg = WatchFolder.model_validate({**app.settings.watch_folder.model_dump(), **body})
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from e
+        if cfg.printer and cfg.printer not in {p.name for p in app.settings.printers}:
+            raise HTTPException(422, f"no printer called {cfg.printer}")
+        app.settings.watch_folder = cfg
+        app.save_settings()
+        if cfg.on:
+            app.folder_watch.ensure_folder()
+        return app.folder_watch.as_dict()

@@ -560,3 +560,52 @@ $('#batchDownload').onclick = async () => {
   try { const r = await api('/api/batch/download', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(batchBody())}); toast('Saved ' + await saveBlob(r, 'batch.gcode.3mf')); }
   catch (e) { toast(e.message); }
 };
+
+// ---------- the watch folder ----------
+// Models saved into a folder are sliced on this computer (monitor/watchfolder.py); this shows the setting and what's ready.
+let WF = null, wfSeen = null, wfSaveTimer = null;
+async function refreshWatchFolder() {
+  try { WF = await json('/api/watch-folder'); } catch (e) { return; }
+  const fresh = (WF.items || []).filter(i => wfSeen && !wfSeen.has(i.file + i.at));
+  wfSeen = new Set((WF.items || []).map(i => i.file + i.at));
+  fresh.forEach(i => toast(i.status === 'ready' ? `${i.file} from the watch folder is sliced: open it below Watch folder` : `${i.file} couldn't be sliced: ${i.error}`));
+  renderWatchFolder();
+}
+function renderWatchFolder() {
+  const w = WF, editing = $('#wfCard').contains(document.activeElement) || wfSaveTimer !== null;  // never undo a change not saved yet
+  $('#wfChip').className = 'chip' + (w.on ? (w.exists ? ' ok' : ' warn') : '');
+  $('#wfChip').textContent = !w.on ? 'off' : w.exists ? `watching · ${(w.items || []).filter(i => i.status === 'ready').length} ready` : 'folder not found';
+  if (!editing) {
+    $('#wfOn').checked = w.on; $('#wfPath').value = w.path; $('#wfPath').placeholder = w.folder;
+    const names = (STATE?.monitor || []).map(m => m.name);
+    $('#wfPrinter').innerHTML = `<option value="">${names.length ? 'The first printer' : 'No printers yet'}</option>` + names.map(n => `<option ${n === w.printer ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  }
+  const u = w.usual;
+  $('#wfUsual').innerHTML = u.process
+    ? `Slices with ${esc(u.process)}, ${esc(u.filament || 'the filament in the AMS')}${u.plate ? ', ' + esc(u.plate) : ''}${u.fill ? ', filling the plate' : u.copies > 1 ? `, ${u.copies} copies` : ''}: the last presets you sliced with above.`
+    : 'Slice one model with the Slice card first: the watch folder uses the presets you pick there.';
+  $('#wfItems').innerHTML = (w.items || []).slice(0, 10).map((i, n) => `<li>
+    <span class="ic ${i.status === 'ready' ? 'ok' : 'danger'}">${i.status === 'ready' ? '✓' : '✖'}</span>
+    <div><b>${esc(i.file)}</b><div class="hint">${new Date(i.at * 1000).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})} · ${esc(i.status === 'ready' ? (i.notes || []).join('; ') || 'sliced' : i.error)}</div></div>
+    ${i.status === 'ready' ? `<button class="btn" type="button" data-wfopen="${n}">Open</button>` : ''}</li>`).join('');
+}
+function saveWatchFolder() {
+  clearTimeout(wfSaveTimer);
+  const body = {on: $('#wfOn').checked, path: $('#wfPath').value.trim(), printer: $('#wfPrinter').value};  // as you left them
+  wfSaveTimer = setTimeout(async () => {
+    try { WF = await send('/api/watch-folder', body, 'PUT'); } catch (e) { toast(e.message); }
+    wfSaveTimer = null; renderWatchFolder();
+  }, 400);
+}
+['#wfOn', '#wfPrinter'].forEach(id => $(id).addEventListener('change', saveWatchFolder));
+$('#wfPath').addEventListener('input', saveWatchFolder);
+$('#wfItems').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-wfopen]'); if (!b) return;
+  const item = WF.items[+b.dataset.wfopen];
+  try {
+    $('#sliceCard').classList.add('hidden'); PLATES = [];
+    showOpened(await send(`/api/plates/${encodeURIComponent(item.token)}/open`, {}));
+    $('#makeResult').scrollIntoView({behavior: 'smooth', block: 'start'});
+  } catch (err) { toast(err.message.includes('expired') ? `${item.file} has been pushed out of the recent files: save it into the folder again` : err.message); }
+});
+if (!WATCH_ONLY()) { refreshWatchFolder(); setInterval(() => { if (!document.hidden) refreshWatchFolder(); }, 5000); }

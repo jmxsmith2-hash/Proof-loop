@@ -29,6 +29,7 @@ from proofloop.monitor.timelapse import Timelapse
 from proofloop.monitor.tracking import FilamentTracker
 from proofloop.monitor.vision import BedVerifier
 from proofloop.monitor.watch import PrinterWatch
+from proofloop.monitor.watchfolder import FolderWatch
 
 log = logging.getLogger(__name__)
 
@@ -166,11 +167,14 @@ class App:
         self.tracker = FilamentTracker(self)
         self.journal = PrintJournal(self.store, self.data_dir, {p.name: p.model_id for p in self.settings.printers})
         self._migrate_cost_spools()
+        self.folder_watch = FolderWatch(self)  # models saved into a folder, sliced (monitor/watchfolder.py)
         for p in self.settings.printers:
             self._start_watch(p)
         if connect:
             self.homeassistant.configure(self.settings.mqtt_export)
             threading.Thread(target=self._ticker, daemon=True, name="proofloop-ticker").start()
+            threading.Thread(target=self.folder_watch.run, args=(self._stop,), daemon=True,
+                             name="proofloop-watch-folder").start()
 
     # ---- settings ---------------------------------------------------------------
     def save_settings(self) -> None:

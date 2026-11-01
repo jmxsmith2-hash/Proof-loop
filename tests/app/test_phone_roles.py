@@ -43,6 +43,7 @@ REVIEWED_GETS = {
     "/api/monitor/{name}/timelapses", "/api/monitor/{name}/timelapses/{id}",
     "/api/camera-settings",
     "/api/slice/options",  # the slicer presets and your printers' nozzles and AMS trays; changes nothing
+    "/api/watch-folder",  # the watch folder setting and the model files it sliced lately; changes nothing
     "/api/home-assistant",  # a phone gets "on or off" and the status, not the broker or its password
     "/api/maintenance", "/api/maintenance/log",
     "/api/orders/customers",

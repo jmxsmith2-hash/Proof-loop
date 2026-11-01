@@ -256,8 +256,31 @@ class CameraSettings(_Model):
         return v
 
 
+class SliceUsual(_Model):
+    """The presets you last sliced with in ProofLoop: what the watch folder slices new models with."""
+
+    machine: str = ""
+    process: str = ""
+    filament: str = ""
+    plate: str = ""
+    support: bool | None = None
+    orient: bool = False
+    copies: int = Field(1, ge=1, le=100)
+    fill: bool = False
+
+
+class WatchFolder(_Model):
+    """A folder ProofLoop slices new models from, so they are waiting in Make a loop file."""
+
+    on: bool = False
+    path: str = Field("", max_length=1000)  # "": Downloads/ProofLoop
+    printer: str = ""  # slice for this printer's nozzle, nozzle flow and AMS ("": the first one)
+
+
 class Settings(_Model):
     defaults: Defaults = Field(default_factory=Defaults)
+    slice_usual: SliceUsual = Field(default_factory=SliceUsual)
+    watch_folder: WatchFolder = Field(default_factory=WatchFolder)
     quiet_hours: QuietHours = Field(default_factory=QuietHours)
     costs: CostSettings = Field(default_factory=CostSettings)
     filament: FilamentSettings = Field(default_factory=FilamentSettings)
