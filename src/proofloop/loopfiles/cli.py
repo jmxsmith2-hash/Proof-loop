@@ -39,6 +39,7 @@ def _defaults(a) -> Defaults:
         "push_offset",
         "natural_cooldown_min",
         "cooldown_fan",
+        "sounds",
     ):
         v = getattr(a, key, None)
         if v is not None:
@@ -49,6 +50,8 @@ def _defaults(a) -> Defaults:
         d["wait_for_monitor"] = True
     if getattr(a, "first_pause", None):
         d["pause_first_sweep"] = a.first_pause
+    if getattr(a, "load_line_every_loop", False):
+        d["load_line_every_loop"] = True
     return Defaults.model_validate(d)
 
 
@@ -265,6 +268,16 @@ def _loop_args(p: argparse.ArgumentParser) -> None:
         "--wait-for-monitor",
         action="store_true",
         help="pause after each loop until the monitor checks the plate",
+    )
+    p.add_argument(
+        "--sounds",
+        choices=["every", "last", "off"],
+        help="the printer's start and finish tunes: on every loop, only when the run ends, or off",
+    )
+    p.add_argument(
+        "--load-line-every-loop",
+        action="store_true",
+        help="draw the nozzle load line on every loop (normally the first loop only)",
     )
     p.add_argument(
         "--first-pause",

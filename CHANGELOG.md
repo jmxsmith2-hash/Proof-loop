@@ -51,6 +51,11 @@ and the window shows them under *More › What's new*.
   on every plate (as it does for plates of one Bambu Studio project); the batch file lists every
   filament, and sending maps each to the AMS tray that holds it. A batch can be sent to a printer
   from its own card, and *Ask before each send* can be turned off for one-click sending.
+- **Quieter loops, one load line.** *Printer sounds* plays the printer's start and finish tunes on
+  every loop, only when the whole run ends, or not at all. Bambu's nozzle load line (the line drawn
+  on the front edge before printing) is drawn on the first loop only; later loops prime the nozzle
+  with a small dab where it starts, so the first layer still starts full. Tick *Draw the nozzle load
+  line on every loop* to keep it as sliced.
 - **Every AMS tray as a spool in one click.** *Filament › In your printers* adds a spool for each
   loaded tray, linked to it. Bambu spools come with their weight and what's left from the RFID tag.
 

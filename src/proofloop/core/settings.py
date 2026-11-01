@@ -34,6 +34,8 @@ class Defaults(_Model):
     wait_for_monitor: bool = False
     # Pause before loop 1's sweep: "auto" = until a loop has been swept on one of your printers
     pause_first_sweep: Literal["auto", "on", "off"] = "auto"
+    sounds: Literal["every", "last", "off"] = "every"  # the printer's start and finish tunes in a loop file
+    load_line_every_loop: bool = False  # Bambu's nozzle load line: first loop only unless this is on
     loops: int = Field(1, ge=1, le=50)
 
 

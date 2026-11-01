@@ -14,6 +14,8 @@ from proofloop.loopfiles.gcode.routines import (
     block,
     end_block,
     find_start_anchor,
+    silence,
+    skip_load_line,
     strip_blocks,
 )
 from proofloop.loopfiles.gcode.sweep import SweepPlan, plan_sweep, sweep_path, sweep_seconds
@@ -297,6 +299,12 @@ def _loop_text(
     lines = lay.lines
     end_region = lines[lay.end_gcode_start : lay.exec_end]
     out = list(lines)
+    if settings.sounds == "off" or (settings.sounds == "last" and not last):
+        silence(out, lay.exec_start, lay.exec_end)
+    elif settings.sounds == "last":
+        silence(out, lay.exec_start, lay.end_gcode_start)  # the finish tune at the very end stays
+    if loop_no > 1 and not settings.load_line_every_loop:
+        skip_load_line(out, lay.exec_start, lay.start_gcode_end)
     out.insert(lay.exec_end, end_block(profile, settings, plan, end_region, is_p2s, last, loop_no))
     if profile.start_block:
         i = find_start_anchor(lines, lay.exec_start, lay.start_gcode_end, profile.start_anchor or "^$")

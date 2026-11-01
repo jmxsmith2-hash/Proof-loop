@@ -51,6 +51,8 @@ def loop_settings(
         bender_fitted=d.bender_fitted,
         cooldown_fan=d.cooldown_fan,
         wait_for_monitor=d.wait_for_monitor,
+        sounds=d.sounds,
+        load_line_every_loop=d.load_line_every_loop,
         sweep=SweepSettings(push_offset=d.push_offset, floor_z=d.floor_z, part_push_z=dict(part_push or {})),
     )
 

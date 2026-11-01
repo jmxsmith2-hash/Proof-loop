@@ -90,7 +90,8 @@ function currentSettings() {
   return {
     profile_id: $('#sProfile').value, loops: +$('#sLoops').value || 1, release_temp: +$('#sRelease').value,
     floor_z: +$('#sFloor').value, push_offset: +$('#sDepth').value, natural_cooldown_min: +$('#sNatural').value || 0, bender_fitted: $('#sBender').checked,
-    cooldown_fan: $('#sFan').value, wait_for_monitor: $('#sMonitor').checked, pause_first_sweep: $('#sFirstPause').dataset.mode || 'auto', part_push: partPush,
+    cooldown_fan: $('#sFan').value, wait_for_monitor: $('#sMonitor').checked,
+    sounds: $('#sSounds').value, load_line_every_loop: $('#sLoadLine').checked, pause_first_sweep: $('#sFirstPause').dataset.mode || 'auto', part_push: partPush,
   };
 }
 function fillSettings(s, a) {
@@ -100,6 +101,7 @@ function fillSettings(s, a) {
   $('#sLoops').value = s.loops; $('#sRelease').value = s.release_temp; $('#sFloor').value = s.floor_z; $('#sDepth').value = s.push_offset;
   syncSliders();
   $('#sNatural').value = s.natural_cooldown_min; $('#sBender').checked = s.bender_fitted; $('#sFan').value = s.cooldown_fan; $('#sMonitor').checked = s.wait_for_monitor;
+  $('#sSounds').value = s.sounds || 'every'; $('#sLoadLine').checked = !!s.load_line_every_loop;
   const fp = $('#sFirstPause'); fp.dataset.mode = s.pause_first_sweep || 'auto'; fp.checked = !!a.first_pause;
   $('#firstPauseHint').dataset.auto = fp.dataset.mode === 'auto' ? (a.first_pause ? 'on' : 'off') : '';
   const prof = STATE.profiles.find(p => p.id === s.profile_id) || {};
@@ -111,7 +113,7 @@ function fillSettings(s, a) {
   $('#naturalHint').innerHTML = warp.length && !s.natural_cooldown_min ? `<b style="color:var(--warn)">${esc(warp.join(', '))} on this plate:</b> consider a natural cooldown so parts don't warp when the door opens.` : 'Door shut and fans off before the door opens. Helps ASA, ABS and PC keep their shape.';
 }
 const schedule = () => { clearTimeout(pending); pending = setTimeout(reanalyze, 350); };
-['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor', '#sFirstPause'].forEach(id => $(id).addEventListener('input', schedule));
+['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor', '#sSounds', '#sLoadLine', '#sFirstPause'].forEach(id => $(id).addEventListener('input', schedule));
 $('#sFirstPause').addEventListener('input', (e) => { e.target.dataset.mode = e.target.checked ? 'on' : 'off'; $('#firstPauseHint').dataset.auto = ''; });
 // Every slider is paired with its number box; either one can be used.
 function syncSliders() { $$('input[type=range][data-num]').forEach(r => { r.value = $('#' + r.dataset.num).value; }); }

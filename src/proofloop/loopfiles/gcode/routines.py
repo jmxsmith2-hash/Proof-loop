@@ -15,6 +15,11 @@ Placement follows what is known to run on Bambu printers:
   target up instead of down.
 * Pauses use ``M400 U1``, Bambu's own pause command (``machine_pause_gcode`` in
   Bambu Studio's printer profiles).
+* Each loop is the whole plate again, start G-code included. Bambu's start and finish tunes
+  (``M1006``, the buzzer) can be kept on every loop, only at the end of the run, or silenced; and
+  its nozzle load line (the line drawn on the front edge) is drawn on the first loop only. Later
+  loops prime the nozzle with a small dab where the line starts instead, so the first layer
+  doesn't start short of the filament the start G-code pulled back.
 
 Every block is wrapped in ``; >>> PROOFLOOP <name>`` / ``; <<< PROOFLOOP <name>``.
 """
@@ -27,6 +32,12 @@ from dataclasses import dataclass, field
 from proofloop.loopfiles.gcode.sweep import SweepPlan, SweepSettings, sweep_gcode
 from proofloop.loopfiles.profiles import HardwareProfile
 
+SOUND_RE = re.compile(r"^\s*M1006\b")
+# Bambu's start G-code marks the line ";===== nozzle load line ===" and ends it with the typo "noozle".
+LOAD_LINE_START = re.compile(r"^;=+ *no+z+le load line *=+\s*$", re.I)
+LOAD_LINE_END = re.compile(r"^;=+ *no+z+le load line end *=+\s*$", re.I)
+RETRACT_RE = re.compile(r"^\s*G1\s+E-(\d*\.?\d+)\s")
+LOAD_LINE_XY = re.compile(r"^\s*G130\b.*?\bX(-?\d*\.?\d+).*?\bY(-?\d*\.?\d+)")
 BLOCK_RE = re.compile(r"; >>> PROOFLOOP (\w+)\n.*?; <<< PROOFLOOP \1\n", re.S)
 FAN_OFF_RE = re.compile(r"^\s*M106\b(?:\s+P\d+)?\s+S0\b")
 STEPPER_RE = re.compile(r"^\s*(M17|M18|M84)\b")
@@ -52,6 +63,8 @@ class LoopSettings:
     cooldown_fan: str = "profile"  # "profile" (the kit's own), "exhaust" (P2S only) or "off"
     wait_for_monitor: bool = False  # pause after each loop until ProofLoop's printer monitor confirms an empty plate
     pause_first_sweep: bool = False  # pause before loop 1's sweep so you can check the pusher height
+    sounds: str = "every"  # the printer's tunes: "every" loop (as sliced), "last" (only when the run ends) or "off"
+    load_line_every_loop: bool = False  # draw Bambu's nozzle load line on every loop, not just the first
     sweep: SweepSettings = field(default_factory=SweepSettings)
 
 
@@ -63,6 +76,43 @@ def block(name: str, body: str) -> str:
 
 def strip_blocks(gcode: str) -> str:
     return BLOCK_RE.sub("", gcode)
+
+
+def silence(lines: list[str], lo: int, hi: int) -> int:
+    """Turn the printer's tunes (``M1006``) in ``lines[lo:hi]`` into comments. Returns how many."""
+    n = 0
+    for i in range(max(lo, 0), min(hi, len(lines))):
+        if SOUND_RE.match(lines[i]):
+            lines[i] = "; (silenced by ProofLoop) " + lines[i].lstrip()
+            n += 1
+    return n
+
+
+def skip_load_line(lines: list[str], lo: int, hi: int) -> bool:
+    """Leave out Bambu's nozzle load line in ``lines[lo:hi]``, priming with a small dab instead.
+
+    Only the drawing command (``G130``) is commented out, not removed, so line numbers stay put and
+    the rest of the block (heating to print temperature, Z compensation, the move to the first
+    layer's height) still runs. The start G-code pulls the filament back (``G1 E-3``) before wiping,
+    and the load line is what pushes it out again: the dab, at the line's start point, pushes it out
+    by the same amount and half a millimetre more, then steps aside so the nozzle doesn't come down
+    on it.
+    """
+    start = next((i for i in range(lo, hi) if LOAD_LINE_START.match(lines[i])), -1)
+    end = next((i for i in range(start + 1, hi) if LOAD_LINE_END.match(lines[i])), -1) if start >= 0 else -1
+    draws = [i for i in range(start + 1, end) if LOAD_LINE_XY.match(lines[i])] if end > 0 else []
+    if not draws:
+        return False
+    xy = LOAD_LINE_XY.match(lines[draws[0]])
+    assert xy is not None
+    pulled = next((float(m.group(1)) for i in range(start - 1, lo - 1, -1) if (m := RETRACT_RE.match(lines[i]))), 0.0)
+    x, y = float(xy.group(1)), max(float(xy.group(2)), 0.0)
+    for i in draws:
+        lines[i] = "; (load line drawn on the first loop only) " + lines[i].lstrip()
+    lines[draws[0]] += (f"G90\nM83\nG1 Z2 F1200\nG1 X{x:g} Y{y:g} F12000\nG1 Z0.8 F600\n"
+                        f"G1 E{pulled + 0.5:g} F150 ; prime: a small dab instead of the load line\n"
+                        f"G1 Z2 F600\nG1 X{x + 5:g} F3000\n")
+    return True
 
 
 def needs_m17(end_region: list[str]) -> bool:
