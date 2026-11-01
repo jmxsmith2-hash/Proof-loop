@@ -7,6 +7,9 @@ Off by default (``send_to_printer`` in settings.json). Before anything is sent, 
 * the loop-file checks find nothing dangerous in the file;
 * every filament slot the file uses has a matching spool loaded (same type, nearest colour), so
   the printer is told which AMS tray feeds which slot;
+* each tray has enough for the run, where that is known (monitor/runout.py): a tray that runs out
+  part-way is a note saying after which loop to swap its spool, and only a tray known to be short
+  for the first loop stops the send;
 * you confirmed this printer for this file (the request names the printer twice).
 
 The file goes over the printer's own FTPS (implicit TLS on port 990, user ``bblp``, the LAN access
@@ -31,6 +34,9 @@ import zipfile
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
+from proofloop.monitor.filament import Spool
+from proofloop.monitor.runout import WARN, by_tray, forecast
+
 BUSY = ("RUNNING", "PREPARE", "PAUSE", "SLICING")
 CACHE_MODELS = {"N7"}  # P2S: files go in cache/ and start with the newer project_file command
 EXTERNAL_SPOOL = 254
@@ -50,6 +56,7 @@ class Plan:
     use_ams: bool = True
     ams_mapping: list[int] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    filament: list[dict] = field(default_factory=list)  # whether each tray lasts the run (monitor/runout.py)
 
 
 def _hex_rgb(colour: str) -> tuple[int, int, int] | None:
@@ -92,21 +99,37 @@ def match_trays(slots: list[tuple[str, str, str]], trays: list[dict]) -> tuple[l
     return mapping, problems
 
 
+def feeds(slots: list[tuple[str, str, str]], trays: list[dict]) -> dict[str, int]:
+    """Slot id -> the tray a send would feed it from: the AMS mapping, or the external spool without an AMS."""
+    if any(not t.get("empty") for t in trays):
+        mapping = match_trays(slots, trays)[0]
+        return {str(i + 1): t for i, t in enumerate(mapping) if t >= 0}
+    return {str(s[0]): EXTERNAL_SPOOL for s in slots} if len(slots) <= 1 else {}
+
+
 def plan(name: str, state, model_id: str, file_model_id: str, slots: list[tuple[str, str, str]],
-         danger: list[str], plate: int = 1, nozzle: str = "", nozzle_flow: str = "") -> Plan:
+         danger: list[str], plate: int = 1, nozzle: str = "", nozzle_flow: str = "",
+         run: list[dict[str, float]] | None = None, spools: list[Spool] | None = None, hold: bool = True) -> Plan:
     """Everything that must be true before a file goes to ``name``. Raises SendError with all reasons."""
-    result, reasons = check(name, state, model_id, file_model_id, slots, danger, plate, nozzle, nozzle_flow)
+    result, reasons = check(name, state, model_id, file_model_id, slots, danger, plate, nozzle, nozzle_flow,
+                            run, spools, hold)
     if reasons:
         raise SendError("; ".join(reasons))
     return result
 
 
 def check(name: str, state, model_id: str, file_model_id: str, slots: list[tuple[str, str, str]],
-          danger: list[str], plate: int = 1, nozzle: str = "", nozzle_flow: str = "") -> tuple[Plan, list[str]]:
+          danger: list[str], plate: int = 1, nozzle: str = "", nozzle_flow: str = "",
+          run: list[dict[str, float]] | None = None, spools: list[Spool] | None = None,
+          hold: bool = True) -> tuple[Plan, list[str]]:
     """The plan and every reason it can't be sent yet (none: ready). Shown before you press Send.
 
     ``nozzle`` and ``nozzle_flow`` are what the file was sliced for. A different nozzle size stops it;
     a different flow (Standard on a High Flow nozzle) is a note, as Bambu Studio warns and lets you go on.
+
+    ``run`` is the grams per slot of each loop the file prints, and ``spools`` the inventory's: with them,
+    each tray's supply is checked against the whole run. A tray that runs out part-way is a note; one known
+    to be short for the first loop stops the send while ``hold`` (filament settings: hold when short) is on.
     """
     reasons, notes = [], []
     fitted = float(getattr(state, "nozzle_diameter", 0.0) or 0.0)
@@ -144,6 +167,14 @@ def check(name: str, state, model_id: str, file_model_id: str, slots: list[tuple
     else:
         result = Plan(name, "", plate, False, [], notes)
         reasons.append(f"{name} has no AMS, and the file uses {len(slots)} filaments")
+    if run:
+        fed = {str(i + 1): t for i, t in enumerate(result.ams_mapping) if t >= 0}
+        result.filament = forecast(by_tray(run, fed), trays, spools or [], name)
+        for r in result.filament:
+            if r["stops"] and hold:
+                reasons.append(r["text"])
+            elif r["status"] in WARN:
+                result.notes.append(r["text"])
     return result, reasons
 
 

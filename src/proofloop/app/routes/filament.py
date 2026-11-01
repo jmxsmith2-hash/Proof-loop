@@ -18,6 +18,8 @@ from proofloop.monitor.filament import (
     norm_color,
     requirements,
 )
+from proofloop.monitor.runout import by_tray, forecast
+from proofloop.monitor.send import feeds
 from proofloop.monitor.service import App
 from proofloop.monitor.spoolman import SpoolmanError, to_spool
 
@@ -317,14 +319,21 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         if printer and printer not in app.watches:
             raise HTTPException(404, f"no printer {printer!r}")
         loops = max(1, int(body.get("loops") or app.settings.defaults.loops))
+        trays = trays_of(app, printer)
         out = requirements(
             app.inventory,
             printer,
             sf.info.filament_slots,
             sf.info.slot_grams,
             loops,
-            trays_of(app, printer),
+            trays,
             sf.info.presets,
         )
         out["printer"] = printer
+        # The printer's own trays: which one feeds each slot, and on which loop it runs out (monitor/runout.py).
+        fed = feeds(sf.info.filament_slots, trays) if printer and trays else {}
+        rows = {r["tray"]: r for r in forecast(by_tray([sf.info.slot_grams] * loops, fed), trays,
+                                                inv.all(archived=False), printer or "")}
+        for s in out["slots"]:
+            s["ams"] = rows.get(fed.get(s["slot"], -1))
         return out

@@ -10,10 +10,13 @@ their usage isn't known.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from proofloop.loopfiles.gcode.usage import layer_usage, used_by_layer
 from proofloop.monitor.filament import available, resolve
+from proofloop.monitor.runout import by_tray, forecast, run_of
+from proofloop.monitor.send import BUSY, feeds
 from proofloop.monitor.watch import job_names
 
 log = logging.getLogger(__name__)
@@ -175,6 +178,63 @@ class FilamentTracker:
                 names = " + ".join(by_id[i].label for i in ids if i in by_id)
                 return f"{names} has {have:.0f} g left and the next loop needs {need:.1f} g of {material}"
         return None
+
+    def _rest_of_run(self, w, s, trays: list[dict]) -> tuple[str | None, list[dict[int, float]]]:
+        """What the printer still prints of a file ProofLoop made, from the loop it's on: (job, grams per tray)."""
+        if not w.loop_no or s.gcode_state.upper() not in BUSY:
+            return None, []
+        key, data = self.job_for(s)
+        if not data or w.loop_no > len(data["order"]):
+            return None, []
+        slots, run = run_of(data, w.loop_no)
+        return key, by_tray(run, feeds(slots, trays))
+
+    def swap_due(self, w, s) -> dict | None:
+        """While a run ProofLoop made prints: the first tray it empties before the run ends, and when to swap."""
+        trays = s.ams.trays()
+        _key, rest = self._rest_of_run(w, s, trays)
+        if not rest:
+            return None
+        rows = forecast(rest, trays, self.inv.all(archived=False), w.name, first=w.loop_no, printing=True)
+        due = sorted((r for r in rows if r["status"] in ("swap", "short")), key=lambda r: r["runs_out_in"] or 0)
+        if not due:
+            return None
+        r = due[0]
+        text = (f"Spool swap due after loop {r['swap_after']}: {r['label']} ({r['type']}) runs out during "
+                f"loop {r['runs_out_in']}" if r["status"] == "swap" else r["text"].split(". ")[0])
+        return {"tray": r["tray"], "label": r["label"], "after_loop": r["swap_after"], "runs_out_in": r["runs_out_in"],
+                "text": text, "detail": r["text"]}
+
+    def queue_supply(self, runs: list[dict], plate_of: Callable[[str], tuple[list, dict]]) -> None:
+        """Adds ``filament`` to each queued job not sent yet: whether its printer's trays last through it, after
+        what the printer prints first (the rest of its current run, then the jobs ahead of it in the queue).
+
+        ``plate_of``: run id -> (the plate's filament slots, grams per slot of one loop).
+        """
+        spools = self.inv.all(archived=False)
+        ahead: dict[str, list[dict[int, float]]] = {}
+        printing: dict[str, str | None] = {}
+        for run in runs:
+            for job in run["jobs"]:
+                w = self.app.watches.get(job["printer"])
+                if job["status"] not in ("waiting", "stopped", "sent") or w is None or not w.link.state.online:
+                    continue
+                s, name = w.link.state, job["printer"]
+                trays = s.ams.trays()
+                if name not in ahead:
+                    printing[name], ahead[name] = self._rest_of_run(w, s, trays)
+                if job["status"] == "sent" and job.get("file") and job_key(job["file"]) == printing[name]:
+                    continue  # it's the run printing now, already counted
+                try:
+                    slots, grams = plate_of(run["id"])
+                except (OSError, KeyError, ValueError):
+                    continue
+                mine = by_tray([grams] * int(job["loops"]), feeds(slots, trays))
+                if job["status"] != "sent":
+                    rows = forecast(ahead[name] + mine, trays, spools, name, before=len(ahead[name]))
+                    job["filament"] = [{k: r[k] for k in ("label", "type", "status", "text", "swap_after")}
+                                       for r in rows]
+                ahead[name] += mine
 
     def on_ams(self, w, s) -> None:
         trays = s.ams.trays()

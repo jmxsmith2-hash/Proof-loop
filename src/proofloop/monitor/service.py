@@ -24,10 +24,11 @@ from proofloop.monitor.homeassistant import HomeAssistantExport
 from proofloop.monitor.journal import PrintJournal
 from proofloop.monitor.orders import Orders
 from proofloop.monitor.queue import Queue
+from proofloop.monitor.runout import run_of
 from proofloop.monitor.spoolman import Spoolman
 from proofloop.monitor.store import Store
 from proofloop.monitor.timelapse import Timelapse
-from proofloop.monitor.tracking import FilamentTracker
+from proofloop.monitor.tracking import FilamentTracker, job_key
 from proofloop.monitor.vision import BedVerifier
 from proofloop.monitor.watch import PrinterWatch
 from proofloop.monitor.watchfolder import FolderWatch
@@ -358,8 +359,11 @@ class App:
         cfg, w = self.printer_config(name), self.watches.get(name)
         if w is None:
             raise SendError(f"no printer called {name!r}")
+        job = self.store.job(job_key(filename))  # made_file recorded it: the grams of every loop
         p = plan(name, w.link.state, cfg.model_id, sf.info.printer_model_id or "", sf.info.filament_slots, danger,
-                 plate=sf.plate or 1, nozzle=sf.info.nozzle, nozzle_flow=sf.info.nozzle_flow)
+                 plate=sf.plate or 1, nozzle=sf.info.nozzle, nozzle_flow=sf.info.nozzle_flow,
+                 run=run_of(job)[1] if job else None, spools=self.inventory.all(archived=False),
+                 hold=self.settings.filament.hold_when_short)
         p.filename = filename = printer_filename(filename)
         md5, filaments = plate_facts(data, p.plate)
         w.link.send(remote_path(cfg.model_id, filename), data, start_command(p, cfg.model_id, md5, filaments))
@@ -368,8 +372,10 @@ class App:
                                         + (f" ({mapping})" if mapping else "")))
         return {"printer": name, "file": filename, "use_ams": p.use_ams, "ams_mapping": p.ams_mapping, "notes": p.notes}
 
-    def send_readiness(self, sf, slots: list[tuple[str, str, str]] | None = None) -> list[dict]:
-        """For each printer, whether this plate could go to it now, and which AMS tray feeds each slot.
+    def send_readiness(self, sf, slots: list[tuple[str, str, str]] | None = None,
+                       run: list[dict[str, float]] | None = None) -> list[dict]:
+        """For each printer, whether this plate could go to it now, which AMS tray feeds each slot, and
+        whether each tray lasts the ``run`` (grams per slot of each loop).
 
         The loop-file checks run on the finished file when you press Send; everything else is here.
         """
@@ -377,6 +383,7 @@ class App:
         from proofloop.monitor.send import check
 
         out = []
+        spools = self.inventory.all(archived=False)
         for cfg in self.settings.printers:
             w = self.watches.get(cfg.name)
             if w is None:
@@ -384,7 +391,8 @@ class App:
             need = sf.info.filament_slots if slots is None else slots
             p, reasons = check(cfg.name, w.link.state, cfg.model_id, sf.info.printer_model_id or "",
                                need, [], plate=sf.plate or 1, nozzle=sf.info.nozzle,
-                               nozzle_flow=sf.info.nozzle_flow)
+                               nozzle_flow=sf.info.nozzle_flow, run=run, spools=spools,
+                               hold=self.settings.filament.hold_when_short)
             rows = []
             for sid, ftype, colour in need:
                 i = int(sid) - 1 if str(sid).isdigit() else -1
@@ -392,7 +400,7 @@ class App:
                 rows.append({"slot": sid, "type": ftype, "color": colour,
                              "tray": tray if tray >= 0 else None, "tray_label": label(tray) if tray >= 0 else None})
             out.append({"printer": cfg.name, "ready": not reasons, "reasons": reasons, "slots": rows,
-                        "use_ams": p.use_ams, "notes": p.notes,
+                        "use_ams": p.use_ams, "notes": p.notes, "filament": p.filament,
                         "state": (w.link.state.gcode_state or "").lower(), "online": w.link.state.online})
         return out
 

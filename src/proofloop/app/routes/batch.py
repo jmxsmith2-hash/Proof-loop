@@ -144,7 +144,9 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             raise HTTPException(403, "files can't be sent to printers from here")
         items = batch_items(body)
         slots = merged_slots([sf for sf, _, _ in items])
-        return {"send_to_printer": app.settings.send_to_printer, "printers": app.send_readiness(items[0][0], slots)}
+        run = [sf.info.slot_grams for sf, n, _ in items for _ in range(n)]
+        return {"send_to_printer": app.settings.send_to_printer,
+                "printers": app.send_readiness(items[0][0], slots, run)}
 
     @api.post("/api/batch/send", dependencies=guard)
     def batch_send(body: dict):

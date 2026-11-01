@@ -118,6 +118,7 @@ file). Each module has `register(api, app, guard, allow_send)`. To add a feature
 | `journal.py` | Print journal: how every print ended (layer, HMS, temperatures, plate check, picture); keeps the files ProofLoop makes. |
 | `filament.py` | Spool inventory, usage log, weigh-ins, which spool feeds a slot, how many loops your spools cover. |
 | `tracking.py` | Remembers the files ProofLoop makes; charges finished and part-way loops to spools; holds a loop the spools can't cover; links RFID spools to AMS trays. |
+| `runout.py` | Spool swap timing: on which loop of a run (or a queued job) each AMS tray runs out, from the linked spool's count or the AMS's estimate, and whether a matching tray can take over. |
 | `spoolman.py` | Optional Spoolman import and usage reporting. |
 | `costing.py` | Cost per part, loop and run, selling price, fees and capacity, from your own rates and the file's grams and times. Unset rates are reported, never filled in. |
 | `store.py` | `printers.db`: events, outcomes, production, timings. |

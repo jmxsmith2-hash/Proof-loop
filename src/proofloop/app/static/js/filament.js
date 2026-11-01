@@ -300,6 +300,7 @@ function renderPlateFil() {
     return `<div class="filrow"><div class="spread"><span>${swatch(s.color)}<b>${esc(s.material)}</b> <span class="hint">${esc(s.color)} · slot ${esc(s.slot)}${tr}</span></span><span class="num">${s.grams_per_loop} g a loop · <b>${s.grams_total} g</b> for ${r.loops}</span></div>
       <div class="inline" style="margin:6px 0"><select data-pick="${esc(s.key)}" aria-label="Spool for slot ${esc(s.slot)}">${spoolOptions(s.material, s.spool, !s.spool && s.spools_counted.length ? 'Whichever the AMS feeds (' + s.trays.map(trayLabel).join(', ') + ')' : 'No spool')}</select></div>
       <div>${verdict}${s.available_g != null ? ` <span class="hint">${G(s.available_g)} available${s.spools_counted.length > 1 ? ' across ' + s.spools_counted.length + ' spools in the AMS' : ''}</span>` : ''}</div>
+      ${s.ams ? `<div class="hint"${s.ams.status === 'enough' || s.ams.status === 'unknown' ? '' : ' style="color:var(--warn)"'}>In ${esc(r.printer)}'s AMS: ${esc(s.ams.text)}</div>` : ''}
       <div class="hint">${esc(s.how)}${info ? ' · ' + esc(info) : ''}</div></div>`;
   }).join('');
   $('#makeFilOut').innerHTML = rows || '<p class="hint">The slicer listed no filament for this plate.</p>';
