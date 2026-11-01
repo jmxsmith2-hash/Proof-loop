@@ -44,14 +44,32 @@ def test_every_line_is_your_price_times_the_files_quantities():
     assert line(r, "material") == pytest.approx(50 / 1000 * 20 + 10 / 1000 * 60)  # PETG 30 per 500 g = 60/kg
     hours = (3600 + 300 + 900) / 3600
     assert line(r, "energy") == pytest.approx((1 * 200 + (1200 / 3600) * 50) / 1000 * 0.5, abs=1e-4)
-    assert line(r, "machine") == pytest.approx(hours * 1000 / 5000, abs=1e-4)
+    assert line(r, "machine") == pytest.approx(1 * 1000 / 5000, abs=1e-4)  # print hours only
     assert line(r, "plate") == pytest.approx(0.1)
     assert line(r, "labor") == pytest.approx(1.0)
     assert line(r, "overhead") == pytest.approx(hours * 0.2, abs=1e-4)
     assert r.setup == pytest.approx(6.0)
     assert r.totals["run"] == pytest.approx(r.totals["per_loop"] * 5 + 6, abs=1e-3)
     assert r.totals["per_part"] == pytest.approx(r.totals["run"] / 20, abs=1e-4)
-    assert r.totals["complete"] and not r.missing
+    assert r.totals["complete"] and not r.missing and not r.checks
+
+
+def test_printer_wear_and_maintenance_count_print_hours_not_cooldown():
+    r = cost(full(maintenance_per_hour=0.1), SLOTS, GRAMS, 4, Times(3600, 300, 7200, "measured"))
+    assert line(r, "maintenance") == pytest.approx(0.1) and line(r, "machine") == pytest.approx(0.2)
+    assert "1.00 print h" in next(ln.how for ln in r.lines if ln.key == "maintenance")
+
+
+def test_rates_far_from_the_usual_are_used_but_pointed_out():
+    c = full(maintenance_per_hour=2, printer_life_hours=100000, plate_life_loops=10000, labor_min_per_run=15,
+             labor_rate=20)
+    r = cost(c, SLOTS, GRAMS, 4, T, loops=1)
+    assert line(r, "maintenance") == pytest.approx(2.0)  # still what you entered
+    said = " ".join(r.checks)
+    assert "maintenance per print hour is $2, well above" in said and "printer life is 100,000" in said
+    assert "loops per plate is 10,000" in said and "setup is" in said  # $5 setup on a 1-loop run
+    assert r.as_dict()["checks"] == r.checks
+    assert not any("setup is" in m for m in cost(c, SLOTS, GRAMS, 4, T, loops=20).checks)  # spread over 20 loops
 
 
 def test_nothing_is_guessed_missing_prices_are_listed_not_invented():

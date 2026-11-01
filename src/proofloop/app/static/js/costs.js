@@ -94,7 +94,8 @@ function renderQuote() {
     <div class="q main"><small>Charge for ${q.target_margin_pct}% margin</small><b>${q.price == null ? '—' : atLeast + money(q.price)}</b></div>
     <button class="btn" type="button" id="quoteOrder" ${WATCH_ONLY() ? 'disabled' : ''}>Take an order at this price</button>
     <p class="hint">Per part, over ${COST.loops} loop${COST.loops > 1 ? 's' : ''} of ${COST.parts_per_plate}, after tax and fees.
-      ${gaps ? `${gaps === 1 ? 'One of your rates isn\'t' : gaps + ' of your rates aren\'t'} set, so it's low: <a href="#" data-goto="costs">fill them in under Costs</a>.` : '<a href="#" data-goto="costs">How it adds up</a>.'}</p>`;
+      ${gaps ? `${gaps === 1 ? 'One of your rates isn\'t' : gaps + ' of your rates aren\'t'} set, so it's low: <a href="#" data-goto="costs">fill them in under Costs</a>.` : '<a href="#" data-goto="costs">How it adds up</a>.'}
+      ${(COST.checks || []).length ? ` <b>${COST.checks.length === 1 ? 'One rate looks' : COST.checks.length + ' rates look'} unusual:</b> <a href="#" data-goto="costs">check them</a>.` : ''}</p>`;
 }
 $('#plateQuote').addEventListener('click', (e) => {
   if (e.target.id !== 'quoteOrder' || !PLATE) return;
@@ -123,7 +124,8 @@ function renderCost() {
     <td>${esc(m.slot)}</td><td><span class="sw" style="background:${esc(m.color)}"></span>${esc(m.type)} <span class="hint">${esc(m.color)}</span></td><td class="num">${m.grams} g</td>
     <td><select data-slotkey="${esc(m.key)}" aria-label="Spool for slot ${esc(m.slot)}">${spoolOptions(m.type, m.spool, '— choose —')}</select>${!m.spool && m.spool_name ? `<div class="hint">priced from ${esc(m.spool_name)}</div>` : ''}</td>
     <td class="num">${m.per_kg != null ? money(m.per_kg) : '—'}</td><td class="num">${m.cost != null ? money(m.cost, 3) : '<span class="chip warn">not set</span>'}</td></tr>`).join('');
-  $('#costMissing').innerHTML = r.missing.map(m => `<li><span class="ic warning">!</span><div>${esc(m)}</div></li>`).join('');
+  $('#costMissing').innerHTML = r.missing.map(m => `<li><span class="ic warning">!</span><div>${esc(m)}</div></li>`).join('') +
+    (r.checks || []).map(m => `<li><span class="ic info">i</span><div>${esc(m[0].toUpperCase() + m.slice(1))}</div></li>`).join('');
   const tm = r.times;
   $('#costTimes').textContent = `Loop time ${fmtDur(tm.loop_s)}: print ${fmtDur(tm.print_s)} (slicer estimate), FarmBoard waits and sweep ${fmtDur(tm.fixed_s)}, cooldown ${tm.cooldown_s == null ? 'unknown' : fmtDur(tm.cooldown_s) + ' (' + tm.cooldown_source + ')'}.`;
   // selling

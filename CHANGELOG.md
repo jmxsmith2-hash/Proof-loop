@@ -134,6 +134,15 @@ and the window shows them under *More › What's new*.
   the run finished, the loops nobody saw end are counted too, with their filament, and you're told
   their plates weren't checked. Sending the same file again starts a new run instead of carrying
   on the old count.
+- A loop file whose name had spaces or brackets ("Plate 1.gcode.3mf") was never matched with the
+  run the printer reported under its safe name ("Plate_1"), so its loops, parts and filament went
+  uncounted. Files are now recorded under the name the printer gives them, and older ones are
+  renamed once.
+- Printer wear and maintenance were charged on the whole loop, cooldown and ejecting included; they
+  now count print hours only, and the fields say "per print hour". The cost breakdown and quote
+  point out a rate far outside what desktop printers usually see (maintenance of dollars an hour, a
+  printer lasting 100,000 hours, a plate lasting 10,000 loops) and a setup that is most of a short
+  run's cost. The rates are still used as you entered them, and the form shows the usual ranges.
 - Saving the notification form wiped a saved access token.
 - Taking an order when `orders.json` came from a newer ProofLoop left an unfollowed run in the queue.
 - The print-ready check crashed when the slicer itself reported a problem, and its report when a fix

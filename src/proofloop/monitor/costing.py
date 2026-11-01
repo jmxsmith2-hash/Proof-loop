@@ -12,7 +12,8 @@ Model, per loop (one plate printed, cooled, ejected):
 
 * material   = sum over slots of grams x (spool price / spool weight)
 * energy     = (print hours x printing W + cooldown/eject hours x idle W) / 1000 x price per kWh
-* machine    = loop hours x (printer price / expected life hours + maintenance per hour)
+* machine    = print hours x (printer price / expected life in print hours + maintenance per print hour)
+  (a printer cooling down or ejecting hardly wears, so waits and cooldown aren't charged)
 * plate wear = plate price / loops per plate
 * kit wear   = FarmLoop kit price / loops the kit lasts
 * labour     = minutes per loop / 60 x hourly rate
@@ -27,6 +28,10 @@ the parts in an order.
 Every report also carries a quote, whether or not you've set a price: the
 break-even price per part and the price that earns your target margin, worked
 back through the same tax and fees. It is "at least" while costs are missing.
+
+A rate far outside what printers like these usually see (maintenance of
+dollars an hour, a printer lasting 100,000 hours) is still used as entered,
+but the report says so in ``checks``: a typo there can make every quote wrong.
 """
 
 from __future__ import annotations
@@ -132,6 +137,7 @@ class CostReport:
     selling: dict | None = None
     capacity: dict | None = None
     missing: list[str] = field(default_factory=list)
+    checks: list[str] = field(default_factory=list)  # rates far outside the usual: used, but worth a look
     materials: list[dict] = field(default_factory=list)
     quote: dict = field(default_factory=dict)
 
@@ -147,6 +153,7 @@ class CostReport:
             "selling": self.selling,
             "capacity": self.capacity,
             "missing": self.missing,
+            "checks": self.checks,
             "materials": self.materials,
             "quote": self.quote,
         }
@@ -188,6 +195,7 @@ def cost(
     """``prices``: slot id -> {"spool", "name", "per_kg"} from the filament inventory. Without it the
     older price list in ``c.spools`` is used."""
     rep = CostReport(c.currency, parts_per_plate, loops)
+    rep.checks = checks(c)
     cur = c.currency
     hours = times.known_s / 3600
     print_h, rest_h = times.print_s / 3600, (times.fixed_s + (times.cooldown_s or 0)) / 3600
@@ -280,18 +288,18 @@ def cost(
             "machine",
             "Printer wear",
             None,
-            "printer price / expected life hours",
-            "set the printer price and its expected life in hours",
+            "printer price / expected life in print hours",
+            "set the printer price and its expected life in print hours",
         )
     else:
         per_h = c.printer_price / c.printer_life_hours
-        add("machine", "Printer wear", hours * per_h, f"{hours:.2f} h x {cur}{per_h:.4g}/h")
+        add("machine", "Printer wear", print_h * per_h, f"{print_h:.2f} print h x {cur}{per_h:.4g}/h")
     if c.maintenance_per_hour is not None:
         add(
             "maintenance",
             "Maintenance",
-            hours * c.maintenance_per_hour,
-            f"{hours:.2f} h x {cur}{c.maintenance_per_hour:g}/h",
+            print_h * c.maintenance_per_hour,
+            f"{print_h:.2f} print h x {cur}{c.maintenance_per_hour:g}/h",
         )
     if c.plate_price is not None and c.plate_life_loops is not None:
         add(
@@ -357,6 +365,11 @@ def cost(
         rep.setup = round(c.labor_min_per_run / 60 * c.labor_rate, 4)
     run = per_loop * loops + (rep.setup or 0)
     parts = max(1, parts_per_plate * loops)
+    if rep.setup and run and rep.setup / run > 1 / 3:
+        rep.checks.append(
+            f"setup is {rep.setup / run:.0%} of this run ({cur}{rep.setup:.2f} for {c.labor_min_per_run:g} min): "
+            "more loops in one run spread it over more parts"
+        )
     rep.totals = {
         "per_loop": round(per_loop, 4),
         "per_part": round(run / parts, 4),
@@ -374,6 +387,33 @@ def cost(
     if times.cooldown_s is not None and times.known_s > 0:
         rep.capacity = _capacity(c, times.known_s, parts_per_plate, rep.selling)
     return rep
+
+
+# What a desktop FDM printer (Bambu, Prusa class) usually sees. Outside these a rate is likely a typo.
+USUAL = {
+    "maintenance_per_hour": (0, 0.5, "maintenance per print hour", "a few cents to about 0.30 (nozzles, belts, "
+                                                                    "PTFE tube, lubricant)"),
+    "printer_life_hours": (1000, 30000, "printer life", "5,000 to 20,000 print hours"),
+    "plate_life_loops": (20, 3000, "loops per plate", "a few hundred to about 2,000 for a textured PEI plate"),
+    "watts_printing": (30, 1000, "printing power", "100 to 350 W averaged over a print"),
+    "watts_idle": (0, 300, "cooldown power", "5 to 40 W with the bed off"),
+    "electricity_per_kwh": (0, 1.0, "electricity price", "0.10 to 0.40 per kWh"),
+    "printer_hours_per_month": (1, 744, "printer hours per month", "at most 744 (a month has no more)"),
+    "failure_rate_pct": (0, 30, "failed loops", "under 10% once a file is dialled in"),
+}
+
+
+def checks(c: CostSettings) -> list[str]:
+    """Rates far outside the usual, said plainly. They're still used as entered."""
+    out = []
+    for key, (lo, hi, label, usual) in USUAL.items():
+        v = getattr(c, key)
+        if v is not None and not lo <= v <= hi:
+            shown = f"{v:g}%" if key.endswith("_pct") else f"{c.currency}{v:g}" if "per_" in key and "hours" not in key \
+                else f"{v:,g}"
+            out.append(f"{label} is {shown}, {'well above' if v > hi else 'well below'} the usual {usual}: "
+                       "check it under Costs")
+    return out
 
 
 def _per_order_fixed(c: CostSettings) -> float:

@@ -479,10 +479,11 @@ input[type=number]{max-width:140px}
           <label class="field"><span>Printer while printing, W</span><input type="number" data-c="watts_printing" step="1" min="0"></label>
           <label class="field"><span>Cooling and ejecting, W</span><input type="number" data-c="watts_idle" step="1" min="0"></label>
           <label class="field"><span>Printer price</span><input type="number" data-c="printer_price" step="1" min="0"></label>
-          <label class="field"><span>Expected life, hours</span><input type="number" data-c="printer_life_hours" step="100" min="1"></label>
-          <label class="field"><span>Maintenance, per hour</span><input type="number" data-c="maintenance_per_hour" step="0.01" min="0"></label>
+          <label class="field"><span>Expected life, print hours</span><input type="number" data-c="printer_life_hours" step="100" min="1"></label>
+          <label class="field"><span>Maintenance, per print hour</span><input type="number" data-c="maintenance_per_hour" step="0.01" min="0"></label>
         </div>
-        <p class="hint">Measure the watts with a smart plug: average them over a whole print, then over a cooldown with the bed off.</p>
+        <p class="hint">Measure the watts with a smart plug: average them over a whole print, then over a cooldown with the bed off.
+          Usual for a desktop printer: 100 to 350 W printing, a life of 5,000 to 20,000 print hours, and maintenance of a few cents to about 0.30 a print hour (nozzles, belts, PTFE tube, lubricant). Wear and maintenance count print hours only, not cooldown.</p>
       </details>
       <details class="cost-section"><summary>Build plates and FarmLoop kit</summary>
         <div class="cost-grid">
@@ -491,7 +492,7 @@ input[type=number]{max-width:140px}
           <label class="field"><span>FarmLoop kit price</span><input type="number" data-c="kit_price" step="0.01" min="0"></label>
           <label class="field"><span>Loops the kit lasts</span><input type="number" data-c="kit_life_loops" step="100" min="1"></label>
         </div>
-        <p class="hint">The Monitor counts plate bends, so you can see how many loops your plates really last.</p>
+        <p class="hint">The Monitor counts plate bends, so you can see how many loops your plates really last. A textured PEI plate usually lasts a few hundred to about 2,000.</p>
       </details>
       <details class="cost-section"><summary>Labour, overhead and failures</summary>
         <div class="cost-grid">
@@ -502,7 +503,7 @@ input[type=number]{max-width:140px}
           <label class="field"><span>Printer hours per month</span><input type="number" data-c="printer_hours_per_month" step="10" min="1"></label>
           <label class="field"><span>Failed loops, %</span><input type="number" data-c="failure_rate_pct" data-kind="zero" step="0.5" min="0" max="90"></label>
         </div>
-        <p class="hint">Overhead is rent, software, insurance and so on, spread over the hours your printers run. A failed loop costs the same as a good one and makes nothing.</p>
+        <p class="hint">Overhead is rent, software, insurance and so on, spread over the hours your printers run. A failed loop costs the same as a good one and makes nothing. Setup is paid once per run, so a one-loop run carries all of it.</p>
       </details>
       <details class="cost-section"><summary>Packaging and extras</summary>
         <h3 style="margin-top:4px">Per part <span class="muted" style="font-weight:400">(bags, magnets, inserts…)</span></h3>
