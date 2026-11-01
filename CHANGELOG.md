@@ -128,6 +128,12 @@ and the window shows them under *More › What's new*.
   check.
 
 ### Fixed
+- A run went uncounted when ProofLoop restarted or wasn't running while it printed: no parts, no
+  filament taken off the spools, no history. Each printer's place in its run is now kept, so a restart
+  carries on from the same loop (a loop that ended meanwhile is counted), and when the printer says
+  the run finished, the loops nobody saw end are counted too, with their filament, and you're told
+  their plates weren't checked. Sending the same file again starts a new run instead of carrying
+  on the old count.
 - Saving the notification form wiped a saved access token.
 - Taking an order when `orders.json` came from a newer ProofLoop left an unfollowed run in the queue.
 - The print-ready check crashed when the slicer itself reported a problem, and its report when a fix

@@ -118,6 +118,27 @@ class FilamentTracker:
         if self.app.settings.filament.track_usage:
             self._charge(w, s, key, plate, grams, "loop", "")
 
+    def _counted(self, w, key: str) -> list[int]:
+        """Loops of this run counted so far: since the file was made, or since this run began if later."""
+        since = max(self.app.store.job_sent(key) or 0.0, getattr(w, "run_since", 0.0))
+        return self.app.store.loops_counted(w.name, key, since)
+
+    def loops_missing(self, w, s) -> list[int]:
+        """Loops of this run not counted yet (for a run the printer says has finished): their numbers."""
+        key, data = self.job_for(s)
+        if not data or not key:
+            return []
+        counted = self._counted(w, key)
+        missing = max(0, data["loops"] - len(counted))
+        return [n for n in range(1, data["loops"] + 1) if n not in counted][:missing]
+
+    def loops_done(self, w, s) -> int | None:
+        """How many loops of this run are counted, for a file ProofLoop made."""
+        key, data = self.job_for(s)
+        if not data or not key:
+            return None
+        return min(len(self._counted(w, key)), data["loops"])
+
     def loop_failed(self, w, s, layers_done: int) -> None:
         key, data = self.job_for(s)
         if not data:

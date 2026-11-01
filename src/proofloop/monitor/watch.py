@@ -177,6 +177,13 @@ class PrinterWatch:
         self._printed = False  # the current loop's print has finished (and been charged)
         self._trays_loop: list[int] = []  # AMS trays the printer fed from during this loop
         self._max_layer = 0
+        # Kept across restarts (store.progress): which run this is, from when, and whether it has finished
+        self.run_since = 0.0
+        self._run_finished = False
+        self._resumed_run = False  # the first report has been matched with where the watch had got to
+        self._saved: tuple = ()
+        self._saved_at = 0.0
+        self._saved_layer = -1
 
     def event(
         self, level: str, kind: str, message: str, data: dict | None = None, image: bytes | None = None
@@ -202,7 +209,11 @@ class PrinterWatch:
             if s.commands_rejected:
                 self.status = "the printer rejects commands: turn on Developer Mode (LAN-only mode)"
 
+            if not self._resumed_run and s.online and s.gcode_state:
+                self._resumed_run = True
+                self._resume(s)
             self._track_loop(s)
+            self._keep_progress(s)
             self._look_for_failure(s)
             self._timelapse_frame(s)
             self._proof_photo(s)
@@ -219,8 +230,10 @@ class PrinterWatch:
         job = "|".join(job_names(s))
         if job and job != self._job:
             self._job, self.loop_no, self._marks, self._last_layer = job, 1, {}, 0
-            self._has_sentinels = False
+            self._has_sentinels, self._run_finished, self.run_since = False, False, now
             self._new_loop()
+        if s.gcode_state in ("RUNNING", "PREPARE"):
+            self._run_finished = False
         loop_job = is_loop_job(s)
         if loop_job and s.gcode_state == "RUNNING":
             if valid_tray(s.ams.tray_now) and s.ams.tray_now not in self._trays_loop:
@@ -313,6 +326,7 @@ class PrinterWatch:
             self._timelapse_end("finished")
             if is_loop_job(s):
                 self._loop_printed(s)
+                self._catch_up(s)
             self._log("printed", s)
             self.status = "finished: checking the plate"
             self._start_check("finished")
@@ -483,6 +497,70 @@ class PrinterWatch:
             self.proofs.take(self.name, job, max(1, self.loop_no), self.link.snapshot, self.run_async, self.settle_s)
         except Exception:  # a proof photo must never stop the plate check
             log.exception("%s: proof photo failed", self.name)
+
+    # ---- carrying on after a restart ------------------------------------------------------
+    def started(self) -> None:
+        """ProofLoop just sent this printer a file: what it reports next is a new run, even under the same name."""
+        with self.lock:
+            self._job = ""
+
+    def _resume(self, s: PrinterState) -> None:
+        """The first report since this watch began (ProofLoop started, or the printer was added): carry on
+        with the run it was following, and count loops that ended while nobody watched."""
+        if not is_loop_job(s):
+            return
+        job = "|".join(job_names(s))
+        saved = self.store.progress(self.name) or {}
+        self._job, self._last_layer = job, s.layer_num
+        if saved.get("job") == job:
+            self.loop_no, self._printed = int(saved.get("loop_no") or 1), bool(saved.get("printed"))
+            self._has_sentinels = bool(saved.get("sentinels"))
+            self.run_since, self._run_finished = float(saved.get("since") or 0), bool(saved.get("finished"))
+            if s.gcode_state in ("RUNNING", "PAUSE", "PREPARE") and 0 < s.layer_num < int(saved.get("layer") or 0):
+                n = self.loop_no
+                self._loop_printed(s)  # the layers started over: that loop ended while ProofLoop was away
+                self.loop_no += 1
+                self._new_loop()
+                self.event("warning", "loop", f"loop {n} ended while ProofLoop wasn't watching: counted it, "
+                                              "but its plate wasn't checked")
+        else:  # a run ProofLoop wasn't following (or one from before it kept track)
+            self.loop_no, self._printed = (self._call("loops_done", s) or 0) + 1, False
+        if s.gcode_state == "FINISH" and not self._run_finished:
+            self._printed = True
+            self._catch_up(s)
+
+    def _catch_up(self, s: PrinterState) -> None:
+        """The printer says the run finished: count its loops that ended unseen (ProofLoop was stopped,
+        or lost the printer), with their filament, as printed. Once per run."""
+        self._run_finished = True
+        missing = self._call("loops_missing", s) or []
+        if missing:
+            here = self.loop_no
+            for n in missing:
+                self.loop_no, self._printed = n, False
+                self._call("loop_done", s)
+            self.loop_no, self._printed = max(here, *missing), True
+            many = len(missing) != 1
+            self.event("warning", "loop", f"{len(missing)} loop{'s' if many else ''} of {job_names(s)[0]} ended "
+                                          "while ProofLoop wasn't watching: counted as printed, with "
+                                          f"{'their' if many else 'its'} filament, but not plate-checked")
+        self._keep_progress(s, force=True)
+
+    def _keep_progress(self, s: PrinterState, force: bool = False) -> None:
+        """Keep where this run has got to, so a restart carries on from here (layers at most every 15 s)."""
+        if not self._job or not is_loop_job(s):
+            return
+        key = (self._job, self.loop_no, self._printed, self._has_sentinels, self._run_finished)
+        now = time.time()
+        if not force and key == self._saved and (s.layer_num == self._saved_layer or now - self._saved_at < 15):
+            return
+        self._saved, self._saved_at, self._saved_layer = key, now, s.layer_num
+        try:
+            self.store.put_progress(self.name, {
+                "job": self._job, "loop_no": self.loop_no, "printed": self._printed, "layer": s.layer_num,
+                "sentinels": self._has_sentinels, "finished": self._run_finished, "since": self.run_since})
+        except Exception:  # keeping progress must never stop the watch
+            log.exception("%s: couldn't keep the run's progress", self.name)
 
     def _loop_printed(self, s: PrinterState) -> None:
         if not self._printed and is_loop_job(s):

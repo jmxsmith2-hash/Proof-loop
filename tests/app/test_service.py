@@ -164,6 +164,9 @@ def test_start_at_login(tmp_path, monkeypatch):
 
 
 def test_setup_check(tmp_path, home, monkeypatch, capsys):
+    from proofloop.app import autostart
+
+    monkeypatch.setattr(autostart, "enabled", lambda: False)  # not this computer's own setting
     results = doctor.checks(None)
     titles = [r["title"] for r in results]
     assert any(t.startswith(f"ProofLoop {__version__}") for t in titles) and "Your settings and data" in titles

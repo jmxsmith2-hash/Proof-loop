@@ -106,6 +106,10 @@ CREATE TABLE IF NOT EXISTS maintenance_log (
     note TEXT,
     used TEXT NOT NULL       -- the counters since the time before (hours, prints, loops, grams, days)
 );
+CREATE TABLE IF NOT EXISTS progress (
+    printer TEXT PRIMARY KEY, -- where the watch had got to in the run it follows, kept across restarts
+    data TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS idx_outcomes_ts ON outcomes(ts);
 CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage(ts);
 CREATE INDEX IF NOT EXISTS idx_usage_spool ON usage(spool_id, ts);
@@ -325,6 +329,12 @@ class Store:
             r = self._db.execute("SELECT data FROM jobs WHERE name=?", (name,)).fetchone()
         return json.loads(r[0]) if r else None
 
+    def job_sent(self, name: str) -> float | None:
+        """When loop file ``name`` was last made."""
+        with self._lock:
+            r = self._db.execute("SELECT ts FROM jobs WHERE name=?", (name,)).fetchone()
+        return r[0] if r else None
+
     def jobs(self, limit: int = 50) -> list[dict]:
         with self._lock:
             rows = self._db.execute("SELECT name, ts, data FROM jobs ORDER BY ts DESC LIMIT ?", (limit,))
@@ -367,6 +377,24 @@ class Store:
                 "INSERT INTO production (ts, printer, job, loop_no, parts, grams, ok) VALUES (?,?,?,?,?,?,?)",
                 (time.time(), printer, job, loop_no, parts, grams, int(ok)),
             )
+
+    def loops_counted(self, printer: str, job: str, since: float) -> list[int]:
+        """The loop numbers of ``job`` counted on ``printer`` since ``since`` (one per counted loop)."""
+        with self._lock:
+            rows = self._db.execute("SELECT loop_no FROM production WHERE printer=? AND job=? AND ts>=?",
+                                    (printer, job, since))
+            return [r[0] for r in rows]
+
+    # ---- where each watch had got to ------------------------------------------------
+    def put_progress(self, printer: str, data: dict) -> None:
+        with self._lock:
+            self._db.execute("INSERT INTO progress (printer, data) VALUES (?,?) ON CONFLICT(printer) "
+                             "DO UPDATE SET data=excluded.data", (printer, json.dumps(data)))
+
+    def progress(self, printer: str) -> dict | None:
+        with self._lock:
+            r = self._db.execute("SELECT data FROM progress WHERE printer=?", (printer,)).fetchone()
+        return json.loads(r[0]) if r else None
 
     def has_good_loop(self) -> bool:
         """Has any loop been printed and swept off cleanly on one of these printers?"""

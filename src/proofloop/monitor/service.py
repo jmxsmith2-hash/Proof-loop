@@ -371,6 +371,7 @@ class App:
         p.filename = filename = printer_filename(filename)
         md5, filaments = plate_facts(data, p.plate)
         w.link.send(remote_path(cfg.model_id, filename), data, start_command(p, cfg.model_id, md5, filaments))
+        w.started()  # a new run, even of a file sent before
         mapping = ", ".join(f"slot {i + 1} from {label(t)}" for i, t in enumerate(p.ams_mapping) if t >= 0)
         self._emit(self.store.add_event(name, "info", "sent", f"Sent {filename} and started it"
                                         + (f" ({mapping})" if mapping else "")))
