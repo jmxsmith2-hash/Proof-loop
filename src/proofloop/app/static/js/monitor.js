@@ -100,6 +100,7 @@ async function refreshMonitor() {
           <button class="btn ${m.waiting_for_you ? 'primary' : ''}" data-act="check" data-n="${n}">Check plate${m.waiting_for_you ? ' & resume' : ''}</button>
           <button class="btn" data-act="diff" data-n="${n}">Last difference</button>
           <button class="btn" data-act="test" data-n="${n}" title="Log in the way a send does; nothing is printed">Test connection</button>
+          ${WATCH_ONLY() ? '' : `<button class="btn ${m.hands_off ? 'primary' : ''}" data-act="handsoff" data-n="${n}" aria-pressed="${!!m.hands_off}" title="Send this printer its next queued job by itself once the plate checks empty">Hands-off ${m.hands_off ? 'on' : 'off'}</button>`}
           ${m.waiting_for_you ? `<button class="btn danger" data-act="resume" data-n="${n}">Resume without check</button>` : ''}
           <button class="btn danger" data-act="remove" data-n="${n}">Remove</button></div></div>`;
     }).join('');
@@ -149,6 +150,13 @@ $('#printerCards').addEventListener('click', async (e) => {
         toast(r.ok ? 'Connection works: ready to send' : 'Connection test found a problem');
       } finally { b.disabled = false; b.textContent = 'Test connection'; }
       return;
+    }
+    if (b.dataset.act === 'handsoff') {
+      const on = b.getAttribute('aria-pressed') !== 'true', name = decodeURIComponent(n);
+      if (on && !confirm(`Let ${name} take its next queued job by itself?\n\nWhen it's free and the camera says the plate is empty, ProofLoop sends the next job in the queue and it starts.` +
+        (STATE.send_confirm ? ' You get a notice 2 minutes before, with Hold to stop it.' : ' It starts without asking first (Ask before each send is off).'))) return;
+      const r = await send(`/api/monitor/${n}/hands-off`, {on}, 'PUT');
+      toast(!r.hands_off ? `${name}: hands-off is off` : r.send_to_printer ? `${name} is hands-off` : `${name} is hands-off, once Sending to printers is turned on`);
     }
     if (b.dataset.act === 'check') { await json(`/api/monitor/${n}/check`, {method: 'POST'}); toast('Checking the plate…'); setTimeout(refreshMonitor, 4000); }
     if (b.dataset.act === 'resume') { if (!confirm('Resume the next loop without a passing plate check?')) return; await json(`/api/monitor/${n}/resume`, {method: 'POST'}); }

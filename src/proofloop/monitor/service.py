@@ -19,6 +19,7 @@ from proofloop.loopfiles.gcode.routines import LoopSettings
 from proofloop.loopfiles.gcode.sweep import SweepSettings
 from proofloop.loopfiles.profiles import ProfileStore
 from proofloop.monitor.filament import Inventory, Spool
+from proofloop.monitor.handsoff import HandsOff
 from proofloop.monitor.homeassistant import HomeAssistantExport
 from proofloop.monitor.journal import PrintJournal
 from proofloop.monitor.orders import Orders
@@ -168,6 +169,7 @@ class App:
         self.journal = PrintJournal(self.store, self.data_dir, {p.name: p.model_id for p in self.settings.printers})
         self._migrate_cost_spools()
         self.folder_watch = FolderWatch(self)  # models saved into a folder, sliced (monitor/watchfolder.py)
+        self.hands_off = HandsOff(self)  # queued jobs sent by themselves (monitor/handsoff.py)
         for p in self.settings.printers:
             self._start_watch(p)
         if connect:
@@ -262,6 +264,10 @@ class App:
             except Exception:  # broad: the ticker thread must never die
                 log.exception("queue check failed")
             try:
+                self.hands_off.tick()
+            except Exception:  # broad: the ticker thread must never die
+                log.exception("the hands-off queue failed")
+            try:
                 self.morning_summary()
             except Exception:  # broad: the ticker thread must never die
                 log.exception("the morning summary failed")
@@ -304,6 +310,8 @@ class App:
             self._emit(self.store.add_event(None, "info", "order_done",
                                             f"Order for {o['customer']} is made: {o['quantity']} × {o['plate']}."))
         for run, job in self.queue.ready(self):
+            if self.hands_off.on(job["printer"]):
+                continue  # hands-off sends it, and says so
             self._emit(self.store.add_event(
                 job["printer"], "warning", "queue_ready",
                 f"{job['printer']} is free. Next in the queue: {run['plate']}, {job['loops']} loop"

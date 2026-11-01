@@ -59,6 +59,18 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         app.save_settings()
         return {"mode": app.settings.failure_watch}
 
+    @api.put("/api/monitor/{name}/hands-off", dependencies=guard)
+    def put_hands_off(name: str, body: dict):
+        """Let this printer take its next queued job by itself once its plate checks empty."""
+        if not allow_send:
+            raise HTTPException(403, "this can only be changed in the ProofLoop window")
+        cfg = next((p for p in app.settings.printers if p.name == name), None)
+        if cfg is None:
+            raise HTTPException(404, f"no printer {name!r}")
+        cfg.hands_off = bool(body.get("on"))
+        app.save_settings()
+        return {"name": name, "hands_off": cfg.hands_off, "send_to_printer": app.settings.send_to_printer}
+
     @api.post("/api/monitor/{name}/test", dependencies=guard)
     def test_connection(name: str):
         """Log in to the printer the way a send does (nothing is printed or copied)."""

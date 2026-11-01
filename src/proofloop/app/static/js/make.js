@@ -474,7 +474,7 @@ function renderSpread() {
       <td>${r.starts_in_s ? 'in ' + fmtDur(r.starts_in_s) : 'now'}</td><td>${fmtWhen(r.finish_s)}</td><td class="hint">${esc(r.cooldown)}</td></tr>`).join('')}</table></div>
     <p class="hint">${s.loops} loops, ${s.parts} parts, done around <b>${fmtWhen(s.finish_s)}</b>${s.cooldown_known ? '' : ' plus the cooldowns, which no printer has timed yet'}.</p>${out}
     <button class="btn primary" id="keepQueue">Keep it as a queue</button>
-    <p class="hint">ProofLoop tells you when each printer is free for its next job. You send or download each one; nothing starts by itself.</p>`;
+    <p class="hint">ProofLoop tells you when each printer is free for its next job. You send or download each one, unless you switch a printer to Hands-off under Printers › Monitor: then its next job is sent once its plate checks empty.</p>`;
   $('#keepQueue').onclick = async () => {
     try { await send('/api/queue', {token: PLATE.token, parts: +$('#planQty').value, settings: currentSettings()}); toast('Queued: see Printers › Overview'); SPREAD = null; renderSpread(); refreshQueue(); }
     catch (e) { toast(e.message); }
@@ -488,9 +488,17 @@ async function refreshQueue() {
     downloaded: '<span class="chip info">downloaded</span>', printing: `<span class="chip info">printing loop ${j.loop || 1} of ${j.loops}</span>`,
     done: '<span class="chip ok">done</span>', stopped: `<span class="chip bad">stopped: ${esc(j.why || '')}</span>`})[j.status] || '';
   const again = (j) => j.status === 'waiting' || j.status === 'stopped';
+  const hands = new Set((STATE?.monitor || []).filter(m => m.hands_off).map(m => m.name));
+  const auto = (j) => {  // the hands-off queue: when it sends, and Hold
+    if (j.status !== 'waiting' || !hands.has(j.printer) || !sendOn) return '';
+    if (j.held) return `<span class="chip warn">held</span> <button class="linkbtn" data-qhold="0" data-job="${esc(j.rid)}/${esc(j.id)}">Let hands-off send it</button>`;
+    const left = j.auto_at ? Math.max(0, j.auto_at - Date.now() / 1000) : null;
+    return `<span class="chip info">${left == null ? 'hands-off: when the plate checks empty' : left > 0 ? `hands-off: sending in ${Math.ceil(left / 60)} min` : 'hands-off: sending now'}</span>
+      <button class="btn" data-qhold="1" data-job="${esc(j.rid)}/${esc(j.id)}">Hold</button>`;
+  };
   $('#queueOut').innerHTML = runs.length ? runs.map(run => `<div style="padding:8px 0;border-top:1px solid var(--line)">
       <div class="spread"><b>${esc(run.plate)}</b><span><span class="hint">${run.parts} parts</span> <button class="linkbtn" data-qremove="${esc(run.id)}">Remove</button></span></div>
-      ${run.jobs.map(j => `<div class="spread" style="margin-top:4px"><span>${esc(j.printer)} · ${j.loops} loop${j.loops > 1 ? 's' : ''} ${label(j)}</span>
+      ${run.jobs.map(j => ({...j, rid: run.id})).map(j => `<div class="spread" style="margin-top:4px"><span>${esc(j.printer)} · ${j.loops} loop${j.loops > 1 ? 's' : ''} ${label(j)} ${auto(j)}</span>
         <span class="row">${again(j) && sendOn ? `<button class="btn" data-qsend="${esc(run.id)}/${esc(j.id)}" data-printer="${esc(j.printer)}">Send and start</button>` : ''}
         ${again(j) ? `<button class="btn" data-qget="${esc(run.id)}/${esc(j.id)}">Download</button>` : ''}</span></div>`).join('')}
     </div>`).join('') : '<p class="hint">Nothing queued. Under <a href="#" data-goto="make">Make a loop file</a>, plan a run and spread it over your printers.</p>';
@@ -498,6 +506,7 @@ async function refreshQueue() {
 $('#queueOut').addEventListener('click', async (e) => {
   const b = e.target.closest('button'); if (!b) return;
   try {
+    if (b.dataset.qhold) { await send(`/api/queue/${b.dataset.job}/hold`, {held: b.dataset.qhold === '1'}); toast(b.dataset.qhold === '1' ? 'Held: hands-off leaves it for you' : 'Hands-off will send it'); }
     if (b.dataset.qremove) { if (!confirm('Remove this run from the queue?')) return; await json('/api/queue/' + b.dataset.qremove, {method: 'DELETE'}); }
     if (b.dataset.qget) { const name = await saveBlob(await api(`/api/queue/${b.dataset.qget}/download`, {method: 'POST'}), 'loop.gcode.3mf'); toast('Saved ' + name); }
     if (b.dataset.qsend) {

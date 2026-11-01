@@ -23,6 +23,8 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         d = w.as_dict()
         _key, job = app.tracker.job_for(w.link.state)
         d["job_loops"] = job["loops"] if job else None
+        cfg = next((p for p in app.settings.printers if p.name == w.name), None)
+        d["hands_off"] = bool(cfg and cfg.hands_off)
         linked = {
             sp.tray: sp
             for sp in app.inventory.all(archived=False)

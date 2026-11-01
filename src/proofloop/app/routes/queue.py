@@ -36,6 +36,18 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         data, name = app.queue.plate(rid)
         return job, made_file(app, threemf.loads(data, name=name), {**run["settings"], "loops": job["loops"]})
 
+    if allow_send:  # only the window's API sends; the hands-off queue makes its files the same way
+        app.hands_off.make = lambda rid, jid: queued_file(rid, jid)[1]
+
+    @api.post("/api/queue/{rid}/{jid}/hold", dependencies=guard)
+    def queue_hold(rid: str, jid: str, body: dict):
+        """Hold a job back from the hands-off queue (or let it go again)."""
+        job = app.queue.job(rid, jid)
+        if job["status"] != "waiting":
+            raise HTTPException(409, "only a waiting job can be held")
+        app.queue.mark(rid, jid, held=bool(body.get("held", True)), auto_at=None)
+        return app.queue.job(rid, jid)
+
     @api.post("/api/queue/{rid}/{jid}/download", dependencies=guard)
     def queue_download(rid: str, jid: str):
         job, r = queued_file(rid, jid)
@@ -51,7 +63,7 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             raise HTTPException(400, "confirm the printer to send it to")
         job, r = queued_file(rid, jid)
         result = send_made(app, allow_send, job["printer"], body.get("confirm"), r)
-        app.queue.mark(rid, jid, status="sent", file=r.filename, at=time.time(), why=None, loop=None)
+        app.queue.mark(rid, jid, status="sent", file=r.filename, at=time.time(), why=None, loop=None, auto_at=None)
         return result
 
     @api.delete("/api/queue/{rid}", dependencies=guard)

@@ -133,6 +133,7 @@ class PrinterWatch:
         self.waiting_for_you = False
         self.last_check: BedCheck | None = None
         self.last_check_ts = 0.0
+        self.ended_at = 0.0  # when the last print finished or failed (a plate check must come after it)
         self._online = False
         self._gcode_state = ""
         self._sentinel = 0.0
@@ -284,6 +285,7 @@ class PrinterWatch:
                     "the printer paused (not a loop-end pause); ProofLoop won't resume it",
                 )
         elif st == "FINISH" and prev:
+            self.ended_at = time.time()
             self._timelapse_end("finished")
             if is_loop_job(s):
                 self._loop_printed(s)
@@ -291,6 +293,7 @@ class PrinterWatch:
             self.status = "finished: checking the plate"
             self._start_check("finished")
         elif st == "FAILED" and prev:
+            self.ended_at = time.time()
             self._timelapse_end("failed")
             self.status = "print failed or cancelled"
             self.event("error", "failed", "the print failed or was cancelled; check the plate")

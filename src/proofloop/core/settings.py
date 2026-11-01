@@ -56,6 +56,7 @@ class PrinterConfig(_Model):
     model_id: str
     snapshot_url: str | None = None
     auto_resume: bool = True  # resume a loop-end pause when the plate checks out empty
+    hands_off: bool = False  # send the next queued job by itself once the plate checks empty (monitor/handsoff.py)
     verify: VerifyConfig = Field(default_factory=VerifyConfig)
 
     @field_validator("model_id")
