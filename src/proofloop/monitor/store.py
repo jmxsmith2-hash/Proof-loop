@@ -6,6 +6,7 @@ import json
 import sqlite3
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -328,6 +329,19 @@ class Store:
         with self._lock:
             r = self._db.execute("SELECT data FROM jobs WHERE name=?", (name,)).fetchone()
         return json.loads(r[0]) if r else None
+
+    def rename_jobs(self, key: Callable[[str], str]) -> int:
+        """Give recorded loop files the names ``key`` makes of them (keeping the newer of two that meet)."""
+        n = 0
+        with self._lock:
+            for name, ts in self._db.execute("SELECT name, ts FROM jobs ORDER BY ts").fetchall():
+                new = key(name)
+                if new != name:
+                    self._db.execute("DELETE FROM jobs WHERE name=? AND ts<=?", (new, ts))
+                    self._db.execute("UPDATE OR IGNORE jobs SET name=? WHERE name=?", (new, name))
+                    self._db.execute("DELETE FROM jobs WHERE name=?", (name,))  # a newer one has the name
+                    n += 1
+        return n
 
     def job_sent(self, name: str) -> float | None:
         """When loop file ``name`` was last made."""

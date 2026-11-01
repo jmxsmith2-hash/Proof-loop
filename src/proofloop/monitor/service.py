@@ -154,6 +154,7 @@ class App:
         self.settings: Settings = self.settings_store.load()
         self.profiles = ProfileStore(self.data_dir / "profiles")
         self.store = Store(self.data_dir / PRINTERS_DB)
+        self.store.rename_jobs(job_key)  # files recorded before names were kept as the printer reports them
         self.uploads = UploadCache(40, self.data_dir / "uploads")
         self.queue = Queue(self.data_dir / "queue")
         self.orders = Orders(self.data_dir / "orders.json")

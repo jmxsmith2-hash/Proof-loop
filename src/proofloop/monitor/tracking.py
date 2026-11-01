@@ -10,6 +10,7 @@ their usage isn't known.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -24,11 +25,14 @@ SUFFIXES = (".gcode.3mf", ".3mf", ".gcode")
 
 
 def job_key(name: str) -> str:
-    n = name.rsplit("/", 1)[-1].strip()
+    """A loop file's name as the printer reports it once sent: no folder or extension, and only letters,
+    digits and ``. _ -`` (send.printer_filename), so "Plate 1.gcode.3mf" and the printer's "Plate_1" match."""
+    n = name.replace("\\", "/").rsplit("/", 1)[-1].strip()
     for suf in SUFFIXES:
         if n.lower().endswith(suf):
-            return n[: -len(suf)]
-    return n
+            n = n[: -len(suf)]
+            break
+    return re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9._-]", "_", n)).strip("._") or n
 
 
 def plate_record(sf, parts: int) -> dict:

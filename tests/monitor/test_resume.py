@@ -110,3 +110,31 @@ def test_sending_the_same_file_again_is_a_new_run(tmp_path):
     assert loops(app)[3:] == [(JOB, 1), (JOB, 2), (JOB, 3)]  # the earlier run's loops don't count for this one
     assert app.inventory.get(spool).remaining_g == pytest.approx(1000 - 6 * 12.5)
     app.shutdown()
+
+
+def test_a_file_with_spaces_in_its_name_is_followed_under_the_name_the_printer_gives_it(tmp_path):
+    app, w, c = start(tmp_path, first=True)
+    r = up(c, plain(BUCKET), name="Boot (red) plate 1.gcode.3mf").json()
+    d = c.post(f"/api/plates/{r['token']}/download", json={"loops": 2})
+    assert d.status_code == 200 and " " in d.headers["X-ProofLoop-Filename"]
+    st = w.link.state
+    st.subtask_name, st.gcode_state, st.total_layers, st.layer_num = "FL_S2_Boot_red_plate_1", "RUNNING", 850, 10
+    for t in (1.0, 220.0, 2.0):  # the printer reports the name it was sent under: no spaces or brackets
+        st.nozzle_target = t
+        w.on_state(st)
+    assert loops(app) == [("FL_S2_Boot_red_plate_1", 1)] and app.store.production()[0]["parts"] == 2
+    assert c.get("/api/state").json()["monitor"][0]["job_loops"] == 2
+    app.shutdown()
+
+
+def test_files_recorded_under_their_old_names_are_renamed_once(tmp_path):
+    from proofloop.monitor.store import Store
+    from proofloop.monitor.tracking import job_key
+
+    store = Store(tmp_path / "p.db")
+    store.put_job("FL_S1_Plate 1", {"loops": 1})
+    store.put_job("FL_S1_x (red)", {"loops": 2})
+    store.put_job("FL_S1_x_red", {"loops": 3})  # newer: kept
+    assert store.rename_jobs(job_key) == 2
+    assert store.job("FL_S1_Plate_1") == {"loops": 1} and store.job("FL_S1_x_red") == {"loops": 3}
+    assert store.job("FL_S1_Plate 1") is None and store.rename_jobs(job_key) == 0
