@@ -104,6 +104,11 @@ input[type=number]{max-width:140px}
 .run{padding:12px 0;border-top:1px solid var(--line)}
 .run:first-child{border-top:0}
 .thumb{width:100%;border-radius:8px;border:1px solid var(--line);background:var(--soft);aspect-ratio:4/3;object-fit:cover}
+.proofs{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px;margin-top:6px}
+.proof{position:relative;display:block;border-radius:6px;overflow:hidden;border:1px solid var(--line);background:var(--soft);aspect-ratio:4/3}
+.proof img{display:block;width:100%;height:100%;object-fit:cover}
+.proof span{position:absolute;left:4px;bottom:4px;padding:0 5px;border-radius:4px;font-size:11px;background:rgba(0,0,0,.6);color:#fff}
+.gallery summary{cursor:pointer;margin-top:6px}
 .slice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px;align-items:start}
 .slice-grid select,.slice-grid input[type=number]{width:100%}
 #sliceCard.project .sl-mesh{display:none}
@@ -664,7 +669,9 @@ input[type=number]{max-width:140px}
             <select name="look_every_pct" style="max-width:320px"><option value="5">Every 5% of the layers</option><option value="10">Every 10% of the layers</option><option value="15">Every 15% of the layers</option><option value="20">Every 20% of the layers</option><option value="25">Every 25% of the layers</option><option value="0">Only halfway and at 80% (no spaghetti look)</option></select></label>
           <label class="toggle"><input type="checkbox" name="timelapse"><span><b>Make a timelapse of each print</b><span class="hint">Off unless you turn it on. A picture every few layers, made into a small animation when the print ends. Each printer's last few are on its card.</span></span></label>
           <div class="row"><label class="field" style="margin:0"><span>A picture every (layers)</span><input type="number" name="timelapse_every_layers" min="1" max="500" style="max-width:100px"></label>
-          <label class="field" style="margin:0"><span>Keep per printer</span><input type="number" name="timelapse_keep" min="1" max="50" style="max-width:100px"></label>
+          <label class="field" style="margin:0"><span>Keep per printer</span><input type="number" name="timelapse_keep" min="1" max="50" style="max-width:100px"></label></div>
+          <label class="toggle"><input type="checkbox" name="proof_photos"><span><b>Save a picture of each finished plate</b><span class="hint">Taken before the sweep, so each order shows what was made. The latest are on the printer's card too.</span></span></label>
+          <div class="row"><label class="field" style="margin:0"><span>Pictures to keep</span><input type="number" name="proof_keep" min="10" max="5000" style="max-width:100px"></label>
           <button class="btn primary" style="align-self:flex-end">Save</button></div>
         </form>
       </div>

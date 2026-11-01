@@ -56,6 +56,13 @@ $('#orderForm').onsubmit = async (e) => {
     f.reset(); ORDER_MODEL = null; orderPlateReady(null, ORDER_HINT); f.price_each.placeholder = 'optional'; refreshOrders();
   } catch (err) { toast(err.message); $('#orderAdd').disabled = false; }
 };
+// A proof photo: a loop's finished plate, before the sweep. A click opens it full size.
+const proofThumb = (ph) => {
+  const src = esc(withToken('/api/proofs/' + encodeURIComponent(ph.id)));
+  const what = `${ph.printer} · loop ${ph.loop} · ${new Date(ph.taken * 1000).toLocaleString()}`;
+  return `<a class="proof" href="${src}" target="_blank" rel="noopener" title="${esc(what)}"><img src="${src}" alt="${esc('Finished plate: ' + what)}" loading="lazy"><span>${ph.loop}</span></a>`;
+};
+const galleryOpen = new Set();  // orders whose gallery you opened, kept open as the list is drawn again
 const at = (ts) => new Date(ts * 1000).toLocaleString([], {weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
 function csvLinks() {
   const range = [['from', $('#csvFrom').value], ['to', $('#csvTo').value]].filter(([, v]) => v).map(([k, v]) => `${k}=${v}`);
@@ -102,10 +109,15 @@ async function refreshOrders() {
       <div class="meter"><i style="width:${o.pct}%"></i></div>
       <div class="spread"><span><b>${o.made}</b> of ${o.quantity} made</span><span class="hint">${o.complete ? 'all made' : o.eta ? 'ready around <b>' + at(o.eta) + '</b>' : o.queued ? '' : 'its queue was removed'}</span></div>
       ${money ? `<div class="hint">${money}</div>` : ''}
+      ${o.proofs?.length ? `<details class="gallery" data-gallery="${esc(o.id)}"${galleryOpen.has(o.id) ? ' open' : ''}><summary class="hint">${o.proofs.length} finished plate${o.proofs.length === 1 ? '' : 's'}</summary><div class="proofs">${o.proofs.map(proofThumb).join('')}</div></details>` : ''}
       <div class="row" style="margin-top:6px"><button class="linkbtn" data-invoice="${esc(o.id)}">Invoice${o.invoice ? ' ' + esc(o.invoice.label) : ''}</button>${m.revenue != null ? ` <button class="linkbtn" data-order="${esc(o.id)}" data-set="${o.paid ? 'unpaid' : 'paid'}">Mark ${o.paid ? 'unpaid' : 'paid'}</button>` : ''} ${o.status === 'open' ? `<button class="linkbtn" data-ordergo="overview">Queue</button> <button class="linkbtn" data-order="${esc(o.id)}" data-set="done">Mark made</button> <button class="linkbtn" data-order="${esc(o.id)}" data-set="cancelled">Cancel</button>` : ''} <button class="linkbtn" data-order="${esc(o.id)}" data-set="remove">Remove</button></div></div>`;
   }).join('') : '<p class="hint">No orders yet. Take one below: drop the model or sliced plate, say how many and by when.</p>';
 }
 $('#ordersAll').addEventListener('change', refreshOrders);
+$('#ordersOut').addEventListener('toggle', (e) => {  // toggle doesn't bubble: caught on the way down
+  const g = e.target.closest?.('[data-gallery]'); if (!g) return;
+  if (g.open) galleryOpen.add(g.dataset.gallery); else galleryOpen.delete(g.dataset.gallery);
+}, true);
 $('#ordersOut').addEventListener('click', async (e) => {
   const g = e.target.closest('[data-ordergo]'); if (g) { show(g.dataset.ordergo); return; }
   const inv = e.target.closest('[data-invoice]');

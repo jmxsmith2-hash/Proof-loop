@@ -66,7 +66,7 @@ access-token guard. Every other route lives in `app/routes/`, one module per fea
 | `check.py` | check a loop file |
 | `profiles.py` | hardware profiles, loop-file defaults, calibration prints |
 | `monitor.py` | add and find printers, connection test, plate pictures, resume, events, failure watch |
-| `camera.py` | the camera view, camera settings, timelapses |
+| `camera.py` | the camera view, camera settings, timelapses, proof photos |
 | `notifications.py` | quiet hours, where notices go |
 | `filament.py` | spools, usage, weigh-ins, AMS links, Spoolman, what a plate needs |
 | `overview.py` | the Overview |
@@ -115,6 +115,7 @@ file). Each module has `register(api, app, guard, allow_send)`. To add a feature
 | `watch.py` | Recognises loop-end pauses, checks the plate, resumes only when it's empty. |
 | `vision.py` | Empty-plate comparison against reference pictures; the look at a print in progress (compact growth against a ragged tangle). |
 | `timelapse.py` | A picture every few layers while a print runs, one small animation when it ends. |
+| `proofs.py` | A picture of each loop's finished plate before the sweep, kept per job; each order's gallery. |
 | `journal.py` | Print journal: how every print ended (layer, HMS, temperatures, plate check, picture); keeps the files ProofLoop makes. |
 | `filament.py` | Spool inventory, usage log, weigh-ins, which spool feeds a slot, how many loops your spools cover. |
 | `tracking.py` | Remembers the files ProofLoop makes; charges finished and part-way loops to spools; holds a loop the spools can't cover; links RFID spools to AMS trays. |
