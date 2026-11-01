@@ -1,7 +1,9 @@
 """A stand-in for Bambu Studio's command line, for tests (the real slicer can't run in CI).
 
-It takes the same options (--slice --export-3mf --load-settings --load-filaments --clone-objects --arrange
---orient --outputdir model) and writes a .gcode.3mf in Bambu Studio's layout. A project .3mf is sliced with
+It takes the same options (--slice --export-3mf --load-settings --load-filaments --load-filament-ids
+--clone-objects --allow-multicolor-oneplate --arrange --orient --outputdir model...) and writes a .gcode.3mf
+in Bambu Studio's layout. With several models the G-code is the first one's, but every model's copies are on
+the plate, each in its filament slot; without --allow-multicolor-oneplate each slot gets plates of its own. A project .3mf is sliced with
 the settings saved in it (its parts are taken to be a 10 mm cube), and copies past PER_PLATE go on more plates. Like a real slicer it cuts the
 model into layers, leaves out anything narrower than the nozzle, and adds support under overhangs
 only when the process preset has enable_support on. Lines are straight passes across each layer.
@@ -41,19 +43,30 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--export-3mf", dest="out")
     ap.add_argument("--load-settings", dest="settings")
     ap.add_argument("--load-filaments", dest="filaments")
-    ap.add_argument("--clone-objects", dest="clones", type=int, default=1)
+    ap.add_argument("--clone-objects", dest="clones", default="1")
+    ap.add_argument("--load-filament-ids", dest="ids", default="")
+    ap.add_argument("--allow-multicolor-oneplate", dest="multicolor", action="store_true")
     ap.add_argument("--arrange")
     ap.add_argument("--orient")
     ap.add_argument("--outputdir")
-    ap.add_argument("model")
+    ap.add_argument("models", nargs="+")
     a = ap.parse_args(argv)
+    a.model = a.models[0]
     if a.settings:
         machine, process = (json.loads(Path(p).read_text(encoding="utf-8")) for p in a.settings.split(";"))
-        filament = json.loads(Path(a.filaments.split(";")[0]).read_text(encoding="utf-8"))
+        fils = [json.loads(Path(p).read_text(encoding="utf-8")) for p in a.filaments.split(";")]
+        ids = [int(i) for i in a.ids.split(",")] if a.ids else [1] * len(a.models)
+        if len(ids) != len(a.models) or max(ids) > len(fils):
+            print("filament ids don't match the models and filaments")
+            return 2
+        filament = fils[ids[0] - 1]
         mesh = trimesh.load(a.model, force="mesh")
     else:  # a project: everything comes from the settings saved in it
         machine = process = filament = json.loads(zipfile.ZipFile(a.model).read("Metadata/project_settings.config"))
+        fils, ids = [filament], [1]
         mesh = trimesh.creation.box((10, 10, 10))
+    clones = [int(c) for c in a.clones.split(",")]
+    clones = clones if len(clones) == len(a.models) else clones[:1] * len(a.models)
     layer = float(first(process.get("layer_height"), 0.2))
     nozzle = float(first(machine.get("nozzle_diameter"), 0.4))
     support = str(first(process.get("enable_support"), "0")) == "1"
@@ -125,16 +138,32 @@ def main(argv: list[str] | None = None) -> int:
     end = str(machine.get("machine_end_gcode") or "M400\nM140 S0\nM104 S0\nM106 S0").splitlines()
     tail = ["; MACHINE_END_GCODE_START", *end, "; EXECUTABLE_BLOCK_END", ""]
     data = "\n".join(head + body + tail).encode()
-    copies = [PER_PLATE] * (a.clones // PER_PLATE) + [a.clones % PER_PLATE]
-    copies = [c for c in copies if c] or [1]
-    stem = Path(a.model).stem
+    objects = [(Path(m).name, i) for m, c, i in zip(a.models, clones, ids, strict=True) for _ in range(c)]
+    groups = [objects] if a.multicolor else [[o for o in objects if o[1] == i] for i in dict.fromkeys(ids)]
+    copies = [g[k:k + PER_PLATE] for g in groups for k in range(0, len(g), PER_PLATE)] or [objects[:1]]
+
+    def used(plate):
+        fid = sorted({i for _, i in plate})
+        return "".join(f'<filament id="{i}" type="{first(fils[i - 1].get("filament_type"), "PLA")}" '
+                       f'color="{first(fils[i - 1].get("filament_colour"), "#FFFFFF")}" used_m="1" '
+                       f'used_g="{grams / len(fid):.2f}"/>' for i in fid)
+
+    def names(plate):  # like the real slicer: "cube" for one model; "cube.stl_1", "cube.stl_2"... for several
+        if len(a.models) == 1:
+            return [Path(m).stem for m, _ in plate]
+        seen: dict[str, int] = {}
+        out = []
+        for m, _ in plate:
+            seen[m] = seen.get(m, 0) + 1
+            out.append(f"{m}_{seen[m]}")
+        return out
+
     plates = "".join(
         f'<plate><metadata key="index" value="{n}"/>'
         '<metadata key="prediction" value="1980"/>'  # like the real command line: no printer_model_id
         f'<metadata key="weight" value="{grams:.2f}"/>'
-        + "".join(f'<object identify_id="{k + 1}" name="{stem}" />' for k in range(count))
-        + f'<filament id="1" type="{first(filament.get("filament_type"), "PLA")}" color="#FFFFFF" used_m="1" '
-        f'used_g="{grams:.2f}"/></plate>' for n, count in enumerate(copies, 1))
+        + "".join(f'<object identify_id="{k + 1}" name="{name}" />' for k, name in enumerate(names(plate)))
+        + used(plate) + '</plate>' for n, plate in enumerate(copies, 1))
     info = f'<?xml version="1.0" encoding="UTF-8"?><config>{plates}</config>'
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:

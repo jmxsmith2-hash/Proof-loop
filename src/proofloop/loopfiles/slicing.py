@@ -6,6 +6,9 @@ line (see ``proofloop.check.slicer``), with its own presets and the ones you sav
 * A model (``.stl``, ``.obj``, ``.step``) is sliced with the printer, process and filament presets
   you pick. The nozzle size comes from the printer preset and the nozzle flow (Standard or High
   Flow) from your printer, so the file matches what is fitted.
+* Several models can share a plate, each with its own number of copies and its own filament. A
+  filament picked from an AMS tray keeps that tray's number as its slot (tray A3 is slot 3), so
+  plates sliced here from one printer's AMS can be batched into one run.
 * A Bambu Studio project (``.3mf`` with the parts in it) is sliced with the project's own settings:
   painting, supports and modifiers stay as you made them. Only the nozzle flow changes, when it
   isn't the one your printer has; this is how a plate sliced for the wrong nozzle gets fixed.
@@ -34,6 +37,7 @@ MESH_SUFFIXES = (".stl", ".obj", ".step", ".stp")
 FLOWS = ("Standard", "High Flow")
 PLATES = ("Textured PEI Plate", "Cool Plate", "Engineering Plate", "High Temp Plate", "Supertack Plate")
 MAX_COPIES = 100
+MAX_SLOT = 16  # four AMS units of four trays
 FILL_COPIES = 100  # "fill the plate" asks for this many and keeps what fits on the first plate
 
 
@@ -71,6 +75,8 @@ class Choice:
     support: bool | None = None  # None: as the process preset has it
     orient: bool = False     # let the slicer turn the part to its best side
     clear_behind_y: float = 0.0  # keep parts in front of this Y (the sweep's drop-down strip); 0: anywhere
+    filament_colour: str = ""  # the AMS tray's colour, so a send feeds it from that tray; "": the preset's
+    filament_slot: int = 0   # the AMS tray's number + 1 (A1 = 1 ... D4 = 16); 0: the first free slot
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Choice:
@@ -82,7 +88,70 @@ class Choice:
             raise SliceError(f"nozzle flow must be one of {', '.join(FLOWS)}")
         if c.plate and c.plate not in PLATES:
             raise SliceError(f"the plate must be one of {', '.join(PLATES)}")
+        c.filament_colour, c.filament_slot = _colour(c.filament_colour), _slot(c.filament_slot)
         return c
+
+
+@dataclass
+class Extra:
+    """Another model on the same plate: how many of it, and the filament it prints in."""
+
+    data: bytes
+    name: str
+    copies: int = 1
+    filament: str = ""       # "": the first model's
+    colour: str = ""
+    slot: int = 0
+
+    def __post_init__(self) -> None:
+        self.copies = int(self.copies or 1)
+        if not 1 <= self.copies <= MAX_COPIES:
+            raise SliceError(f"copies of {self.name} must be between 1 and {MAX_COPIES}")
+        self.colour, self.slot = _colour(self.colour), _slot(self.slot)
+
+
+def _colour(v: Any) -> str:
+    m = re.fullmatch(r"#?([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?", str(v or "").strip())
+    return f"#{m.group(1).upper()}" if m else ""
+
+
+def _slot(v: Any) -> int:
+    try:
+        n = int(v or 0)
+    except (TypeError, ValueError):
+        return 0
+    return n if 1 <= n <= MAX_SLOT else 0
+
+
+def assign_slots(items: list[Extra]) -> tuple[list[tuple[str, str]], list[int]]:
+    """The filament slots a plate's models print in: (preset, colour) for slots 1..n, and each model's slot.
+    A model given a tray keeps that tray's slot; the others share a slot when their filament is the same,
+    else take the first free one. Slots nothing prints in are filled with the first model's filament."""
+    keys = [(it.filament, it.colour) for it in items]
+    taken: dict[int, tuple[str, str]] = {}
+    ids = [0] * len(items)
+    for i, it in enumerate(items):
+        if it.slot:
+            if taken.get(it.slot, keys[i]) != keys[i]:
+                raise SliceError(f"slot {it.slot} can't print two filaments: pick one for {it.name}")
+            taken[it.slot], ids[i] = keys[i], it.slot
+    for i in range(len(items)):
+        if not ids[i]:
+            ids[i] = next((s for s, k in taken.items() if k == keys[i]), 0) \
+                or next(n for n in range(1, len(taken) + 2) if n not in taken)
+            taken[ids[i]] = keys[i]
+    filler = (keys[0][0], "")
+    return [taken.get(n, filler) for n in range(1, max(taken) + 1)], ids
+
+
+def mixed_name(names: list[str]) -> str:
+    """The sliced plate's name: the first model's, and how many others share its plate."""
+    first = sliced_name(names[0])[: -len(".gcode.3mf")]
+    others = [sliced_name(n)[: -len(".gcode.3mf")] for n in names[1:]]
+    if not others:
+        return f"{first}.gcode.3mf"
+    tail = others[0] if len(others) == 1 else f"{len(others)}_more"
+    return f"{first}_and_{tail}.gcode.3mf"
 
 
 # ------------------------------------------------------------------------------- presets
@@ -236,13 +305,23 @@ def project_flow(data: bytes) -> str:
 
 
 def slice_upload(data: bytes, name: str, choice: Choice, work: Path, *, model_id: str = printers.P2S,
-                 found: Slicer | None = None, lib: PresetLibrary | None = None) -> tuple[bytes, str, list[str]]:
-    """Slice an uploaded model or project. Returns (the sliced .gcode.3mf, its name, notes for the window)."""
+                 found: Slicer | None = None, lib: PresetLibrary | None = None,
+                 extra: list[Extra] | None = None) -> tuple[bytes, str, list[str]]:
+    """Slice an uploaded model or project, with ``extra`` models on the same plate. Returns (the sliced
+    .gcode.3mf, its name, notes for the window)."""
     kind = kind_of(name, data)
+    extra = extra or []
     if kind == "plate":
         raise SliceError(f"{name} is already sliced: open it in Make a loop file as it is")
     if not kind:
         raise SliceError(f"{name} isn't a model ProofLoop can slice: use .stl, .obj, .step or a Bambu Studio .3mf project")
+    if extra and kind == "project":
+        raise SliceError(f"{name} is a Bambu Studio project, with its own parts: add models to it in Bambu Studio")
+    for x in extra:
+        if kind_of(x.name, x.data) != "mesh":
+            raise SliceError(f"{x.name} isn't a model that can share the plate: use .stl, .obj or .step")
+    if extra and choice.fill:
+        raise SliceError("Fill the plate works with one model: say how many of each instead")
     if found is None or lib is None:
         found, lib = slicer_and_presets()
     work.mkdir(parents=True, exist_ok=True)
@@ -269,8 +348,16 @@ def slice_upload(data: bytes, name: str, choice: Choice, work: Path, *, model_id
     if process not in opts["processes"][machine]:
         raise SliceError(f"the process {process!r} doesn't fit {machine}")
     filament = choice.filament or m["default_filament"]
-    if filament not in {f["name"] for f in opts["filaments"][machine]}:
-        raise SliceError(f"the filament {filament!r} doesn't fit {machine}")
+    fits = {f["name"] for f in opts["filaments"][machine]}
+    items = [Extra(data, name, choice.copies, filament, choice.filament_colour, choice.filament_slot)]
+    for x in extra:
+        items.append(Extra(x.data, x.name, x.copies, x.filament or filament, x.colour, x.slot))
+    for it in items:
+        if it.filament not in fits:
+            raise SliceError(f"the filament {it.filament!r} doesn't fit {machine}")
+    if not choice.fill and sum(it.copies for it in items) > MAX_COPIES:
+        raise SliceError(f"that's more than {MAX_COPIES} parts on one plate")
+    slots, ids = assign_slots(items)
     over: dict[str, dict[str, Any]] = {}
     if choice.nozzle_flow:
         if choice.nozzle_flow not in m["flows"]:
@@ -287,15 +374,33 @@ def slice_upload(data: bytes, name: str, choice: Choice, work: Path, *, model_id
         if 0 < choice.clear_behind_y < h:
             y = f"{choice.clear_behind_y:g}"
             over.setdefault("machine", {})["bed_exclude_area"] = [f"0x{y}", f"{w:g}x{y}", f"{w:g}x{h:g}", f"0x{h:g}"]
-    src = work / safe
-    src.write_bytes(data)
-    presets = write_presets(lib, work / "presets", machine, process, filament, over)
-    copies = FILL_COPIES if choice.fill else choice.copies
+    if len(set(ids)) > 1:
+        # A prime tower would stay on the plate where the sweep can't clear it, and the next loop would
+        # print onto it: the printer flushes into its chute instead.
+        over.setdefault("process", {})["enable_prime_tower"] = 0
+        notes.append(f"{len(set(ids))} filaments: each layer changes filament between them, which takes longer, "
+                     "and no prime tower is printed, so the sweep leaves the plate clear")
+    srcs = []
+    for i, it in enumerate(items):
+        one = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(it.name).name).strip("._") or "model"
+        src = work / "models" / str(i) / one  # a folder each: two models may have the same name
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_bytes(it.data)
+        srcs.append(src)
+    presets = write_presets(lib, work / "presets", machine, process, slots[0][0], over,
+                            slots=slots if len(slots) > 1 or slots[0][1] else None)
+    copies = [FILL_COPIES] if choice.fill else [it.copies for it in items]
     try:
-        out, _ = slice_model(found, src, presets, work / "out", arrange=True, orient=choice.orient, copies=copies)
+        out, _ = slice_model(found, srcs, presets, work / "out", arrange=True, orient=choice.orient, copies=copies,
+                             filament_ids=ids)
     except ConfigError as e:
         raise SliceError(str(e)) from e
     sliced = out.read_bytes()
+    if extra:
+        if len(threemf.sliced_plates(sliced)) > 1:
+            notes.append("they don't all fit on one plate: the slicer made "
+                         f"{len(threemf.sliced_plates(sliced))} plates")
+        return sliced, mixed_name([it.name for it in items]), notes
     plates = threemf.sliced_plates(sliced)
     if choice.fill:
         # The slicer puts what doesn't fit on more plates: the first one is the plate full of copies.

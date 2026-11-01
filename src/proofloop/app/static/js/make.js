@@ -2,13 +2,16 @@
 // Part of loop.html; the files load in order and share their top-level names.
 
 // ---------- make ----------
-dropZone($('#makeDrop'), $('#makeFile'), async (file) => {
+dropZone($('#makeDrop'), $('#makeFile'), async (file, more = []) => {
   $('#makeError').classList.add('hidden'); $('#noProfile').classList.add('hidden');
   $('#makeDrop strong').textContent = 'Reading ' + file.name + '…';
   try {
     const fd = new FormData(); fd.append('file', file);
     const res = await json('/api/plates', {method: 'POST', body: fd});
-    if (res.model) { await openSlice(res.model); } else {
+    if (res.model) {  // several models dropped together go on one plate
+      await openSlice(res.model);
+      if (more.length && res.model.kind === 'mesh') await addModels(more);
+    } else {
       $('#sliceCard').classList.add('hidden');
       PLATES = res.plates || [];
       showOpened(res);
@@ -21,9 +24,10 @@ dropZone($('#makeDrop'), $('#makeFile'), async (file) => {
 // ---------- slicing a model here ----------
 // A model or a Bambu Studio project dropped above: pick the printer and presets, then it is sliced by the
 // slicer on this computer and opens below like any sliced plate.
-let MODEL = null, SLICE = null;
+let MODEL = null, SLICE = null, EXTRA = [];  // EXTRA: more models on the same plate {token, name, copies, filament}
 async function openSlice(model) {
-  MODEL = model;
+  MODEL = model; EXTRA = []; renderExtra();
+  $('#slName').textContent = model.name;
   const card = $('#sliceCard');
   card.classList.remove('hidden'); card.classList.toggle('project', model.kind === 'project');
   $('#sliceTitle').textContent = 'Slice ' + model.name;
@@ -37,8 +41,8 @@ async function openSlice(model) {
     SLICE = await json('/api/slice/options');
     $('#sliceWait').textContent = '';
   }
-  if (!SLICE.slicer) { sliceError(SLICE.error); $('#sliceBtn').disabled = true; return; }
-  $('#sliceBtn').disabled = false;
+  if (!SLICE.slicer) { sliceError(SLICE.error); $('#sliceBtn').disabled = $('#sliceBatchBtn').disabled = true; return; }
+  $('#sliceBtn').disabled = $('#sliceBatchBtn').disabled = false;
   $('#slPrinter').innerHTML = SLICE.printers.map(p => `<option value="${esc(p.name)}">${esc(p.name)}${p.nozzle ? ` · ${p.nozzle} mm ${esc(p.nozzle_flow || '')}` : ''}</option>`).join('')
     + `<option value="">Any ${esc(SLICE.printer_model.replace('Bambu Lab ', ''))}</option>`;
   $('#slMachine').innerHTML = SLICE.machines.map(m => `<option value="${esc(m.name)}">${esc(m.nozzle)} mm${m.mine ? ` · ${esc(m.name)}` : ''}</option>`).join('');
@@ -63,31 +67,87 @@ function sliceMachineChanged() {
   const fils = SLICE.filaments[name] || [], p = slicePrinter();
   const trays = (p && p.machine === name ? p.trays : []).filter(t => t.preset);
   const opt = (n, label) => `<option value="${esc(n)}">${esc(label || n)}</option>`;
+  // A tray's option carries its colour and number, so the plate keeps that tray's slot (A3 = slot 3)
+  const tray = t => `<option value="${esc(t.preset)}" data-color="${esc(t.color || '')}" data-slot="${t.tray < 16 ? t.tray + 1 : 0}">${esc(`${t.label} · ${t.sub_brand || t.type} ${t.color || ''} → ${t.preset}`)}</option>`;
   $('#slFilament').innerHTML =
-    (trays.length ? `<optgroup label="In ${esc(p.name)}'s AMS">${trays.map(t => opt(t.preset, `${t.label} · ${t.sub_brand || t.type} ${t.color || ''} → ${t.preset}`)).join('')}</optgroup>` : '')
+    (trays.length ? `<optgroup label="In ${esc(p.name)}'s AMS">${trays.map(tray).join('')}</optgroup>` : '')
     + (fils.some(f => f.mine) ? `<optgroup label="Yours">${fils.filter(f => f.mine).map(f => opt(f.name)).join('')}</optgroup>` : '')
     + `<optgroup label="All for this nozzle">${fils.filter(f => !f.mine).map(f => opt(f.name)).join('')}</optgroup>`;
   if (!trays.length && m.default_filament) $('#slFilament').value = m.default_filament;
+  renderExtra();
+}
+// The filament a select shows, as the server takes it: the preset, and the tray's colour and slot if it is one
+function filamentOf(sel) {
+  const o = sel.selectedOptions[0];
+  return {filament: sel.value, colour: o?.dataset.color || '', slot: +(o?.dataset.slot || 0)};
+}
+function renderExtra() {
+  const opts = $('#slFilament').innerHTML;
+  $('#slMore').innerHTML = EXTRA.map((x, i) => `<div class="sl-model"><b class="sl-name">${esc(x.name)}</b>
+    <label class="field"><span>Copies</span><input type="number" min="1" max="100" value="${x.copies}" data-xi="${i}" data-xf="copies"></label>
+    <label class="field"><span>Filament</span><select data-xi="${i}" data-xf="filament">${opts}</select></label>
+    <button type="button" class="linkbtn" data-xrm="${i}" aria-label="Take ${esc(x.name)} off the plate">✕</button></div>`).join('');
+  $$('#slMore select').forEach(s => {
+    const x = EXTRA[+s.dataset.xi], at = [...s.options].findIndex(o => o.value === x.filament && +(o.dataset.slot || 0) === x.slot);
+    if (at >= 0) s.selectedIndex = at; else if (x.filament && [...s.options].some(o => o.value === x.filament)) s.value = x.filament;
+    Object.assign(x, filamentOf(s));
+  });
+  $('#slMoreHint').classList.toggle('hidden', EXTRA.length > 0);
+  $('#slFill').disabled = EXTRA.length > 0;
+  if (EXTRA.length) $('#slFill').checked = false;
+  $('#slCopies').disabled = $('#slFill').checked;
+}
+$('#slMore').addEventListener('input', (e) => {
+  const t = e.target, x = EXTRA[+t.dataset.xi]; if (!x) return;
+  if (t.dataset.xf === 'copies') x.copies = Math.max(1, Math.min(100, +t.value || 1)); else Object.assign(x, filamentOf(t));
+});
+$('#slMore').addEventListener('click', (e) => {
+  const i = e.target.dataset?.xrm; if (i === undefined) return;
+  EXTRA.splice(+i, 1); renderExtra();
+});
+$('#slAdd').addEventListener('click', () => $('#slAddFile').click());
+$('#slAddFile').addEventListener('change', () => { const files = [...$('#slAddFile').files]; $('#slAddFile').value = ''; addModels(files); });
+async function addModels(files) {
+  for (const file of files) {
+    $('#sliceWait').textContent = 'Reading ' + file.name + '…';
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      const res = await json('/api/plates', {method: 'POST', body: fd});
+      if (res.model?.kind !== 'mesh') { toast(`${file.name} can't share the plate: add .stl, .obj or .step models`); continue; }
+      const first = filamentOf($('#slFilament'));
+      EXTRA.push({token: res.model.token, name: res.model.name, copies: 1, ...first});
+    } catch (err) { toast(err.message); }
+  }
+  $('#sliceWait').textContent = ''; renderExtra();
 }
 $('#slPrinter').addEventListener('change', slicePrinterChanged);
 $('#slMachine').addEventListener('change', sliceMachineChanged);
 $('#slFill').addEventListener('change', () => { $('#slCopies').disabled = $('#slFill').checked; });
-$('#sliceBtn').addEventListener('click', async () => {
+async function sliceNow(toBatch) {
   if (!MODEL) return;
-  const b = $('#sliceBtn'), sup = $('#slSupport').value;
+  const sup = $('#slSupport').value, first = filamentOf($('#slFilament'));
   const body = {model_id: SLICE.model_id, machine: $('#slMachine').value, nozzle_flow: $('#slFlow').value};
-  if (MODEL.kind === 'mesh') Object.assign(body, {process: $('#slProcess').value, filament: $('#slFilament').value, plate: $('#slPlate').value,
-    copies: +$('#slCopies').value || 1, fill: $('#slFill').checked, orient: $('#slOrient').checked, support: sup ? sup === 'on' : null});
-  b.disabled = true; $('#sliceErr').classList.add('hidden'); $('#sliceWait').textContent = 'Slicing with ' + SLICE.slicer + '…';
+  if (MODEL.kind === 'mesh') Object.assign(body, {process: $('#slProcess').value, filament: first.filament, plate: $('#slPlate').value,
+    filament_colour: first.colour, filament_slot: first.slot,
+    copies: +$('#slCopies').value || 1, fill: $('#slFill').checked, orient: $('#slOrient').checked, support: sup ? sup === 'on' : null,
+    extra: EXTRA.map(x => ({token: x.token, copies: x.copies, filament: x.filament, colour: x.colour, slot: x.slot}))});
+  $('#sliceBtn').disabled = $('#sliceBatchBtn').disabled = true;
+  $('#sliceErr').classList.add('hidden'); $('#sliceWait').textContent = 'Slicing with ' + SLICE.slicer + '…';
   try {
     const res = await send(`/api/models/${MODEL.token}/slice`, body);
     $('#sliceWait').textContent = '✓ Sliced' + (res.slice_notes?.length ? ': ' + res.slice_notes.join('; ') : '') + '. Change anything and slice again, or carry on below.';
     PLATES = res.plates || [];
     showOpened(res);
-    $('#makeResult').scrollIntoView({behavior: 'smooth', block: 'start'});
+    if (toBatch && !res.no_profile) {
+      $('#addToBatch').click();
+      $('#sliceWait').textContent += ` It's in the batch: drop the next model to add another plate.`;
+      $('#batchCard').scrollIntoView({behavior: 'smooth', block: 'start'});
+    } else $('#makeResult').scrollIntoView({behavior: 'smooth', block: 'start'});
   } catch (e) { sliceError(e.message); $('#sliceWait').textContent = ''; }
-  b.disabled = false;
-});
+  $('#sliceBtn').disabled = $('#sliceBatchBtn').disabled = false;
+}
+$('#sliceBtn').addEventListener('click', () => sliceNow(false));
+$('#sliceBatchBtn').addEventListener('click', () => sliceNow(true));
 function makeError(e) { $('#makeError').innerHTML = `<span class="ic danger">✖</span><div>${esc(e.message)}</div>`; $('#makeError').classList.remove('hidden'); $('#makeResult').classList.add('hidden'); }
 function showOpened(res) {
   if (res.no_profile) { showNoProfile(res); $('#makeResult').classList.add('hidden'); return; }

@@ -6,6 +6,13 @@ and the window shows them under *More › What's new*.
 ## 0.5.0 · 2026-10-31
 
 ### New
+- **Several models on one plate.** Drop several models at once on *Make a loop file*, or press
+  **+ Add another model** in the slice card, and they're sliced onto one plate together: each with
+  its own number of copies and its own AMS tray, so every loop makes a mix (2 red boots and 3 white
+  stockings, say). A filament picked from a tray keeps that tray's number as its slot, so plates
+  sliced here from one printer's AMS batch together. With more than one filament no prime tower is
+  printed, so the sweep leaves the plate clear. **Slice and add to the batch** slices a plate and
+  puts it straight into the batch, to chain different plates in one run.
 - **Slice here.** Drop an STL, OBJ or STEP (or a Bambu Studio project) on *Make a loop file* and
   slice it without opening the slicer: pick the printer, and the nozzle, nozzle flow and the
   filament in its AMS come from it, with your own saved presets listed first. Ask for copies, or

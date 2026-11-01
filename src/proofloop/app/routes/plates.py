@@ -95,9 +95,15 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             raise HTTPException(422, str(e)) from e
         if not choice.clear_behind_y:  # parts stay where the sweep can reach them
             choice.clear_behind_y = sweep_clear_y(app, model_id)
+        try:  # more models on the same plate, each dropped like the first
+            extra = [slicing.Extra(*app.uploads.raw(str(x.get("token") or "")), copies=x.get("copies") or 1,
+                                   filament=str(x.get("filament") or ""), colour=x.get("colour") or "",
+                                   slot=x.get("slot") or 0) for x in body.get("extra") or []]
+        except (TypeError, ValueError, AttributeError) as e:
+            raise HTTPException(422, str(e)) from e
         work = Path(tempfile.mkdtemp(prefix="slice-", dir=app.data_dir))
         try:
-            sliced, out_name, notes = slicing.slice_upload(data, name, choice, work, model_id=model_id)
+            sliced, out_name, notes = slicing.slice_upload(data, name, choice, work, model_id=model_id, extra=extra)
         except slicing.SliceError as e:
             raise HTTPException(422, str(e)) from e
         finally:

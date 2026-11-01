@@ -114,6 +114,12 @@ input[type=number]{max-width:140px}
 .gallery summary{cursor:pointer;margin-top:6px}
 .slice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px;align-items:start}
 .slice-grid select,.slice-grid input[type=number]{width:100%}
+.sl-model{display:grid;grid-template-columns:minmax(0,1fr) 90px minmax(0,1.6fr) 28px;gap:4px 12px;align-items:end;padding:8px 0;border-top:1px solid var(--line)}
+.sl-model .field{margin:0}
+.sl-model select,.sl-model input{width:100%}
+.sl-model .sl-name{align-self:center;overflow-wrap:anywhere}
+.sl-model .linkbtn{align-self:center}
+@media (max-width:600px){.sl-model{grid-template-columns:minmax(0,1fr) 90px}.sl-model .sl-name{grid-column:1/-1}}
 #sliceCard.project .sl-mesh{display:none}
 .wf summary{cursor:pointer;list-style:none}
 .wf summary::-webkit-details-marker{display:none}
@@ -269,9 +275,9 @@ input[type=number]{max-width:140px}
   <h1>Make a loop file</h1>
   <p class="sub">Drop a plate you sliced. ProofLoop adds the cooldown, FarmLoop hardware steps and a sweep that reaches every part, then gives you a file to send to the printer.</p>
   <div id="calBanner" class="banner warn hidden"><span class="ic warning">!</span><div><b>Your sweep floor isn't calibrated yet.</b> ProofLoop starts at Z2 (FarmLoop's push rule reaches Z2 on a 12 mm part). Run the <a href="#" data-goto="calibrate">sweep-floor test</a> once to measure your pusher, so short parts get swept without touching the plate.</div></div>
-  <label class="drop" id="makeDrop"><input type="file" accept=".3mf,.stl,.obj,.step,.stp" hidden id="makeFile">
+  <label class="drop" id="makeDrop"><input type="file" accept=".3mf,.stl,.obj,.step,.stp" multiple hidden id="makeFile">
     <strong>Drop a model or a sliced plate here, or click to choose</strong>
-    <small>A model (.stl, .obj, .step) or a Bambu Studio project (.3mf) is sliced here, with Bambu Studio's own engine. A sliced plate (.gcode.3mf, the plain slice, not a FarmLoop file) opens as it is.</small>
+    <small>A model (.stl, .obj, .step) or a Bambu Studio project (.3mf) is sliced here, with Bambu Studio's own engine; drop several models together to print them on one plate. A sliced plate (.gcode.3mf, the plain slice, not a FarmLoop file) opens as it is.</small>
   </label>
 
   <details class="card wf" id="wfCard" style="margin-top:16px">
@@ -295,14 +301,23 @@ input[type=number]{max-width:140px}
       <label class="field"><span>Nozzle</span><select id="slMachine"></select></label>
       <label class="field"><span>Nozzle flow</span><select id="slFlow"><option value="Standard">Standard</option><option value="High Flow">High Flow</option></select></label>
       <label class="field sl-mesh"><span>Process</span><select id="slProcess"></select></label>
-      <label class="field sl-mesh"><span>Filament</span><select id="slFilament"></select></label>
       <label class="field sl-mesh"><span>Build plate</span><select id="slPlate"><option>Textured PEI Plate</option><option>Cool Plate</option><option>Engineering Plate</option><option>High Temp Plate</option><option>Supertack Plate</option></select></label>
       <label class="field sl-mesh"><span>Supports</span><select id="slSupport"><option value="">As the process has them</option><option value="on">On</option><option value="off">Off</option></select></label>
-      <label class="field sl-mesh"><span>Copies</span><input type="number" id="slCopies" min="1" max="100" value="1"></label>
       <label class="toggle sl-mesh"><input type="checkbox" id="slFill"><span><b>Fill the plate</b><span class="hint">As many copies as fit, keeping the strip the pusher comes down in clear.</span></span></label>
       <label class="toggle sl-mesh"><input type="checkbox" id="slOrient"><span><b>Turn it to its best side</b><span class="hint">Let the slicer pick the side it prints best on.</span></span></label>
     </div>
-    <div class="row" style="margin-top:12px"><button class="btn primary" id="sliceBtn" type="button">Slice</button><span class="hint" id="sliceWait" aria-live="polite"></span></div>
+    <div class="sl-mesh" style="margin-top:12px">
+      <div class="spread"><h3 style="margin:0">On this plate</h3><button class="btn" type="button" id="slAdd">+ Add another model</button></div>
+      <input type="file" id="slAddFile" accept=".stl,.obj,.step,.stp" multiple hidden>
+      <div class="sl-model"><b class="sl-name" id="slName"></b>
+        <label class="field"><span>Copies</span><input type="number" id="slCopies" min="1" max="100" value="1"></label>
+        <label class="field"><span>Filament</span><select id="slFilament"></select></label><span></span></div>
+      <div id="slMore"></div>
+      <p class="hint" id="slMoreHint">Add more models to print them together on every loop, each with its own number of copies and its own AMS tray.</p>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="sliceBtn" type="button">Slice</button>
+      <button class="btn" id="sliceBatchBtn" type="button" title="Slice, then add the plate to the batch so a run can print several plates">Slice and add to the batch</button>
+      <span class="hint" id="sliceWait" aria-live="polite"></span></div>
   </div>
 
   <div id="makeError" class="banner bad hidden" style="margin-top:16px"></div>
@@ -383,7 +398,7 @@ input[type=number]{max-width:140px}
       </div>
       <div class="card" id="batchCard">
         <div class="spread"><h2>Batch</h2><button class="btn" id="addToBatch">+ Add this plate</button></div>
-        <p class="hint" id="batchHint">Mix plates in one file, for example 3× plate A then 2× plate B. Drop another plate after adding this one. Plates may use different filaments, as long as a slot number means the same filament on every plate (it does for plates from one Bambu Studio project). Every plate must use the same build plate and nozzle.</p>
+        <p class="hint" id="batchHint">Mix plates in one file, for example 3× plate A then 2× plate B. Drop another plate after adding this one. Plates may use different filaments, as long as a slot number means the same filament on every plate (it does for plates from one Bambu Studio project, and for plates sliced here with filament picked from one printer's AMS trays). Every plate must use the same build plate and nozzle.</p>
         <div id="batchRows"></div>
         <div id="batchOut"></div>
         <button class="btn primary hidden" id="batchDownload" style="width:100%;justify-content:center;margin-top:10px">Download batch file</button>

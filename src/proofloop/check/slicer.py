@@ -245,10 +245,14 @@ class Presets:
     filament: str
     files: dict[str, Path]
     overrides: dict[str, Any]
+    filament_files: list[Path] = field(default_factory=list)  # one per filament slot, in slot order
 
 
 def write_presets(lib: PresetLibrary, folder: Path, machine: str, process: str, filament: str,
-                  overrides: dict[str, Any] | None = None) -> Presets:
+                  overrides: dict[str, Any] | None = None,
+                  slots: list[tuple[str, str]] | None = None) -> Presets:
+    """Write the presets to slice with. ``slots``: (filament preset, colour or "") for filament slots 1, 2...
+    when the plate uses more than one; ``filament`` is then slot 1's."""
     folder.mkdir(parents=True, exist_ok=True)
     files = {}
     overrides = overrides or {}
@@ -274,7 +278,15 @@ def write_presets(lib: PresetLibrary, folder: Path, machine: str, process: str, 
         path = folder / f"{kind}.json"
         path.write_text(json.dumps(data, indent=1), encoding="utf-8")
         files[kind] = path
-    return Presets(machine, process, filament, files, overrides)
+    fil_files = [files["filament"]]
+    if slots:
+        fil_files = []
+        for n, (name, colour) in enumerate(slots, 1):
+            over = {**overrides.get("filament", {}), **({"filament_colour": colour} if colour else {})}
+            one = write_presets(lib, folder / f"slot{n}", machine, process, name, {"filament": over})
+            fil_files.append(one.files["filament"])
+        files["filament"] = fil_files[0]
+    return Presets(machine, process, filament, files, overrides, fil_files)
 
 
 # ------------------------------------------------------------------------------- slicing
@@ -288,25 +300,34 @@ def _slicer_reason(out_dir: Path) -> str:
     return str(data.get("error_string") or data.get("message") or "").strip()
 
 
-def slice_model(slicer: Slicer, model: Path, presets: Presets | None, out_dir: Path, *, arrange: bool = True,
-                orient: bool = False, copies: int = 1, timeout: int = 900) -> tuple[Path, str]:
+def slice_model(slicer: Slicer, model: Path | list[Path], presets: Presets | None, out_dir: Path, *,
+                arrange: bool = True, orient: bool = False, copies: int | list[int] = 1,
+                filament_ids: list[int] | None = None, timeout: int = 900) -> tuple[Path, str]:
     """Run the slicer. Returns (the sliced .gcode.3mf, the slicer's log). Raises ConfigError on failure.
 
     Without ``presets`` a project 3MF is sliced with its own settings. ``copies`` puts that many of
-    the model on the plate (``--clone-objects``), arranged by the slicer.
+    the model on the plate (``--clone-objects``), arranged by the slicer. Several models go on one
+    plate together, with ``copies`` and ``filament_ids`` (the filament slot each prints in) per model.
     """
+    models = [Path(m) for m in (model if isinstance(model, list) else [model])]
+    counts = copies if isinstance(copies, list) else [copies] * len(models)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / f"{Path(model).name.split('.')[0]}.gcode.3mf"
+    out = out_dir / f"{models[0].name.split('.')[0]}.gcode.3mf"
     # --export-3mf takes a file name: the slicers put it inside --outputdir themselves (an absolute
     # path there becomes <outputdir>/<absolute path> and the export fails with exit -13).
     cmd = [str(slicer.exe), "--slice", "0", "--export-3mf", out.name]
     if presets is not None:
+        fils = presets.filament_files or [presets.files["filament"]]
         cmd += ["--load-settings", f"{presets.files['machine']};{presets.files['process']}",
-                "--load-filaments", str(presets.files["filament"])]
-    if copies > 1:
-        cmd += ["--clone-objects", str(copies)]  # "--repetitions" only works when slicing one plate
+                "--load-filaments", ";".join(map(str, fils))]
+    if filament_ids and filament_ids != [1] * len(models):
+        cmd += ["--load-filament-ids", ",".join(map(str, filament_ids))]
+        if len(set(filament_ids)) > 1:  # else arranging puts each colour on a plate of its own
+            cmd += ["--allow-multicolor-oneplate"]
+    if any(c > 1 for c in counts):
+        cmd += ["--clone-objects", ",".join(map(str, counts))]  # "--repetitions" only works when slicing one plate
     cmd += ["--arrange", "1" if arrange else "0", "--orient", "1" if orient else "0",
-            "--outputdir", str(out_dir), str(model)]
+            "--outputdir", str(out_dir), *map(str, models)]
     if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and shutil.which("xvfb-run") \
             and not str(slicer.exe).endswith(".py"):
         cmd = ["xvfb-run", "-a", *cmd]                 # the slicer's toolkit wants a display even headless
@@ -322,6 +343,6 @@ def slice_model(slicer: Slicer, model: Path, presets: Presets | None, out_dir: P
         tail = "\n".join(log.strip().splitlines()[-12:])
         code = proc.returncode - (1 << 32) if proc.returncode > (1 << 31) else proc.returncode  # Windows: unsigned
         reason = _slicer_reason(out_dir)
-        raise ConfigError(f"{slicer.label} could not slice {Path(model).name} (exit {code})"
+        raise ConfigError(f"{slicer.label} could not slice {', '.join(m.name for m in models)} (exit {code})"
                           + (f": {reason}" if reason else "") + (f"\n{tail}" if tail else ""))
     return out, log

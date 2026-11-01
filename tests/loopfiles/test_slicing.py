@@ -154,3 +154,95 @@ def test_make_a_loop_file_slices_a_dropped_model(lib, tmp_path, monkeypatch):
         assert bad.status_code == 422 and "doesn't fit" in bad.json()["detail"]
     finally:
         shell.close()
+
+
+def _cylinder() -> bytes:
+    buf = io.BytesIO()
+    trimesh.creation.cylinder(6, 12).export(buf, file_type="stl")
+    return buf.getvalue()
+
+
+def _objects(data: bytes) -> list[str]:
+    return list(threemf.loads(data, name="x.gcode.3mf").info.object_names.values())
+
+
+def test_a_filament_from_an_ams_tray_keeps_the_trays_number_as_its_slot():
+    E = slicing.Extra
+    slots, ids = slicing.assign_slots([E(b"", "a", filament=PLA, colour="#ff0000", slot=3),
+                                       E(b"", "b", filament=PLA, colour="#FFFFFF", slot=2),
+                                       E(b"", "c", filament="My PLA"), E(b"", "d", filament=PLA, colour="#FF0000")])
+    assert ids == [3, 2, 1, 3]  # "d" is the same filament as tray 3; "c" takes the first free slot
+    assert slots == [("My PLA", ""), (PLA, "#FFFFFF"), (PLA, "#FF0000")]
+    slots, ids = slicing.assign_slots([E(b"", "a", filament=PLA, slot=4)])
+    assert ids == [4] and slots == [(PLA, ""), (PLA, ""), (PLA, ""), (PLA, "")]  # empty slots take the same
+    with pytest.raises(slicing.SliceError, match="can't print two filaments"):
+        slicing.assign_slots([E(b"", "a", filament=PLA, slot=1), E(b"", "b", filament="My PLA", slot=1)])
+    assert slicing.Choice.from_dict({"filament_colour": "c12e1fff", "filament_slot": 99}).filament_colour == "#C12E1F"
+    assert slicing.Choice.from_dict({"filament_slot": 99}).filament_slot == 0  # not an AMS tray: any free slot
+
+
+def test_several_models_share_a_plate_each_with_its_copies_and_filament(lib, tmp_path):
+    found, presets = lib
+    choice = slicing.Choice(machine=MACHINE, process=PROCESS, filament=PLA, copies=2, filament_colour="#C12E1F",
+                            filament_slot=3)
+    extra = [slicing.Extra(_cylinder(), "stocking (white).stl", copies=3, filament=PLA, colour="#FFFFFF", slot=2)]
+    data, name, notes = slicing.slice_upload(_cube(), "boot.stl", choice, tmp_path / "w", found=found, lib=presets,
+                                             extra=extra)
+    assert name == "boot_and_stocking (white).gcode.3mf" and threemf.sliced_plates(data) == [1]  # one plate, both
+    names = _objects(data)
+    assert sum(n.startswith("boot") for n in names) == 2 and sum(n.startswith("stocking") for n in names) == 3
+    info = threemf.loads(data, name=name).info
+    assert sorted(info.filament_slots) == [("2", "PLA", "#FFFFFF"), ("3", "PLA", "#C12E1F")]  # the trays' slots
+    assert "2 filaments" in notes[0] and "no prime tower" in notes[0]
+
+
+def test_one_model_from_a_tray_and_a_plate_too_full_say_so(lib, tmp_path):
+    found, presets = lib
+    one = slicing.Choice(machine=MACHINE, process=PROCESS, filament=PLA, filament_colour="#C12E1F", filament_slot=3)
+    data, _, notes = slicing.slice_upload(_cube(), "boot.stl", one, tmp_path / "a", found=found, lib=presets)
+    assert threemf.loads(data, name="b").info.filament_slots == [("3", "PLA", "#C12E1F")] and notes == []
+    many = slicing.Choice(machine=MACHINE, process=PROCESS, filament=PLA, copies=20)
+    data, _, notes = slicing.slice_upload(_cube(), "boot.stl", many, tmp_path / "b", found=found, lib=presets,
+                                          extra=[slicing.Extra(_cylinder(), "c.stl", copies=10)])
+    assert threemf.sliced_plates(data) == [1, 2] and "don't all fit on one plate" in notes[-1]
+
+
+def test_what_cant_share_a_plate_says_why(lib, tmp_path):
+    found, presets = lib
+    c = slicing.Choice(machine=MACHINE, process=PROCESS, filament=PLA)
+    for data, name, choice, extra, words in (
+            (_project(), "box.3mf", c, [slicing.Extra(_cube(), "c.stl")], "add models to it in Bambu Studio"),
+            (_cube(), "a.stl", c, [slicing.Extra(_project(), "box.3mf")], "isn't a model that can share"),
+            (_cube(), "a.stl", slicing.Choice(machine=MACHINE, fill=True), [slicing.Extra(_cube(), "b.stl")],
+             "Fill the plate works with one model"),
+            (_cube(), "a.stl", slicing.Choice(machine=MACHINE, process=PROCESS, filament=PLA, copies=60), [slicing.Extra(_cube(), "b.stl", copies=60)],
+             "more than 100 parts"),
+            (_cube(), "a.stl", c, [slicing.Extra(_cube(), "b.stl", filament="Nope")], "doesn't fit")):
+        with pytest.raises(slicing.SliceError, match=words):
+            slicing.slice_upload(data, name, choice, tmp_path / "w", found=found, lib=presets, extra=extra)
+
+
+def test_make_a_loop_file_slices_several_dropped_models_onto_one_plate(lib, tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from proofloop.app.shell import Shell
+
+    monkeypatch.setenv("PROOFLOOP_HOME", str(tmp_path / "home"))
+    shell = Shell(8600, config=CFG, connect=False)
+    try:
+        c = TestClient(shell.api, base_url="http://127.0.0.1:8600")
+        window = {"X-ProofLoop": "1", "Origin": "http://127.0.0.1:8600"}
+        up = [c.post("/api/plates", files={"file": (n, d)}, headers=window).json()["model"]["token"]
+              for n, d in (("boot.stl", _cube()), ("stocking.stl", _cylinder()))]
+        r = c.post(f"/api/models/{up[0]}/slice", headers=window, json={
+            "model_id": "N7", "machine": MACHINE, "process": PROCESS, "filament": PLA, "copies": 2,
+            "filament_colour": "#C12E1F", "filament_slot": 3,
+            "extra": [{"token": up[1], "copies": 3, "filament": PLA, "colour": "#FFFFFF", "slot": 2}]})
+        assert r.status_code == 200, r.text
+        out = r.json()
+        assert out["file"] == "boot_and_stocking.gcode.3mf"
+        assert len(_objects(shell.monitor.uploads.raw(out["token"])[0])) == 5
+        gone = c.post(f"/api/models/{up[0]}/slice", headers=window, json={"extra": [{"token": "nope"}]})
+        assert gone.status_code in (404, 410, 422) and "drop the file again" in gone.text
+    finally:
+        shell.close()

@@ -55,8 +55,9 @@ document.addEventListener('click', (e) => { const g = e.target.closest('[data-go
 function dropZone(zone, input, onFile) {
   zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('over'); });
   zone.addEventListener('dragleave', () => zone.classList.remove('over'));
-  zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('over'); if (e.dataTransfer.files[0]) onFile(e.dataTransfer.files[0]); });
-  input.addEventListener('change', () => { if (input.files[0]) onFile(input.files[0]); input.value = ''; });
+  // onFile(first file, the others dropped with it)
+  zone.addEventListener('drop', (e) => { e.preventDefault(); zone.classList.remove('over'); const f = [...e.dataTransfer.files]; if (f[0]) onFile(f[0], f.slice(1)); });
+  input.addEventListener('change', () => { const f = [...input.files]; if (f[0]) onFile(f[0], f.slice(1)); input.value = ''; });
 }
 
 // ---------- a watch-only phone ----------
