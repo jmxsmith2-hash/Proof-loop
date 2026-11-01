@@ -105,3 +105,23 @@ def test_the_window_sets_it_and_a_slice_becomes_the_usual(app):
     assert r.status_code == 200, r.text
     usual = c.get("/api/watch-folder", headers=window).json()["usual"]
     assert usual["process"] == "0.12mm High Quality @BBL P2S" and usual["fill"] is True
+
+
+def test_an_order_slices_a_model_for_its_size(app):
+    from fastapi.testclient import TestClient
+
+    from proofloop.app.loop_server import create_app
+
+    c = TestClient(create_app(app), base_url="http://127.0.0.1:8600")
+    window = {"X-ProofLoop": "1", "Origin": "http://127.0.0.1:8600"}
+    model = c.post("/api/plates", files={"file": ("peg.stl", _cube())}, headers=window).json()["model"]
+    url = f"/api/models/{model['token']}/slice-for-order"
+    big = c.post(url, json={"quantity": 60}, headers=window).json()  # the stand-in slicer fits 25 on a plate
+    assert big["slice_notes"] == ["20 parts per plate, 3 loops"]  # shared evenly, not 25 + 25 + 10
+    odd = c.post(url, json={"quantity": 61}, headers=window).json()
+    assert odd["slice_notes"] == ["21 parts per plate, 3 loops (2 spare)"]
+    small = c.post(url, json={"quantity": 10}, headers=window).json()
+    assert small["slice_notes"] == ["all 10 parts on one plate"]
+    assert c.post(url, json={"quantity": 0}, headers=window).status_code == 422
+    order = c.post("/api/orders", json={"token": small["token"], "customer": "Sam", "quantity": 10}, headers=window)
+    assert order.status_code == 422 and "add a printer" in order.text  # the sliced plate is taken; it plans on printers

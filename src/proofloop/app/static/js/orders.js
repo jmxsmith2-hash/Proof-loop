@@ -2,17 +2,45 @@
 // Part of loop.html; the files load in order and share their top-level names.
 
 // ---------- orders ----------
-let ORDER_TOKEN = null;
+let ORDER_TOKEN = null, ORDER_MODEL = null, orderSliceTimer = null;
+const ORDER_HINT = 'A model (.stl, .obj, .step) or project is sliced for the order; a sliced .gcode.3mf is used as it is';
+function orderPlateReady(token, text) {
+  ORDER_TOKEN = token; $('#orderPlate').textContent = text; $('#orderAdd').disabled = !token;
+}
 dropZone($('#orderDrop'), $('#orderFile'), async (file) => {
-  $('#orderPlate').textContent = 'Reading ' + file.name + '…';
+  $('#orderPlate').textContent = 'Reading ' + file.name + '…'; ORDER_MODEL = null;
   try { const fd = new FormData(); fd.append('file', file); const r = await json('/api/plates', {method: 'POST', body: fd});
-    if (r.model) throw new Error(`${file.name} isn't sliced yet: slice it in Make a loop file, then take the order from there`);
-    ORDER_TOKEN = r.token; $('#orderPlate').textContent = `${file.name} · ${(r.parts || []).length} parts per plate`; $('#orderAdd').disabled = false;
-  } catch (e) { $('#orderPlate').textContent = e.message; ORDER_TOKEN = null; $('#orderAdd').disabled = true; }
+    if (r.model) { ORDER_MODEL = r.model; await sliceForOrder(); return; }
+    if (r.no_profile) throw new Error(`No hardware profile for the ${r.printer} yet`);
+    orderPlateReady(r.token, `${file.name} · ${(r.parts || []).length} parts per plate`); quoteForOrder();
+  } catch (e) { orderPlateReady(null, e.message); }
 });
+// A model is sliced with your usual presets: full plates for a big order, just the parts for a small one.
+async function sliceForOrder() {
+  const qty = +$('#orderForm').quantity.value;
+  if (!ORDER_MODEL || !(qty >= 1)) return;
+  orderPlateReady(null, `Slicing ${ORDER_MODEL.name} for ${qty} parts…`);
+  try {
+    const r = await send(`/api/models/${encodeURIComponent(ORDER_MODEL.token)}/slice-for-order`, {quantity: qty});
+    if (r.no_profile) throw new Error(`No hardware profile for the ${r.printer} yet`);
+    orderPlateReady(r.token, `${r.file} · ${(r.slice_notes || []).join('; ')}`); quoteForOrder();
+  } catch (e) { orderPlateReady(null, e.message); }
+}
+$('#orderForm').quantity.addEventListener('input', () => {
+  clearTimeout(orderSliceTimer);
+  if (ORDER_MODEL) { $('#orderAdd').disabled = true; orderSliceTimer = setTimeout(sliceForOrder, 900); }
+});
+async function quoteForOrder() {
+  const f = $('#orderForm'), token = ORDER_TOKEN;
+  f.price_each.placeholder = 'optional';
+  try {
+    const c = await send(`/api/plates/${encodeURIComponent(token)}/cost`, {settings: {}, loops: 1});
+    if (token === ORDER_TOKEN && c.quote?.price) f.price_each.placeholder = `quote ${money(c.quote.price)}`;
+  } catch (e) { /* no rates or no profile: no quote */ }
+}
 // A plate open in Make a loop file, handed over with its quoted price.
 function orderFromPlate(token, file, parts, price) {
-  ORDER_TOKEN = token; $('#orderAdd').disabled = false;
+  ORDER_TOKEN = token; ORDER_MODEL = null; $('#orderAdd').disabled = false;
   $('#orderPlate').textContent = `${file} · ${parts} parts per plate`;
   const f = $('#orderForm');
   if (price != null) f.price_each.value = price.toFixed(2);
@@ -25,7 +53,7 @@ $('#orderForm').onsubmit = async (e) => {
   try {
     const o = await send('/api/orders', {token: ORDER_TOKEN, customer: f.customer.value, quantity: +f.quantity.value, due: f.due.value || null, price_each: f.price_each.value || null, notes: f.notes.value});
     toast(`Order for ${o.customer} taken: ${o.on_time === false ? 'it will be late' : o.eta ? 'ready ' + at(o.eta) : 'queued'}`);
-    f.reset(); ORDER_TOKEN = null; $('#orderPlate').textContent = '.gcode.3mf: the plain slice of the part'; refreshOrders();
+    f.reset(); ORDER_MODEL = null; orderPlateReady(null, ORDER_HINT); f.price_each.placeholder = 'optional'; refreshOrders();
   } catch (err) { toast(err.message); $('#orderAdd').disabled = false; }
 };
 const at = (ts) => new Date(ts * 1000).toLocaleString([], {weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'});
@@ -75,7 +103,7 @@ async function refreshOrders() {
       <div class="spread"><span><b>${o.made}</b> of ${o.quantity} made</span><span class="hint">${o.complete ? 'all made' : o.eta ? 'ready around <b>' + at(o.eta) + '</b>' : o.queued ? '' : 'its queue was removed'}</span></div>
       ${money ? `<div class="hint">${money}</div>` : ''}
       <div class="row" style="margin-top:6px"><button class="linkbtn" data-invoice="${esc(o.id)}">Invoice${o.invoice ? ' ' + esc(o.invoice.label) : ''}</button>${m.revenue != null ? ` <button class="linkbtn" data-order="${esc(o.id)}" data-set="${o.paid ? 'unpaid' : 'paid'}">Mark ${o.paid ? 'unpaid' : 'paid'}</button>` : ''} ${o.status === 'open' ? `<button class="linkbtn" data-ordergo="overview">Queue</button> <button class="linkbtn" data-order="${esc(o.id)}" data-set="done">Mark made</button> <button class="linkbtn" data-order="${esc(o.id)}" data-set="cancelled">Cancel</button>` : ''} <button class="linkbtn" data-order="${esc(o.id)}" data-set="remove">Remove</button></div></div>`;
-  }).join('') : '<p class="hint">No orders yet. Take one on the right: drop the sliced plate, say how many and by when.</p>';
+  }).join('') : '<p class="hint">No orders yet. Take one below: drop the model or sliced plate, say how many and by when.</p>';
 }
 $('#ordersAll').addEventListener('change', refreshOrders);
 $('#ordersOut').addEventListener('click', async (e) => {

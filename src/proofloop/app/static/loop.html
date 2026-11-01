@@ -196,7 +196,7 @@ input[type=number]{max-width:140px}
     <div class="card">
       <h2>New order</h2>
       <form id="orderForm">
-        <label class="drop" id="orderDrop"><strong>Drop the sliced plate</strong><small id="orderPlate">.gcode.3mf: the plain slice of the part</small><input type="file" id="orderFile" accept=".3mf" hidden></label>
+        <label class="drop" id="orderDrop"><strong>Drop the part: a model or a sliced plate</strong><small id="orderPlate">A model (.stl, .obj, .step) or project is sliced for the order; a sliced .gcode.3mf is used as it is</small><input type="file" id="orderFile" accept=".3mf,.stl,.obj,.step,.stp" hidden></label>
         <div class="row" style="margin-top:12px">
           <label class="field" style="flex:1;min-width:160px"><span>Customer</span><input type="text" name="customer" placeholder="Sam's shop" required></label>
           <label class="field" style="width:110px"><span>Parts</span><input type="number" name="quantity" min="1" value="40" required></label></div>
@@ -205,7 +205,7 @@ input[type=number]{max-width:140px}
           <label class="field" style="flex:1;min-width:120px"><span>Price per part</span><input type="number" name="price_each" min="0" step="0.01" placeholder="optional"></label></div>
         <label class="field"><span>Notes</span><input type="text" name="notes" placeholder="colour, packaging…"></label>
         <button class="btn primary" id="orderAdd" disabled>Take the order</button>
-        <p class="hint">Uses your saved loop-file settings; the queue gets one job per printer that can print the plate.</p>
+        <p class="hint">A model is sliced with the presets you last used in the Slice card. Uses your saved loop-file settings; the queue gets one job per printer that can print the plate.</p>
       </form>
     </div>
     <div class="card">

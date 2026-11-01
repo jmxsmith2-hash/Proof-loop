@@ -23,7 +23,7 @@ from proofloop.loopfiles import slicing, threemf
 from proofloop.loopfiles.api import pick_profile
 from proofloop.loopfiles.gcode.processor import analyze, changes
 from proofloop.monitor.service import App
-from proofloop.monitor.watchfolder import sweep_clear_y
+from proofloop.monitor.watchfolder import slice_usual, sweep_clear_y
 
 
 def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> None:
@@ -107,6 +107,40 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
                                                   filament=choice.filament, plate=choice.plate, support=choice.support,
                                                   orient=choice.orient, copies=choice.copies, fill=choice.fill)
             app.save_settings()
+        out = opened(sliced, out_name)
+        out["slice_notes"] = notes
+        out["sliced_from"] = {"token": token, "name": name}
+        return out
+
+    @api.post("/api/models/{token}/slice-for-order", dependencies=guard)
+    def slice_for_order(token: str, body: dict):
+        """Slice a model for an order with your usual presets: plates as full as they go when the order
+        needs more than one, shared evenly so the last loop isn't mostly spares; else just the parts ordered."""
+        data, name = app.uploads.raw(token)
+        try:
+            qty = int(body.get("quantity") or 0)
+        except (TypeError, ValueError):
+            qty = 0
+        if not 1 <= qty <= 100000:
+            raise HTTPException(422, "say how many parts the order is for (1 to 100000)")
+        printer = str(body.get("printer") or "")
+        try:
+            sliced, out_name, _ = slice_usual(app, data, name, printer, fill=True)
+            full = max(1, len(threemf.loads(sliced, name=out_name).info.object_names))
+            loops = -(-qty // full)
+            per = -(-qty // loops)  # 150 at 100 a plate: 2 loops of 75, not 100 and 100
+            if per < full and slicing.kind_of(name, data) == "mesh":
+                sliced, out_name, _ = slice_usual(app, data, name, printer, fill=False, copies=per)
+            else:
+                per = full
+            if loops == 1 and per == qty:
+                notes = [f"all {qty} parts on one plate"]
+            else:
+                spare = loops * per - qty
+                notes = [f"{per} parts per plate, {loops} loop{'s' if loops != 1 else ''}"
+                         + (f" ({spare} spare)" if spare else "")]
+        except slicing.SliceError as e:
+            raise HTTPException(422, str(e)) from e
         out = opened(sliced, out_name)
         out["slice_notes"] = notes
         out["sliced_from"] = {"token": token, "name": name}

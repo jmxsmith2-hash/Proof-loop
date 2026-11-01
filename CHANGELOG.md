@@ -12,6 +12,11 @@ and the window shows them under *More › What's new*.
   **Fill the plate** with as many as fit; parts are kept out of the strip the pusher comes down in.
   A project keeps its own settings and only takes the printer's nozzle flow, so a plate sliced for
   the wrong nozzle is fixed by dropping its project. Needs Bambu Studio (or OrcaSlicer) installed.
+- **Orders from a model.** Drop an STL, OBJ, STEP or project on a new order: it's sliced with your
+  usual presets for the order's size (plates shared evenly, so 150 parts at 100 a plate is two
+  loops of 75, and a small order is just its parts on one plate), planned over your printers and
+  queued as before. Change the quantity and it's sliced again. With your rates set, the price
+  field shows the quote.
 - **Watch folder** (off unless you turn it on, under *Make a loop file*). Save a model into
   `Downloads\ProofLoop` (or a folder you choose) and it's sliced with the presets you last used in
   the Slice card, made to fit the printer you pick: its nozzle, nozzle flow and AMS. It waits in a

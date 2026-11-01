@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -144,18 +145,25 @@ class FolderWatch:
         return item
 
     def slice(self, data: bytes, name: str) -> tuple[bytes, str, list[str]]:
-        found, lib = slicing.slicer_and_presets()
-        cfg = self.app.settings.watch_folder
-        mine = [p for p in self.app.settings.printers if not cfg.printer or p.name == cfg.printer]
-        p = mine[0] if mine else None
-        model_id = p.model_id if p else printers.P2S
-        opts = slicing.options(lib, model_id)
-        w = self.app.watches.get(p.name) if p else None
-        facts = slicing.printer_facts(p.name, w.link.state, opts, lib) if p and w else None
-        choice = slicing.usual_choice(self.app.settings.slice_usual.model_dump(), facts, opts)
-        choice.clear_behind_y = sweep_clear_y(self.app, model_id)
-        work = Path(self.app.data_dir) / "slice-watch"
-        try:
-            return slicing.slice_upload(data, name, choice, work, model_id=model_id, found=found, lib=lib)
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
+        return slice_usual(self.app, data, name, self.app.settings.watch_folder.printer)
+
+
+def slice_usual(app: App, data: bytes, name: str, printer: str = "", **change: Any) -> tuple[bytes, str, list[str]]:
+    """Slice with the presets you last used in the Slice card, made to fit ``printer`` (its nozzle, flow
+    and AMS; "": your first printer). ``change`` sets fields of the choice, such as ``copies`` or ``fill``."""
+    found, lib = slicing.slicer_and_presets()
+    mine = [p for p in app.settings.printers if not printer or p.name == printer]
+    p = mine[0] if mine else None
+    model_id = p.model_id if p else printers.P2S
+    opts = slicing.options(lib, model_id)
+    w = app.watches.get(p.name) if p else None
+    facts = slicing.printer_facts(p.name, w.link.state, opts, lib) if p and w else None
+    choice = slicing.usual_choice(app.settings.slice_usual.model_dump(), facts, opts)
+    for k, v in change.items():
+        setattr(choice, k, v)
+    choice.clear_behind_y = sweep_clear_y(app, model_id)
+    work = Path(tempfile.mkdtemp(prefix="slice-", dir=app.data_dir))
+    try:
+        return slicing.slice_upload(data, name, choice, work, model_id=model_id, found=found, lib=lib)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
