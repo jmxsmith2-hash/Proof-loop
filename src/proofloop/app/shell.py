@@ -60,6 +60,7 @@ class Shell:
             "header": HEADER,
             "service": self.service is not None,
             "pretend": bool(os.environ.get("PROOFLOOP_PRETEND")),  # proofloop try
+            "larp": os.environ.get("PROOFLOOP_LARP") or None,  # LARP mode: the real window's address
         }
         # JSON inside <script>: "<" escaped so no value can close the tag
         blob = json.dumps(config).replace("<", "\\u003c")
@@ -115,7 +116,8 @@ class Shell:
 
         @api.get("/proofloop/ping")
         def ping():
-            return {"proofloop": __version__, "background": self.service is not None}
+            return {"proofloop": __version__, "background": self.service is not None,
+                    "larp": bool(os.environ.get("PROOFLOOP_LARP"))}
 
         @api.get("/proofloop/status")
         def status(request: Request):
@@ -202,11 +204,12 @@ class Shell:
                 raise HTTPException(400, str(e)) from e
             return {"job": job.id, "title": job.title}
 
-        from proofloop.app import checks
+        from proofloop.app import checks, larp
         from proofloop.app.loop_server import STATIC as LOOP_STATIC
         from proofloop.app.loop_server import create_app
 
         checks.register(api, self.checks, window_only)
+        larp.register(api, self, window_only)
 
         @api.get("/loop", response_class=HTMLResponse)
         def loop_page():

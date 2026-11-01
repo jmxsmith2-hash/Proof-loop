@@ -300,6 +300,19 @@ def cmd_summary(a) -> int:
     return 0
 
 
+def cmd_larp(a) -> int:
+    """LARP mode's pretend ProofLoop, started by the real one from More › LARP mode."""
+    from proofloop.app import larp
+
+    larp.enter(a.back)
+    _log_to_file()
+    try:
+        return larp.run(a.port)
+    except Exception:  # noqa: BLE001 - the command boundary: any failed start is exit code 2, traceback in the log
+        logging.exception("LARP couldn't start")
+        return 2
+
+
 def cmd_try(a) -> int:
     """ProofLoop with three pretend printers: everything works, nothing is real."""
     from proofloop.app import pretend_farm
@@ -443,6 +456,9 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8610)
     p.add_argument("--no-window", dest="window", action="store_false", help="don't open the window")
     p.add_argument("--fresh", action="store_true", help="start the pretend farm over")
+    p = sub.add_parser("larp", help="LARP mode's pretend ProofLoop (turn it on in the window: More › LARP mode)")
+    p.add_argument("--port", type=int, default=8620)
+    p.add_argument("--back", default=f"http://127.0.0.1:{DEFAULT_PORT}/", help="the real window's address")
     p = sub.add_parser("mcp", help="ProofLoop for assistants such as Claude (Model Context Protocol, stdio)")
     p.add_argument("--config", action="store_true", help="print the entry for Claude Desktop's config, and the "
                    "command for Claude Code")
@@ -459,7 +475,7 @@ def _main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     return {"open": cmd_open, "service": cmd_service, "app": cmd_app, "stop": cmd_stop, "status": cmd_status,
             "autostart": cmd_autostart, "phone": cmd_phone, "doctor": cmd_doctor, "update": cmd_update,
-            "summary": cmd_summary, "mcp": cmd_mcp, "try": cmd_try}[a.cmd](a)
+            "summary": cmd_summary, "mcp": cmd_mcp, "try": cmd_try, "larp": cmd_larp}[a.cmd](a)
 
 
 if __name__ == "__main__":

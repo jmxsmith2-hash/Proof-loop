@@ -100,6 +100,13 @@ and the window shows them under *More › What's new*.
 - **Every AMS tray as a spool in one click.** *Filament › In your printers* adds a spool for each
   loaded tray, linked to it. Bambu spools come with their weight and what's left from the RFID tag.
 
+- **LARP mode.** *More › LARP mode* switches the window to a second ProofLoop with pretend
+  printers, to try slicing, sending, the queue or orders without risking a print: a twin of each of
+  your printers (same model, nozzle and AMS filament) and any you add under *LARP settings*, printing
+  at 1 to 100 times real speed. It starts blank and keeps its own folder, nothing in it can reach a
+  real printer, and your real ProofLoop keeps watching your printers meanwhile. *Back to real*
+  returns; *Turn LARP off* stops it (quitting ProofLoop does too).
+
 - **A Windows installer** (no Python needed) and a package ready for PyPI, built by the release.
 
 ### Changed

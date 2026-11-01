@@ -22,6 +22,12 @@ Under **More** there are **Get set up**, **Phone** and **Setup check**.
 ones, and everything else is real ProofLoop, from sending a file to the plate check and the history.
 It keeps its own folder and never touches your own printers or data.
 
+**Want to try something without risking a print?** *More › LARP mode* switches the window to a
+second ProofLoop with pretend printers: a twin of each of yours (same model, nozzle and AMS
+filament) and any you add, printing at 1 to 100 times real speed. It starts blank, keeps its own
+data, and nothing in it can reach a real printer; your real ProofLoop keeps watching your printers
+meanwhile. *Back to real* returns, and *Turn LARP off* stops it.
+
 ## Getting set up
 
 The first time you open ProofLoop, a **Get set up** panel lists what to do before your printers
@@ -183,6 +189,7 @@ Everything is in one folder, `~/.proofloop` (`PROOFLOOP_HOME` moves it):
   loop files ProofLoop made, queued runs, pictures of each empty plate;
 - `timelapse/`: the last few timelapses of each printer, when you turn them on;
 - `try/`: the pretend farm of `proofloop try`, kept apart from everything else;
+- `larp/`: LARP mode's own ProofLoop (its settings, history and `larp.json`, its pretend printers);
 - `proofloop.log`: the background service's log.
 
 ## More

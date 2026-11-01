@@ -45,7 +45,7 @@ parts match the window's tabs:
 | `loopfiles/` | See below. |
 | `monitor/` | See below. |
 | `personas/` | people who differ in hand size, grip, body size, motor control and eyesight: traits, deliberate design, generation, diversity (used by the design check and product predictions). |
-| `app/` | the window's server (`shell.py`) with Check (`checks.py`) and Loop files & Printers (`loop_server.py` and one module per feature in `routes/`) on it; the first-run guide (`guide.py`); backup and restore (`backup.py`); assistants over MCP (`mcp.py`); the pretend farm (`pretend_farm.py`); background service, tray, start at login, phone access, setup check, updates; the pages (`static/`, `templates/`). |
+| `app/` | the window's server (`shell.py`) with Check (`checks.py`) and Loop files & Printers (`loop_server.py` and one module per feature in `routes/`) on it; the first-run guide (`guide.py`); backup and restore (`backup.py`); assistants over MCP (`mcp.py`); the pretend farm (`pretend_farm.py`) and LARP mode (`larp.py`); background service, tray, start at login, phone access, setup check, updates; the pages (`static/`, `templates/`). |
 | `data/` | built-in YAML (settings, models, printers) and reference data (body sizes, product checklists). |
 
 ## The Loop files & Printers API
