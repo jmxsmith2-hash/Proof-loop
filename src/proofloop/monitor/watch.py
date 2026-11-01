@@ -15,6 +15,9 @@ Any other pause (filament runout, a user) is reported and never resumed.
 With filament tracking on, each finished loop is charged to its spools, a
 loop that stops part-way is charged what its finished layers used, and a
 loop-end pause stays waiting when a spool can't cover the next loop.
+
+With proof photos on, each loop's finished plate is photographed before the
+sweep: once its last layer is done and the heaters are off (``monitor/proofs.py``).
 """
 
 from __future__ import annotations
@@ -49,6 +52,7 @@ SAFETY_PAUSE = 6.0  # routines.SAFETY_PAUSE_SIGNAL: the first-sweep safety pause
 WATCH_AT = (0.5, 0.8)  # the failure watch looks at the plate halfway through a loop, and again at 80%
 BAD_LOOKS = 2  # looks in a row that must find the print gone wrong before it is an alert
 NO_REPORTS_S = 20  # connected this long with no report at all: the serial is probably wrong
+HEATERS_OFF = SAFETY_PAUSE  # a nozzle target this low is off, or a FarmBoard/ProofLoop signal: the print is over
 
 
 def look_marks(every_pct: int) -> tuple[float, ...]:
@@ -100,6 +104,7 @@ class PrinterWatch:
         failure_watch: Callable[[], str] | None = None,
         look_every: Callable[[], int] | None = None,
         timelapse=None,
+        proofs=None,
     ):
         self.name = name
         # "off", "alert" or "pause": what to do when the plate still looks empty part-way through a print
@@ -116,6 +121,10 @@ class PrinterWatch:
         self._wrong_told = False
         # Timelapse (monitor/timelapse.py): an object with frame / end, or None
         self.timelapse = timelapse
+        # Proof photos (monitor/proofs.py): an object with take / latest, or None
+        self.proofs = proofs
+        self._proof_printing = False  # this loop was seen printing (a layer before its last)
+        self._proof_taken = False  # this loop's proof photo was asked for
         self.link = link
         self.verifier = verifier
         self.store = store
@@ -182,6 +191,7 @@ class PrinterWatch:
             self._track_loop(s)
             self._look_for_failure(s)
             self._timelapse_frame(s)
+            self._proof_photo(s)
             self._call("on_ams", s)
             self._log("on_state", s)
 
@@ -312,6 +322,7 @@ class PrinterWatch:
         self._watched, self._watch_empty = set(), 0
         self._good_look, self._bad_looks, self._wrong_told = None, 0, False
         self._failure_paused = False
+        self._proof_printing, self._proof_taken = False, False
 
     # ---- the failure watch ---------------------------------------------------------------
     def _look_for_failure(self, s: PrinterState) -> None:
@@ -401,6 +412,29 @@ class PrinterWatch:
             getattr(self.timelapse, what)(*args)
         except Exception:  # the timelapse must never stop the plate check
             log.exception("%s: timelapse %s failed", self.name, what)
+
+    # ---- the proof photo ------------------------------------------------------------------------
+    def _proof_photo(self, s: PrinterState) -> None:
+        """One picture of each loop's finished plate, before the sweep. The loop must have been seen printing
+        (a layer before its last), then its last layer done and the heaters off: the end-of-print cycle has
+        started and the plate is cooling (with a FarmBoard, its "print done" signal). Never once the plate is
+        being bent or swept, and never for a loop ProofLoop only saw the end of."""
+        if self.proofs is None or self._proof_taken or s.gcode_state != "RUNNING" or not is_loop_job(s):
+            return
+        total = self._call("loop_layers", s) or s.total_layers
+        if total and 0 < s.layer_num < total:
+            self._proof_printing = True
+            return
+        if not self._proof_printing or s.nozzle_target > HEATERS_OFF or {3, 4, 5} & self._marks.keys():
+            return
+        if 2 not in self._marks and not (total and s.layer_num >= total):
+            return
+        self._proof_taken = True  # one a loop, even if the camera doesn't give it
+        job = next(n for n in job_names(s) if is_loop_file(n))
+        try:
+            self.proofs.take(self.name, job, max(1, self.loop_no), self.link.snapshot, self.run_async, self.settle_s)
+        except Exception:  # a proof photo must never stop the plate check
+            log.exception("%s: proof photo failed", self.name)
 
     def _loop_printed(self, s: PrinterState) -> None:
         if not self._printed and is_loop_job(s):
@@ -613,4 +647,5 @@ class PrinterWatch:
                 "timings": self.store.timings(self.name),
                 "bends": self.store.counter(self.name, "bends"),
                 "timelapses": self.timelapse.listing() if self.timelapse else [],
+                "proofs": self.proofs.latest(self.name) if self.proofs else [],
             }

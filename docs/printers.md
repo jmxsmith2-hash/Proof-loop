@@ -137,6 +137,13 @@ send to each printer. A paired phone can never send, or change this setting.
   plate check is never held up. The last 5 timelapses of each printer (you choose) are kept in
   `~/.proofloop/timelapse/<printer>/` and listed on its card, with *View* and *Save*. Older ones are
   deleted, and a timelapse is not part of a backup.
+- **Proof photos.** On unless you turn it off (*Monitor › Camera*). Each loop of a loop file gets one
+  camera picture of its finished plate, before the sweep: once the last layer is done and the heaters
+  go off (with a FarmBoard, at its "print done" signal), while the plate cools. A loop ProofLoop only
+  saw the end of, or one already being bent or swept, gets none. The pictures are small JPEGs (640
+  pixels wide) in `~/.proofloop/proofs/<loop file>/`; the newest 500 (you choose) are kept, over all
+  printers, and they are not part of a backup. Each order in *Orders* shows the pictures of its jobs
+  (*finished plates*), and a printer's card shows its latest four. A click opens one full size.
 - **Quiet hours.** Plates are still checked overnight, but the next loop waits until morning, with
   the printer paused and its heaters off.
 - **Notifications.** ntfy, Discord, Telegram, email or any JSON webhook, as many as you like, each

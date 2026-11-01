@@ -83,7 +83,7 @@ def test_the_camera_needs_the_access_token(tmp_path):
     c, app = client(tmp_path)
     app.settings.app_token = "secret"
     for path in ("/api/monitor/Left/camera", "/api/monitor/Left/timelapses", "/api/monitor/Left/timelapses/x",
-                 "/api/camera-settings"):
+                 "/api/camera-settings", "/api/proofs/x"):
         assert c.get(path).status_code == 401
     assert c.put("/api/camera-settings", json={}).status_code == 401
     assert c.get("/api/monitor/Left/camera", headers={"Authorization": "Bearer secret"}).status_code == 200
@@ -92,7 +92,8 @@ def test_the_camera_needs_the_access_token(tmp_path):
 def test_the_camera_settings_start_off_and_are_kept(tmp_path):
     c, app = client(tmp_path)
     s = c.get("/api/camera-settings").json()
-    assert s == {"look_every_pct": 10, "timelapse": False, "timelapse_every_layers": 5, "timelapse_keep": 5}
+    assert s == {"look_every_pct": 10, "timelapse": False, "timelapse_every_layers": 5, "timelapse_keep": 5,
+                 "proof_photos": True, "proof_keep": 500}
     assert c.get("/api/state").json()["camera"] == s
     r = c.put("/api/camera-settings", json={"timelapse": True, "timelapse_every_layers": 3})
     assert r.status_code == 200 and r.json()["timelapse"] is True and r.json()["look_every_pct"] == 10
@@ -100,7 +101,8 @@ def test_the_camera_settings_start_off_and_are_kept(tmp_path):
 
 
 @pytest.mark.parametrize("bad", [{"look_every_pct": 3}, {"look_every_pct": 40}, {"timelapse_keep": 0},
-                                 {"timelapse_every_layers": 0}, {"timelapse_keep": 500}])
+                                 {"timelapse_every_layers": 0}, {"timelapse_keep": 500}, {"proof_keep": 5},
+                                 {"proof_keep": 50000}])
 def test_settings_out_of_range_are_refused(tmp_path, bad):
     c, app = client(tmp_path)
     assert c.put("/api/camera-settings", json=bad).status_code == 422

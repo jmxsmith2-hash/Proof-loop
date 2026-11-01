@@ -248,6 +248,8 @@ class CameraSettings(_Model):
     timelapse: bool = False  # keep a picture every few layers and make an animation when the print ends
     timelapse_every_layers: int = Field(5, ge=1, le=500)
     timelapse_keep: int = Field(5, ge=1, le=50)  # timelapses kept for each printer
+    proof_photos: bool = True  # a picture of each loop's finished plate before the sweep, for the order's gallery
+    proof_keep: int = Field(500, ge=10, le=5000)  # proof photos kept, over all printers (about 50 kB each)
 
     @field_validator("look_every_pct")
     @classmethod

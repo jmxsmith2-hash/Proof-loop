@@ -17,7 +17,9 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
     def list_orders():
         from proofloop.monitor.orders import progress
 
-        out = [progress(app, o) for o in app.orders.all()]
+        runs = {r["id"]: r for r in app.queue.runs()}
+        out = [{**progress(app, o), "proofs": app.proofs.for_jobs(runs.get(o["run"], {}).get("jobs", []))}
+               for o in app.orders.all()]  # each order's gallery: its finished plates, before the sweep
         return sorted(out, key=lambda o: (o["status"] != "open", o["due"] or "9999", o["created"]))
 
     @api.get("/api/orders/customers", dependencies=guard)

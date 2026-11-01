@@ -1,4 +1,4 @@
-"""The cameras: the live-ish view on a printer's card, the camera settings, and the timelapses."""
+"""The cameras: the live-ish view on a printer's card, the camera settings, the timelapses and the proof photos."""
 
 from __future__ import annotations
 
@@ -128,3 +128,11 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         path, media_type = found
         headers = {"Content-Disposition": f'attachment; filename="{folder_name(name)}-{id}{path.suffix}"'} if download else None
         return FileResponse(path, media_type=media_type, headers=headers)
+
+    @api.get("/api/proofs/{pid}", dependencies=guard)
+    def proof_photo(pid: str):
+        """One proof photo: a loop's finished plate, before the sweep."""
+        path = app.proofs.file(pid)
+        if path is None:
+            raise HTTPException(404, "no such picture")
+        return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400"})

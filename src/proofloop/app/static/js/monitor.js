@@ -81,6 +81,7 @@ async function refreshMonitor() {
       const lc = m.last_check ? `${m.last_check.clear ? '<span class="chip ok">plate empty</span>' : '<span class="chip bad">parts left</span>'} <span class="muted">${new Date(m.last_check_ts * 1000).toLocaleTimeString()}</span>` : '<span class="muted">no check yet</span>';
       const cam = cameraOn[m.name];
       const lapses = (m.timelapses || []).map(t => `<li><div style="flex:1">${esc(t.job || 'A print')} <span class="muted">${new Date(t.started * 1000).toLocaleString()} · ${t.frames} pictures · ${(t.size / 1e6).toFixed(1)} MB${t.outcome === 'failed' ? ' · failed' : ''}</span></div><button class="btn" data-act="lapse" data-n="${n}" data-id="${esc(t.id)}">View</button><button class="btn" data-act="lapsesave" data-n="${n}" data-id="${esc(t.id)}" data-kind="${esc(t.kind)}">Save</button></li>`).join('');
+      const proofs = (m.proofs || []).map(proofThumb).join('');
       return `<div class="card"><div class="spread"><h2>${esc(m.name)}</h2>${chip}</div>
         <p style="margin:0 0 8px">${esc(m.status)}</p>
         ${m.loop_no ? `<div class="phase">${['starting', 'printing', 'cooling, door open', 'bending the plate', 'safety check', 'door closing'].map(ph => `<span class="${(m.phase || '').startsWith(ph.split(' ')[0]) ? 'on' : ''}">${esc(ph.split(',')[0])}</span>`).join('')}</div>` : ''}
@@ -93,6 +94,7 @@ async function refreshMonitor() {
         <img class="thumb hidden" alt="Camera picture" data-img="${n}">
         ${cam ? `<div data-livecam="${n}"></div>` : ''}
         ${lapses ? `<div class="hint" style="margin-top:10px">Timelapses</div><ul class="list">${lapses}</ul>` : ''}
+        ${proofs ? `<div class="hint" style="margin-top:10px">Finished plates</div><div class="proofs">${proofs}</div>` : ''}
         <div class="row" style="margin-top:10px">
           <button class="btn ${cam ? 'primary' : ''}" data-act="cam" data-n="${n}" title="Live video from the printer's camera while it is open">${cam ? 'Hide camera' : 'Live camera'}</button>
           <button class="btn" data-act="snap" data-n="${n}">Snapshot</button>
@@ -111,7 +113,7 @@ async function refreshMonitor() {
     const ev = await json('/api/events?limit=40');
     $('#events').innerHTML = '<tr><th>Time</th><th>Printer</th><th>What happened</th></tr>' + (ev.length ? '' : '<tr><td colspan="3" class="muted">Nothing yet. Events appear here as printers connect and loops run.</td></tr>') + ev.map(e => `<tr><td class="num muted">${new Date(e.ts * 1000).toLocaleString()}</td><td>${esc(e.printer || '')}</td><td>${e.level === 'error' ? '<span class="chip bad">!</span> ' : e.level === 'warning' ? '<span class="chip warn">!</span> ' : ''}${esc(e.message)}</td></tr>`).join('');
     const cs = STATE.camera, cf = $('#cameraForm');
-    if (cs && !cf.contains(document.activeElement)) { cf.look_every_pct.value = cs.look_every_pct; cf.timelapse.checked = cs.timelapse; cf.timelapse_every_layers.value = cs.timelapse_every_layers; cf.timelapse_keep.value = cs.timelapse_keep; }
+    if (cs && !cf.contains(document.activeElement)) { cf.look_every_pct.value = cs.look_every_pct; cf.timelapse.checked = cs.timelapse; cf.timelapse_every_layers.value = cs.timelapse_every_layers; cf.timelapse_keep.value = cs.timelapse_keep; cf.proof_photos.checked = cs.proof_photos; cf.proof_keep.value = cs.proof_keep; }
     cameraStart();
     if (document.activeElement !== $('#failureWatch')) $('#failureWatch').value = STATE.failure_watch || 'alert';
     const q = STATE.quiet_hours, qf = $('#quietForm');
@@ -166,7 +168,7 @@ $('#printerCards').addEventListener('click', async (e) => {
   } catch (err) { toast(err.message); }
 });
 $('#cameraForm').onsubmit = async (e) => { e.preventDefault(); const f = e.target;
-  try { await send('/api/camera-settings', {look_every_pct: +f.look_every_pct.value, timelapse: f.timelapse.checked, timelapse_every_layers: +f.timelapse_every_layers.value || 5, timelapse_keep: +f.timelapse_keep.value || 5}, 'PUT'); toast('Camera settings saved'); } catch (err) { toast(err.message); } };
+  try { await send('/api/camera-settings', {look_every_pct: +f.look_every_pct.value, timelapse: f.timelapse.checked, timelapse_every_layers: +f.timelapse_every_layers.value || 5, timelapse_keep: +f.timelapse_keep.value || 5, proof_photos: f.proof_photos.checked, proof_keep: +f.proof_keep.value || 500}, 'PUT'); toast('Camera settings saved'); } catch (err) { toast(err.message); } };
 document.addEventListener('visibilitychange', () => { if (!document.hidden) cameraStart(); });
 $('#addPrinter').onsubmit = async (e) => { e.preventDefault(); const f = e.target;
   try { await send('/api/monitor/printers', {name: f.name.value, model_id: f.model_id.value, host: f.host.value.trim(), serial: f.serial.value.trim(), access_code: f.access_code.value.trim()});

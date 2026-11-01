@@ -23,6 +23,7 @@ from proofloop.monitor.handsoff import HandsOff
 from proofloop.monitor.homeassistant import HomeAssistantExport
 from proofloop.monitor.journal import PrintJournal
 from proofloop.monitor.orders import Orders
+from proofloop.monitor.proofs import ProofPhotos
 from proofloop.monitor.queue import Queue
 from proofloop.monitor.spoolman import Spoolman
 from proofloop.monitor.store import Store
@@ -170,6 +171,7 @@ class App:
         self._migrate_cost_spools()
         self.folder_watch = FolderWatch(self)  # models saved into a folder, sliced (monitor/watchfolder.py)
         self.hands_off = HandsOff(self)  # queued jobs sent by themselves (monitor/handsoff.py)
+        self.proofs = ProofPhotos(self.data_dir / "proofs", lambda: self.settings.camera)  # each finished plate
         for p in self.settings.printers:
             self._start_watch(p)
         if connect:
@@ -241,6 +243,7 @@ class App:
             failure_watch=lambda: self.settings.failure_watch,
             look_every=lambda: self.settings.camera.look_every_pct,
             timelapse=Timelapse(self.data_dir / "timelapse", p.name, lambda: self.settings.camera),
+            proofs=self.proofs,
         )
         self.journal.models[p.name] = p.model_id
         link.add_listener(w.on_state)

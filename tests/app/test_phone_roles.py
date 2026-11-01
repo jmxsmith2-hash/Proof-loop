@@ -41,6 +41,7 @@ REVIEWED_GETS = {
     "/api/monitor/{name}/camera",  # the shared latest picture; changes nothing
     "/api/monitor/{name}/live",  # the camera as video; opens the camera while watched, changes nothing
     "/api/monitor/{name}/timelapses", "/api/monitor/{name}/timelapses/{id}",
+    "/api/proofs/{pid}",  # a kept picture of a finished plate, the same as the order's gallery; changes nothing
     "/api/camera-settings",
     "/api/slice/options",  # the slicer presets and your printers' nozzles and AMS trays; changes nothing
     "/api/watch-folder",  # the watch folder setting and the model files it sliced lately; changes nothing
