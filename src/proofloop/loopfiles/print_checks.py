@@ -12,8 +12,11 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
+from proofloop.core.logging import get_logger
 from proofloop.loopfiles.lint import Finding
 from proofloop.loopfiles.threemf import SlicedFile
+
+log = get_logger(__name__)
 
 # G-code check severities: 4 will fail, 3 major, 2 minor, 1 note
 LEVELS = {4: "danger", 3: "warning", 2: "warning", 1: "info"}
@@ -30,7 +33,8 @@ def print_checks(sf: SlicedFile) -> list[Finding]:
         path.write_bytes(sf.to_bytes(sf.gcode))
         try:
             result = check_file(path, plate=sf.plate, write_report=False)
-        except Exception as exc:  # noqa: BLE001 - print checks must never hide the loop-file checks
+        except Exception as exc:  # noqa: BLE001 - broad: print checks must never hide the loop-file checks
+            log.exception("print checks failed for %s", sf.name)
             return [Finding("info", "Print checks couldn't read this file", str(exc))]
     out = []
     for f in result["findings"]:

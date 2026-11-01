@@ -9,3 +9,15 @@ dist/
 .ruff_cache/
 .env
 proofloop-data/
+
+# Test coverage reports
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Type checker cache
+.mypy_cache/
+
+# JavaScript packages, if any are added
+node_modules/

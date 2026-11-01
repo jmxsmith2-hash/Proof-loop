@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 
+from proofloop.check.cad.context import SEVERITY
 from proofloop.check.cad.load import load_profiles
 from proofloop.check.slicer import PresetLibrary, find_slicer, slice_model, write_presets
 from proofloop.core.config import ConfigError, Settings
@@ -95,6 +96,8 @@ def compare(design: dict[str, Any], mesh, ctx) -> tuple[list[dict[str, Any]], st
                                    "Arachne walls print some thin features the classic wall generator drops.",
                             "design_finding": f["n"],
                             "settings": [_setting("process", "wall_generator", "arachne", "The slicer left out detail")]})
+    for f in out:
+        f["severity_name"] = SEVERITY[f["severity"]]
     return out, note
 
 
@@ -127,12 +130,13 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
             loops: int = 0, out: Path | None = None, personas: int = 5, history=None,
             design: str | None = None, auto_eject: bool = False, fix: bool = False) -> dict[str, Any]:
     """With fix=True, the slicer settings that fix what was found are applied and the model sliced
-    again (up to two more times); the result says what changed and how many problems were left."""
+    again (up to two more times); the result says what changed (each setting with its old and new value
+    and why) and how many problems were left, and `fix_presets` has the changes as user presets."""
     from proofloop.check.cad.load import load_model
     from proofloop.check.cad.pipeline import check_design, design_spec
     from proofloop.check.cad.report import write_report
     from proofloop.check.gcode.pipeline import analyse, build_result
-    from proofloop.check.gcode.settings_fixes import as_overrides, merged
+    from proofloop.check.gcode.settings_fixes import as_overrides, merged, user_presets
     from proofloop.personas.generate import PersonaGenerator
 
     model = Path(model)
@@ -173,10 +177,19 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
     def blocking_of(gcode: dict[str, Any], slicer_findings: list[dict[str, Any]]) -> int:
         return sum(f["severity"] >= 3 for f in gcode["findings"]) + sum(f["severity"] >= 3 for f in slicer_findings)
 
+    def current(preset: str, key: str) -> str | None:
+        """What a setting is now: an override already applied, else the value in the flattened preset."""
+        if key in overrides.get(preset, {}):
+            return str(overrides[preset][key])
+        value = lib.flat({"process": proc, "filament": fil, "machine": machine}[preset]).get(key)
+        value = value[0] if isinstance(value, list) and value else value
+        return None if value is None or isinstance(value, list) else str(value)
+
     sliced, log, gcode, slicer_findings, align_note = run_once(overrides, "1")
     rounds: list[dict[str, Any]] = []
     for n in range(2 if fix else 0):
-        changes = [c for c in merged(slicer_findings + gcode["findings"])
+        changes = [{**c, "old": current(c["preset"], c["key"])}
+                   for c in merged(slicer_findings + gcode["findings"])
                    if str(overrides.get(c["preset"], {}).get(c["key"])) != c["value"]]
         if not changes:
             break                                          # nothing left that a slicer setting fixes
@@ -186,6 +199,13 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
         sliced, log, gcode, slicer_findings, align_note = run_once(overrides, str(n + 2))
         rounds.append({"applied": changes, "blocking_before": before,
                        "blocking_after": blocking_of(gcode, slicer_findings)})
+
+    fix_presets: dict[str, str] = {}
+    if rounds:                                             # the same changes as user presets to import into the slicer
+        applied = {(c["preset"], c["key"]): c for rd in rounds for c in rd["applied"]}
+        written = user_presets(list(applied.values()), {"filament_settings_id": fil, "print_settings_id": proc},
+                               out / "slicer-fixes")
+        fix_presets = {kind: f"slicer-fixes/{name}" for kind, name in written.items()}
 
     loop_result = None
     if loops:
@@ -207,13 +227,14 @@ def prepare(settings: Settings, db: Database, model: Path, *, printer: str | Non
         "presets": {"machine": machine, "process": proc, "filament": fil, "overrides": overrides},
         "ready": not blocking, "blocking": len(blocking), "design": cad, "gcode": gcode,
         "slicer_findings": slicer_findings, "alignment_note": align_note, "loop": loop_result, "rounds": rounds,
-        "setting_fixes": [] if fix else merged(slicer_findings + gcode["findings"]),
+        "fix_presets": fix_presets, "setting_fixes": [] if fix else merged(slicer_findings + gcode["findings"]),
         "grams": m.get("filament_g"), "time": gcode["time"]["slicer"] or gcode["time"]["replay"],
         "auto_eject": cad["metrics"].get("auto_eject"),
         "layers": m.get("layers"), "sliced": str(sliced), "slicer_log": log[-4000:], "generated": utcnow(),
         "links": {"design": _rel(cad["report"], out), "gcode": _rel(gcode["report"], out),
                   "loop": _rel(loop_result["report"], out) if loop_result else None,
-                  "sliced": _rel(str(sliced), out)},
+                  "sliced": _rel(str(sliced), out),
+                  "fix_presets": fix_presets},
     }
     result["report"] = str(write_report("prepare.html.j2", result, out))
     return result

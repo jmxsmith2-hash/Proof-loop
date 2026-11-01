@@ -65,7 +65,7 @@ def steps(shell) -> list[dict[str, Any]]:
 
         found = find_slicer()
         slicer = bool(found and found.profile_dirs)
-    except Exception:  # noqa: BLE001 - a broken slicer install just counts as missing
+    except (OSError, RuntimeError):  # a broken slicer install (or no home folder) just counts as missing
         slicer = False
     out.append(_step("slicer", "Install Bambu Studio for print-ready verdicts", slicer,
                      "Check can then slice your designs itself and say whether they're ready to print. Open it once "

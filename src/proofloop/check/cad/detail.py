@@ -83,7 +83,7 @@ def _disc(radius_px: float) -> np.ndarray:
 def slice_heights(mesh: trimesh.Trimesh, layer: float, n: int = DETAIL_SLICES) -> list[float]:
     """Evenly spread heights plus one just under each large top surface (where embossed text sits)."""
     lo, hi = float(mesh.bounds[0, 2]), float(mesh.bounds[1, 2])
-    zs = list(np.linspace(lo + layer / 2, hi - layer / 2, max(2, n)))
+    zs = [float(z) for z in np.linspace(lo + layer / 2, hi - layer / 2, max(2, n))]
     normals, areas, cz = mesh.face_normals, mesh.area_faces, mesh.triangles_center[:, 2]
     up = normals[:, 2] > 0.999
     if up.any():
@@ -100,7 +100,7 @@ def slice_heights(mesh: trimesh.Trimesh, layer: float, n: int = DETAIL_SLICES) -
 
 def lost_detail(mesh: trimesh.Trimesh, nozzle: float, layer: float,
                 one_body: Callable[[list[set[int]]], bool] | None = None,
-                face_shell: np.ndarray | None = None) -> dict[str, list[dict[str, Any]]]:
+                face_shell: np.ndarray | None = None) -> dict[str, list[Any]]:
     """Regions too narrow to print (raised) and gaps too narrow to stay open (engraved), per slice.
 
     A narrow gap between pieces of a cut that belong to separate bodies is a clearance between parts
@@ -119,9 +119,9 @@ def lost_detail(mesh: trimesh.Trimesh, nozzle: float, layer: float,
     origin = np.array([x0 - margin, y0 - margin])
     disc = _disc(nozzle / 2 / pitch)
     min_area = (0.8 * nozzle) ** 2                    # ignore corner slivers left by the round tool
-    cache: dict[float, dict[str, np.ndarray]] = {}
+    cache: dict[float, dict[str, Any]] = {}
 
-    analysed: dict[bytes, dict[str, np.ndarray]] = {}
+    analysed: dict[bytes, dict[str, Any]] = {}
 
     def cut(z: float) -> dict[str, Any]:
         if z not in cache:
@@ -135,7 +135,7 @@ def lost_detail(mesh: trimesh.Trimesh, nozzle: float, layer: float,
             cache[z] = {"inside": inside, **analysed[key], "segs": segs, "faces": faces}
         return cache[z]
 
-    def persists(kind: str, z: float, region: np.ndarray, box: tuple[slice, slice]) -> bool:
+    def persists(kind: str, z: float, region: np.ndarray, box: tuple[slice, ...]) -> bool:
         """A real detail has straight sides: half a layer up or down it is still there and still narrow.
         The thin edge where a sloping face meets a flat one is not (it widens or vanishes)."""
         for dz in (layer / 2, -layer / 2):
@@ -147,7 +147,8 @@ def lost_detail(mesh: trimesh.Trimesh, nozzle: float, layer: float,
         return False
 
     lo_z, hi_z = float(mesh.bounds[0, 2]), float(mesh.bounds[1, 2])
-    thin_out, gap_out = [], []
+    thin_out: list[dict[str, float]] = []
+    gap_out: list[dict[str, float]] = []
     for z in slice_heights(mesh, layer):
         c = cut(z)
         inside = c["inside"]

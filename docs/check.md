@@ -8,7 +8,6 @@ right check for the file, and `proofloop check COMMAND` gives every option.
 - [From CAD to a print-ready verdict](#from-cad-to-a-print-ready-verdict)
 - [G-code](#g-code-the-sliced-file)
 - [Learning from your printers, and from you](#learning-from-your-printers-and-from-you)
-- [Moulded and machined products](#moulded-and-machined-products)
 - [Product predictions](#product-predictions-prediction-not-a-test)
 
 A checked Bambu plate (`.gcode.3mf`) gets a **Loop file** row: **Make it now** makes the loop file
@@ -101,9 +100,14 @@ angle your printer really manages. The next check applies them and tells you whi
 
 `examples/cad/` has a phone stand with planted flaws (v1) and its fixed v2, a tool handle with a
 too-small USB-C opening, and a plain block as a control (`python examples/cad/make_examples.py`
-regenerates them). The default printer is the Bambu Lab P2S; H2D, H2S, X1, Prusa MK4, Ender 3 and
-generic FDM and resin profiles are included, and slicer material names ("PLA Basic", "PETG HF") are
-understood. Add your own printer by putting a `printers.yaml` in `~/.proofloop/config` (start from
+regenerates them). The default printer is the Bambu Lab P2S. Profiles are included for the X1
+Carbon, X1 and X1E (`bambu_x1`), P1S, P1P, A1, A1 mini, A2L, H2D (and H2D Pro), H2S, H2C and X2D,
+plus the Prusa MK4, Ender 3 and generic FDM and resin printers; a G-code file is matched to its
+profile by the `printer_model` the slicer wrote into it. Slicer material names ("PLA Basic", "PETG
+HF") are understood. These profiles serve the design and G-code checks (and the printer monitor
+recognises the same Bambu models); **loop files are still made for the P2S only**, because the
+FarmLoop kit moves are published only for the P2S. Where each printer value comes from is in
+[sources](sources.md#printer-profiles-design-and-g-code-checks). Add your own printer by putting a `printers.yaml` in `~/.proofloop/config` (start from
 `src/proofloop/data/printers.yaml`). From Blender, export STL or 3MF; from Fusion, *File > 3D Print*
 or *Export > 3MF*.
 
@@ -134,6 +138,16 @@ proofloop check prepare part.stl --fix                   # apply the setting fix
   fan, first-layer height, temperatures, Arachne walls ...), slices again and checks again, up to
   twice, and shows what changed and how many problems were left.
 * In the window, tick "Slice it with Bambu Studio too" on the CAD card.
+* **Fix and slice again** in the window: when a print-ready result lists slicer settings that would
+  fix findings, the job has a *Fix and slice again* button. It starts a new job on the same file
+  with the same options and the fixes applied, linked to the first. Its result lists each setting it
+  changed (preset, name, old value, new value, why) and the problems that stop it printing before and
+  after each round, and the report shows the same. You can download the fixed sliced plate
+  (`.gcode.3mf`) and the process / filament presets ProofLoop wrote (File › Import › Import Configs in
+  Bambu Studio or OrcaSlicer), or send the fixed plate on with *Make it now* or *Fine-tune in Loop
+  files*. To do it at upload, tick "Apply the slicer fixes and slice again". A job that was only
+  G-code lists the fixes but can't slice again: that needs the 3D model, so upload the STL, 3MF or
+  STEP. With no slicer installed the button gives way to a note to install Bambu Studio.
 
 The command line follows Bambu Studio's own option definitions (`--slice`, `--export-3mf`,
 `--load-settings`, `--load-filaments`); the tests use a stand-in with the same command line, and CI
@@ -221,43 +235,6 @@ was right*. A check marked a false alarm at least twice for a printer and materi
 it was confirmed, counts one level lower there from then on (four times: only a note), and says so.
 The loop-file safety checks are never lowered. Your verdicts are kept in
 `~/.proofloop/feedback.json`.
-
-## Moulded and machined products
-
-The same CAD check works for parts that will be injection moulded or CNC machined:
-
-```bash
-proofloop check design housing.stl --process injection --material PP     # mould opens along the best axis
-proofloop check design housing.stl --process injection --pull z
-proofloop check design bracket.step --process cnc --material aluminium_6061
-```
-
-(or set `process:` and `pull:` in the design YAML, or pick "How it is made" on the CAD card).
-
-**Injection moulding** (two-part mould, straight pull):
-
-* undercuts: space with part material above and below it along the pull, which neither mould half
-  can form. It says which side a slider could come from, or that nothing can (a sealed space);
-* draft on side walls (1° by default, 3° for textured surfaces);
-* wall thickness from a distance map: too thin to fill (short shot), thick sections that sink or
-  void, and walls uneven enough to warp;
-* sharp inside corners;
-* shot weight, clamp force from the projected area, cooling and cycle time, and the shrinkage to
-  allow for.
-
-**CNC machining** (3-axis, re-clamped as needed):
-
-* material no straight tool can reach from any side;
-* the fewest set-ups that reach the rest;
-* inside corners sharper than the tool's radius, and slots narrower than the smallest tool (gaps
-  between separate bodies don't count);
-* pockets deeper than 4x their width, thin walls, deep or tiny holes;
-* stock size, how much is cut away, and a rough machining time.
-
-Grip, weight, sharp edges, clearances between parts and tipping are checked as for printed parts,
-and personas react the same way. Material and process figures live in `processes.yaml` (ABS, PP,
-PC, PA66, POM, HDPE and TPE for moulding; aluminium, steel, stainless, brass and plastics for
-machining). They are typical design-guide values; a moulder's or machinist's quote wins.
 
 ## Product predictions (prediction, not a test)
 

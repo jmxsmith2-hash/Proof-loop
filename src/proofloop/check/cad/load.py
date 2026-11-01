@@ -13,6 +13,7 @@ import trimesh
 from proofloop.core.config import ConfigError, load_yaml_file
 from proofloop.core.logging import get_logger
 from proofloop.core.paths import config_file
+from proofloop.core.proc import NO_WINDOW
 
 log = get_logger(__name__)
 
@@ -77,7 +78,7 @@ def _render_scad(path: Path) -> trimesh.Trimesh:
         if exe.endswith(".py"):  # a stand-in OpenSCAD, in tests
             cmd = [sys.executable, *cmd]
         try:
-            r = subprocess.run(cmd, capture_output=True, timeout=600, stdin=subprocess.DEVNULL)
+            r = subprocess.run(cmd, capture_output=True, timeout=600, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ConfigError(f"OpenSCAD couldn't render {path.name}: {exc}") from exc
         if r.returncode or not out.is_file():

@@ -53,8 +53,22 @@ dialog p { margin: 6px 0; }
 .qr { background: #fff; border-radius: 10px; padding: 8px; width: 220px; margin: 10px auto; }
 .qr svg { width: 100%; height: auto; display: block; }
 .code { font-size: 26px; letter-spacing: 6px; font-weight: 700; text-align: center; }
+#phoneDlg { max-width: min(560px, calc(100vw - 32px)); }
+.roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin: 10px 0; }
+.role { border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.role h3 { font-size: 15px; margin: 0 0 2px; }
+.role .qr { width: 100%; max-width: 180px; }
 .err { color: var(--bad); }
 #newsDlg { max-width: min(560px, calc(100vw - 32px)); }
+#larpSetDlg { max-width: min(600px, calc(100vw - 32px)); }
+.larp-list { list-style: none; margin: 6px 0 12px; padding: 0; max-height: 34vh; overflow: auto; }
+.larp-list li { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 8px 0; border-top: 1px solid var(--line); }
+.larp-list .btn { padding: 4px 10px; font-size: 13px; }
+.larp-add { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.larp-add label, .larp-trays label { font-size: 13px; color: var(--muted); }
+.larp-trays { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 8px 0; }
+.larp-trays input[type=color] { width: 100%; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); padding: 2px; margin-top: 4px; }
+@media (max-width: 560px) { .larp-trays { grid-template-columns: repeat(2, 1fr); } }
 .news { max-height: 60vh; overflow: auto; font-size: 14px; }
 .news h3 { margin: 14px 0 4px; } .news h4 { margin: 10px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .news ul { margin: 0; padding-left: 18px; } .news li { margin: 3px 0; }
@@ -75,6 +89,7 @@ dialog p { margin: 6px 0; }
       <button type="button" role="menuitem" id="phoneBtn" class="hidden"><span><b>Phone</b><small>See your printers on your phone, over your Wi-Fi</small></span></button>
       <button type="button" role="menuitem" id="guideBtn"><span><b>Get set up</b><small id="guideMenuNote">The few things to do before your printers run unattended</small></span></button>
       <button type="button" role="menuitem" id="doctorBtn"><span><b>Setup check</b><small>Is everything ProofLoop needs working?</small></span></button>
+      <button type="button" role="menuitem" id="larpBtn"><span><b>LARP mode</b><small id="larpNote">Pretend printers to test on; your real printers and data aren't touched</small></span></button>
       <button type="button" role="menuitem" id="newsBtn" class="hidden"><span><b>What's new</b><small id="newsNote">What changed in this version</small></span></button>
     </div>
   </div>
@@ -96,6 +111,13 @@ dialog p { margin: 6px 0; }
   <span class="grow"><b>Pretend farm.</b> Three pretend printers, printing about 40 times faster than real ones. Everything else
     is real ProofLoop; your own printers and data aren't touched.</span>
 </div>
+<div class="banner warn strip pretend hidden" id="larpBanner" role="note">
+  <span class="ic" aria-hidden="true">✦</span>
+  <span class="grow"><b>LARP mode.</b> Every printer here is pretend, and nothing you do here reaches your real printers,
+    settings or history. Your real ProofLoop keeps watching your printers meanwhile.</span>
+  <button type="button" class="btn" id="larpSettings">LARP settings</button>
+  <button type="button" class="btn primary" id="larpBack">Back to real</button>
+</div>
 <div class="work">
 <iframe id="check" role="tabpanel" aria-labelledby="tab-check" title="Check" class="hidden"></iframe>
 <iframe id="loop" role="tabpanel" title="Loop files and Printers" class="hidden"></iframe>
@@ -114,6 +136,48 @@ dialog p { margin: 6px 0; }
   <div class="row" style="margin-top:12px"><button type="button" class="btn primary" id="newsClose">Close</button></div>
 </dialog>
 
+<dialog id="larpDlg" aria-labelledby="larpTitle">
+  <h2 id="larpTitle">LARP mode</h2>
+  <p>A second ProofLoop with pretend printers, to try anything on: slicing, loop files, sending, the queue, orders.
+    It has a twin of each of your printers (same model, nozzle and AMS filament) and any pretend printers you add.</p>
+  <p class="muted">It starts blank and keeps its own data: nothing you do in LARP touches your real printers, settings,
+    queue, orders or history. Your real ProofLoop keeps watching your printers while this window shows LARP.</p>
+  <p class="hint" id="larpState" role="status"></p>
+  <p class="err" id="larpErr" role="alert"></p>
+  <div class="row">
+    <button type="button" class="btn primary" id="larpStart">Turn on LARP</button>
+    <button type="button" class="btn hidden" id="larpStop">Turn LARP off</button>
+    <button type="button" class="btn" id="larpClose">Close</button>
+  </div>
+</dialog>
+
+<dialog id="larpSetDlg" aria-labelledby="larpSetTitle">
+  <h2 id="larpSetTitle">LARP settings</h2>
+  <label for="larpSpeed">Pretend printers print at <b id="larpSpeedOut"></b></label>
+  <input type="range" id="larpSpeed" min="1" max="100" step="1">
+  <h3 style="font-size:15px;margin:14px 0 0">Pretend printers</h3>
+  <ul class="larp-list" id="larpPrinters"></ul>
+  <details id="larpAddBox">
+    <summary>Add a pretend printer</summary>
+    <form id="larpAdd" style="margin-top:8px">
+      <div class="larp-add">
+        <div><label for="larpName">Name</label><input type="text" id="larpName" required maxlength="40" placeholder="Pretend P2S"></div>
+        <div><label for="larpModel">Model</label><select id="larpModel"></select></div>
+        <div><label for="larpNozzle">Nozzle (mm)</label><select id="larpNozzle"></select></div>
+        <div><label for="larpFlow">Nozzle flow</label><select id="larpFlow"></select></div>
+      </div>
+      <div class="larp-trays" id="larpTrays"></div>
+      <button type="submit" class="btn primary">Add pretend printer</button>
+    </form>
+  </details>
+  <p class="hint">A twin you remove isn't made again. Removing a printer here or under Printers ends what it was printing.</p>
+  <p class="err" id="larpSetErr" role="alert"></p>
+  <div class="row">
+    <button type="button" class="btn" id="larpOff">Turn LARP off</button>
+    <button type="button" class="btn primary" id="larpSetClose">Close</button>
+  </div>
+</dialog>
+
 <dialog id="phoneDlg" aria-labelledby="phoneTitle">
   <h2 id="phoneTitle">Your printers on your phone</h2>
   <div id="phoneOff">
@@ -121,11 +185,22 @@ dialog p { margin: 6px 0; }
     <p class="muted">Windows may ask whether Python can use the network: choose <b>Private networks</b>.</p>
   </div>
   <div id="phoneOn" class="hidden">
-    <p>On your phone, on the same Wi-Fi, scan this code with the camera:</p>
-    <div class="qr" id="phoneQr" role="img" aria-label="QR code to pair your phone"></div>
-    <p>Or open <b id="phoneUrl"></b> and type</p>
-    <p class="code" id="phoneCode"></p>
-    <p class="muted">A paired phone stays paired. "Forget phones" unpairs all of them and makes a new code.</p>
+    <p>On your phone, on the same Wi-Fi, scan the code for what that phone may do. Or open <b id="phoneUrl"></b> and type its six-digit code.</p>
+    <div class="roles">
+      <section class="role" aria-labelledby="roleWatchT">
+        <h3 id="roleWatchT">Watch only</h3>
+        <p class="muted">Sees printers, plate checks, filament and costs. Can't change anything.</p>
+        <div class="qr" id="qrWatch" role="img" aria-label="QR code to pair a watch-only phone"></div>
+        <p class="code" id="codeWatch"></p>
+      </section>
+      <section class="role" aria-labelledby="roleOperatorT">
+        <h3 id="roleOperatorT">Operator</h3>
+        <p class="muted">Can also change spools, orders, the queue and printers. Never sends a print.</p>
+        <div class="qr" id="qrOperator" role="img" aria-label="QR code to pair an operator phone"></div>
+        <p class="code" id="codeOperator"></p>
+      </section>
+    </div>
+    <p class="muted">A paired phone stays paired. "Forget phones" unpairs all of them and makes new codes.</p>
   </div>
   <p class="err" id="phoneErr" role="alert"></p>
   <div class="row">
@@ -233,7 +308,7 @@ async function loadStatus() {
   $("bgText").textContent = STATUS.autostart
     ? "Closing this window keeps ProofLoop watching your printers. Quit it from its icon next to the clock."
     : "Closing this window keeps ProofLoop watching your printers, but it doesn't start when you log in yet: after a restart, nothing watches them.";
-  $("bgBanner").classList.toggle("hidden", !showBg || CFG.pretend);
+  $("bgBanner").classList.toggle("hidden", !showBg || CFG.pretend || !!CFG.larp);
   renderPhone();
 }
 $("bgOk").onclick = () => { store.set("proofloop-bg-ok", "1"); store.set("proofloop-autostart-dismissed", "1"); $("bgBanner").classList.add("hidden"); };
@@ -247,7 +322,13 @@ function renderPhone() {
   $("phoneForget").classList.toggle("hidden", !ph.on);
   $("phoneToggle").textContent = ph.on ? "Turn off phone access" : "Turn on phone access";
   $("phoneErr").textContent = ph.error || "";
-  if (ph.on) { $("phoneQr").innerHTML = ph.qr; $("phoneUrl").textContent = ph.url; $("phoneCode").textContent = ph.code; }
+  if (ph.on) {
+    $("phoneUrl").textContent = ph.url;
+    for (const r of ph.roles || []) {
+      const name = r.role === "watch" ? "Watch" : "Operator";
+      $("qr" + name).innerHTML = r.qr; $("code" + name).textContent = r.code;
+    }
+  }
 }
 $("phoneBtn").onclick = () => { menu(false); renderPhone(); $("phoneDlg").showModal(); };
 $("phoneClose").onclick = () => $("phoneDlg").close();
@@ -258,7 +339,7 @@ $("phoneToggle").onclick = async () => {
   $("phoneToggle").disabled = false; renderPhone(); loadStatus();
 };
 $("phoneForget").onclick = async () => {
-  if (!confirm("Unpair every phone and make a new code?")) return;
+  if (!confirm("Unpair every phone and make new codes?")) return;
   try { STATUS = await call("/proofloop/phone", {forget: true, on: true}); } catch (e) { $("phoneErr").textContent = e.message; }
   renderPhone();
 };
@@ -302,7 +383,78 @@ function openGuide(open) {
 $("guideBtn").onclick = () => { menu(false); openGuide(true); };
 $("guideClose").onclick = () => openGuide(false);
 if (CFG.pretend) $("pretendBanner").classList.remove("hidden");
-else loadGuide().then(g => { if (g && !g.complete && !store.get("proofloop-guide-closed")) openGuide(true); });
+else if (!CFG.larp) loadGuide().then(g => { if (g && !g.complete && !store.get("proofloop-guide-closed")) openGuide(true); });
+
+// ---- LARP mode: a second ProofLoop with pretend printers (app/larp.py)
+async function larpStatus() { try { return await call("/proofloop/larp"); } catch (e) { return null; } }
+function drawLarpSwitch(s) {
+  const on = !!(s && s.running);
+  $("larpBtn").classList.toggle("on", on);
+  $("larpStart").textContent = on ? "Open LARP" : "Turn on LARP";
+  $("larpStop").classList.toggle("hidden", !on);
+  $("larpState").textContent = on ? "LARP is on: its pretend printers keep going until you turn it off." : "";
+}
+async function goLarp() {
+  $("larpErr").textContent = ""; $("larpStart").disabled = true; $("larpStart").textContent = "Starting LARP…";
+  try { const r = await call("/proofloop/larp", {on: true}); location.href = r.url; }
+  catch (e) { $("larpErr").textContent = e.message; $("larpStart").disabled = false; drawLarpSwitch(await larpStatus()); }
+}
+let LARP = null;
+const speedText = (v) => +v === 1 ? "real speed" : `${v}× real speed`;
+function drawLarp() {
+  $("larpSpeed").min = LARP.slowest; $("larpSpeed").max = LARP.fastest; $("larpSpeed").value = LARP.speed;
+  $("larpSpeedOut").textContent = speedText(LARP.speed);
+  $("larpPrinters").innerHTML = LARP.printers.map(p => `<li><span><b>${esc(p.name)}</b><br><span class="hint">${esc(LARP.models[p.model_id] || p.model_id)} · ${p.nozzle} mm ${esc(p.flow)} · ${p.trays.length ? p.trays.map(t => esc(t.type)).join(", ") : "no AMS"}${p.twin_of ? ` · twin of ${esc(p.twin_of)}` : ""}</span></span><button type="button" class="btn" data-remove="${esc(p.name)}">Remove</button></li>`).join("")
+    || `<li class="hint">No pretend printers yet: add one below.</li>`;
+  if (!$("larpModel").options.length) {
+    $("larpModel").innerHTML = Object.entries(LARP.models).map(([id, name]) => `<option value="${esc(id)}"${id === "N7" ? " selected" : ""}>${esc(name)}</option>`).join("");
+    $("larpNozzle").innerHTML = LARP.nozzles.map(n => `<option${n === 0.4 ? " selected" : ""}>${n}</option>`).join("");
+    $("larpFlow").innerHTML = LARP.flows.map(f => `<option>${esc(f)}</option>`).join("");
+    const mats = ["", ...LARP.materials];
+    $("larpTrays").innerHTML = [0, 1, 2, 3].map(i => `<div><label for="larpTray${i}">AMS A${i + 1}</label><select id="larpTray${i}">${mats.map(m => `<option value="${esc(m)}"${i === 0 && m === "PLA" ? " selected" : ""}>${m ? esc(m) : "Empty"}</option>`).join("")}</select><input type="color" id="larpColor${i}" value="#f2f2f2" aria-label="AMS A${i + 1} colour"></div>`).join("");
+  }
+}
+async function openLarpSettings() {
+  menu(false); $("larpSetErr").textContent = "";
+  try { LARP = await call("/proofloop/larp"); } catch (e) { toast(e.message); return; }
+  drawLarp(); $("larpSetDlg").showModal();
+}
+async function larpCall(path, body) {
+  $("larpSetErr").textContent = "";
+  try { LARP = await call(path, body); drawLarp(); return true; } catch (e) { $("larpSetErr").textContent = e.message; return false; }
+}
+if (CFG.larp) {
+  $("larpBanner").classList.remove("hidden");
+  $("larpNote").textContent = "Speed and pretend printers";
+  $("larpBtn").onclick = openLarpSettings;
+  $("larpSettings").onclick = openLarpSettings;
+  $("larpBack").onclick = () => { location.href = CFG.larp; };
+  $("larpSpeed").oninput = (e) => { $("larpSpeedOut").textContent = speedText(e.target.value); };
+  $("larpSpeed").onchange = (e) => larpCall("/proofloop/larp/speed", {speed: +e.target.value});
+  $("larpPrinters").onclick = (e) => { const b = e.target.closest("[data-remove]"); if (b) larpCall("/proofloop/larp/remove", {name: b.dataset.remove}); };
+  $("larpAdd").onsubmit = async (e) => {
+    e.preventDefault();
+    const trays = [0, 1, 2, 3].map(i => ({type: $("larpTray" + i).value, color: $("larpColor" + i).value}));
+    const name = $("larpName").value.trim();
+    if (await larpCall("/proofloop/larp/add", {name, model_id: $("larpModel").value, nozzle: +$("larpNozzle").value, flow: $("larpFlow").value, trays})) {
+      $("larpName").value = ""; toast(`Added ${name}: see it under Printers`);
+    }
+  };
+  $("larpOff").onclick = async () => {
+    try { await call("/proofloop/quit", {reason: "LARP mode turned off"}); } catch (e) {}
+    location.href = CFG.larp;
+  };
+  $("larpSetClose").onclick = () => $("larpSetDlg").close();
+} else {
+  larpStatus().then(drawLarpSwitch);
+  $("larpBtn").onclick = async () => { menu(false); $("larpErr").textContent = ""; $("larpDlg").showModal(); drawLarpSwitch(await larpStatus()); };
+  $("larpStart").onclick = goLarp;
+  $("larpStop").onclick = async () => {
+    try { await call("/proofloop/larp", {on: false}); } catch (e) { $("larpErr").textContent = e.message; }
+    drawLarpSwitch(await larpStatus()); toast("LARP is off");
+  };
+  $("larpClose").onclick = () => $("larpDlg").close();
+}
 
 // ---- what's new: the changelog, as simple Markdown (headings, bullets, bold, code)
 function md(text) {

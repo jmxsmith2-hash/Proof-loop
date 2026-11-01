@@ -1,4 +1,4 @@
-"""API for the filament inventory, the overview dashboard, and backup/restore."""
+"""The filament inventory: spools, what each print used, weigh-ins, links to AMS trays, Spoolman."""
 
 from __future__ import annotations
 
@@ -6,16 +6,31 @@ import csv
 import io
 import time
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 
-from proofloop.app import backup as backups
-from proofloop.monitor.filament import DAY, FilamentSettings, Spool, day_start, norm_color
+from proofloop.app.routes.common import Guard, trays_of
+from proofloop.monitor.exports import safe  # labels and notes can't become formulas
+from proofloop.monitor.filament import (
+    DAY,
+    FilamentSettings,
+    Spool,
+    norm_color,
+    requirements,
+)
+from proofloop.monitor.runout import by_tray, forecast
+from proofloop.monitor.send import feeds
+from proofloop.monitor.service import App
 from proofloop.monitor.spoolman import SpoolmanError, to_spool
 
 
-def register(api: FastAPI, app, guard, window: bool = True) -> None:
-    """``window=False`` for phone access: a phone can download a backup, not restore one."""
+def spool_out(app: App, sp: Spool) -> dict:
+    d = sp.as_dict(app.settings.filament.low_g)
+    d["forecast"] = app.inventory.forecast(sp)
+    return d
+
+
+def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> None:
     inv = app.inventory
 
     def spool_or_404(sid: str) -> Spool:
@@ -26,11 +41,6 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
 
     def bad(e: Exception):
         return HTTPException(422, str(e))
-
-    def spool_out(sp: Spool) -> dict:
-        d = sp.as_dict(app.settings.filament.low_g)
-        d["forecast"] = inv.forecast(sp)
-        return d
 
     def printers_ams() -> list[dict]:
         out = []
@@ -47,12 +57,11 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
             )
         return out
 
-    # ---- filament ---------------------------------------------------------------------
     @api.get("/api/filament", dependencies=guard)
     def filament():
         spools = inv.all()
         return {
-            "spools": [spool_out(s) for s in spools],
+            "spools": [spool_out(app, s) for s in spools],
             "summary": inv.summary(),
             "settings": app.settings.filament.model_dump(),
             "printers": printers_ams(),
@@ -75,7 +84,7 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
             made = [inv.save(Spool.model_validate(body), sealed=sealed) for _ in range(copies)]
         except ValueError as e:
             raise bad(e) from e
-        return [spool_out(s) for s in made]
+        return [spool_out(app, s) for s in made]
 
     @api.put("/api/filament/spools/{sid}", dependencies=guard)
     def edit_spool(sid: str, body: dict):
@@ -83,7 +92,7 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
         keep = {"id", "added", "last_used", "printer", "tray"}
         merged = {**old.model_dump(), **{k: v for k, v in body.items() if k not in keep}}
         try:
-            return spool_out(inv.save(Spool.model_validate(merged)))
+            return spool_out(app, inv.save(Spool.model_validate(merged)))
         except ValueError as e:
             raise bad(e) from e
 
@@ -97,7 +106,7 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
     def weigh(sid: str, body: dict):
         spool_or_404(sid)
         try:
-            return spool_out(inv.weigh(sid, float(body["gross_g"])))
+            return spool_out(app, inv.weigh(sid, float(body["gross_g"])))
         except (KeyError, TypeError, ValueError) as e:
             raise bad(e) from e
 
@@ -108,7 +117,7 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
             g = float(body["grams"])
             if g < 0:
                 raise ValueError("remaining filament can't be negative")
-            return spool_out(inv.set_remaining(sid, g, str(body.get("note") or "")))
+            return spool_out(app, inv.set_remaining(sid, g, str(body.get("note") or "")))
         except (KeyError, TypeError, ValueError) as e:
             raise bad(e) from e
 
@@ -129,13 +138,13 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
             material=sp.material,
             color=sp.color,
         )
-        return spool_out(inv.get(sid))
+        return spool_out(app, inv.get(sid))
 
     @api.post("/api/filament/spools/{sid}/dried", dependencies=guard)
     def dried(sid: str):
         sp = spool_or_404(sid)
         sp.dried = time.time()
-        return spool_out(inv.save(sp))
+        return spool_out(app, inv.save(sp))
 
     @api.post("/api/filament/link", dependencies=guard)
     def link(body: dict):
@@ -150,6 +159,37 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
             spool_or_404(sid)
         app.tracker.link(printer, tray, sid)
         return {"ok": True}
+
+    @api.post("/api/filament/ams-spools", dependencies=guard)
+    def spools_from_ams(body: dict):
+        """A spool for every loaded AMS tray that has none yet, filled in from what the AMS reports, and linked.
+
+        A Bambu spool's RFID tag gives its weight when new, and with the AMS's percentage what is left;
+        for other spools those stay unknown, to weigh or type in.
+        """
+        only = str((body or {}).get("printer") or "")
+        if only and only not in app.watches:
+            raise HTTPException(404, f"no printer {only!r}")
+        spools = inv.all()
+        tags = {s.tag for s in spools if s.tag}
+        made = []
+        for w in app.watches.values():
+            if only and w.name != only:
+                continue
+            for t in w.link.state.ams.trays():
+                linked = any(s.printer == w.name and s.tray == t["tray"] for s in spools)
+                if t["empty"] or not t["type"] or linked or (t["tag"] and t["tag"] in tags):
+                    continue
+                net, pct = t.get("weight_g"), t.get("remain_pct")
+                sp = inv.save(Spool(
+                    material=t["type"], color=t["color"], name=t["sub_brand"] or t["type"],
+                    brand="Bambu Lab" if t["tag"] else "", filament_id=t["filament_id"], tag=t["tag"],
+                    drying_temp=t["drying_temp"], drying_hours=t["drying_hours"], net_g=net,
+                    remaining_g=round(net * pct / 100, 1) if net and pct is not None else None,
+                ))
+                app.tracker.link(w.name, t["tray"], sp.id)
+                made.append(spool_out(app, inv.get(sp.id)))
+        return {"added": len(made), "spools": made}
 
     @api.put("/api/filament/assign", dependencies=guard)
     def assign(body: dict):
@@ -244,13 +284,14 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
             w = csv.DictWriter(buf, fieldnames=["time", *cols], extrasaction="ignore")
             w.writeheader()
             for r in rows:
-                w.writerow({"time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["ts"])), **r})
+                w.writerow({"time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["ts"])),
+                            **{k: safe(v) for k, v in r.items()}})
         else:
             cols = list(Spool.model_fields) + ["per_kg", "remaining_pct", "value", "status"]
             w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
             w.writeheader()
             for s in inv.all():
-                w.writerow(s.as_dict(app.settings.filament.low_g))
+                w.writerow({k: safe(v) for k, v in s.as_dict(app.settings.filament.low_g).items()})
         name = "proofloop-usage.csv" if what == "usage" else "proofloop-spools.csv"
         return Response(
             buf.getvalue(),
@@ -270,93 +311,29 @@ def register(api: FastAPI, app, guard, window: bool = True) -> None:
             ]
         return out
 
-    # ---- overview -----------------------------------------------------------------------
-    @api.get("/api/overview", dependencies=guard)
-    def overview(days: int = 14):
-        days = max(1, min(days, 90))
-        now = time.time()
-        prod = app.store.production(now - max(days, 30) * DAY)
-
-        def window(d):
-            since = day_start(now) - (d - 1) * DAY  # whole calendar days, today included
-            rows = [r for r in prod if r["ts"] >= since]
-            return {
-                "loops": sum(1 for r in rows if r["ok"]),
-                "failed": sum(1 for r in rows if not r["ok"]),
-                "parts": sum(r["parts"] for r in rows if r["ok"]),
-                "grams": round(sum(r["grams"] for r in rows if r["ok"]), 1),
-            }
-
-        start = day_start(now) - (days - 1) * DAY
-        daily = []
-        for i in range(days):
-            a, b = start + i * DAY, start + (i + 1) * DAY
-            rows = [r for r in prod if a <= r["ts"] < b and r["ok"]]
-            daily.append({"day": a, "parts": sum(r["parts"] for r in rows), "loops": len(rows)})
-        runs = []
-        for w in app.watches.values():
-            st = w.link.state
-            _key, job = app.tracker.job_for(st)
-            t = app.store.timings(w.name)
-            total = job["loops"] if job else None
-            eta = None
-            if total and "loop" in t and st.gcode_state in ("RUNNING", "PAUSE", "PREPARE"):
-                left = max(0, total - w.loop_no)
-                eta = (
-                    now
-                    + left * t["loop"]["avg"]
-                    + (st.remaining_min * 60 if st.gcode_state == "RUNNING" else 0)
-                )
-            runs.append(
-                {
-                    "printer": w.name,
-                    "status": w.status,
-                    "phase": w.phase,
-                    "online": st.online,
-                    "job": st.subtask_name,
-                    "loop_no": w.loop_no if job else None,
-                    "loops": total,
-                    "eta": eta,
-                    "eta_basis": f"average of {t['loop']['n']} measured loops" if eta else None,
-                    "waiting_for_you": w.waiting_for_you,
-                }
-            )
-        per_printer: dict[str, int] = {}
-        for r in prod:
-            if r["ts"] >= now - 7 * DAY and r["ok"]:
-                per_printer[r["printer"]] = per_printer.get(r["printer"], 0) + r["parts"]
-        return {
-            "today": window(1),
-            "week": window(7),
-            "month": window(30),
-            "daily": daily,
-            "runs": runs,
-            "parts_per_printer_7d": per_printer,
-            "filament": inv.summary(),
-            "low_spools": [
-                spool_out(s)
-                for s in inv.all(archived=False)
-                if s.status(app.settings.filament.low_g) in ("low", "empty")
-            ],
-            "events": app.store.events(8),
-        }
-
-    # ---- backup -------------------------------------------------------------------------
-    @api.get("/api/backup", dependencies=guard)
-    def backup():
-        stamp = time.strftime("%Y%m%d-%H%M")
-        return Response(
-            backups.make(app),
-            media_type="application/zip",
-            headers={"Content-Disposition": f'attachment; filename="proofloop-backup-{stamp}.zip"'},
+    @api.post("/api/plates/{token}/filament", dependencies=guard)
+    def plate_filament(token: str, body: dict):
+        """What filament a plate needs, and whether the spools you have cover it."""
+        sf = app.uploads.get(token)
+        printer = body.get("printer") or None
+        if printer and printer not in app.watches:
+            raise HTTPException(404, f"no printer {printer!r}")
+        loops = max(1, int(body.get("loops") or app.settings.defaults.loops))
+        trays = trays_of(app, printer)
+        out = requirements(
+            app.inventory,
+            printer,
+            sf.info.filament_slots,
+            sf.info.slot_grams,
+            loops,
+            trays,
+            sf.info.presets,
         )
-
-    @api.post("/api/restore", dependencies=guard)
-    async def restore(file: UploadFile = File(...)):
-        if not window:
-            raise HTTPException(403, "a backup can only be restored in the ProofLoop window")
-        raw = await file.read(backups.MAX_RESTORE + 1)
-        try:
-            return backups.restore(app, raw)
-        except ValueError as e:
-            raise HTTPException(422, f"can't restore: {e}") from e
+        out["printer"] = printer
+        # The printer's own trays: which one feeds each slot, and on which loop it runs out (monitor/runout.py).
+        fed = feeds(sf.info.filament_slots, trays) if printer and trays else {}
+        rows = {r["tray"]: r for r in forecast(by_tray([sf.info.slot_grams] * loops, fed), trays,
+                                                inv.all(archived=False), printer or "")}
+        for s in out["slots"]:
+            s["ams"] = rows.get(fed.get(s["slot"], -1))
+        return out

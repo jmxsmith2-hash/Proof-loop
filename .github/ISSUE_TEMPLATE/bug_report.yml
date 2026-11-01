@@ -1,0 +1,50 @@
+name: Bug report
+description: Something doesn't work the way the docs say.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Before you paste anything, remove printer access codes, serial numbers
+        and private file names. For a security problem, don't use this form: see SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: ProofLoop version
+      description: Run `proofloop --version`.
+      placeholder: "0.4.0"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      description: For example Windows 11, macOS 15 or Ubuntu 24.04.
+    validations:
+      required: true
+  - type: input
+    id: printers
+    attributes:
+      label: Printer model(s)
+      description: For example P2S. Leave blank if the problem doesn't involve a printer.
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: What did you do, and what did you see? Copy any message exactly.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `proofloop doctor --json`
+      description: Run it in a terminal and paste the output. Remove the printer access codes first.
+      render: json
+    validations:
+      required: true

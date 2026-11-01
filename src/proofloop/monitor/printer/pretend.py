@@ -251,7 +251,11 @@ class FakePrinter:
         self.commands.append(cmd)
         what = cmd.get("command")
         if what == "project_file":
-            name = cmd.get("file", "")
+            url = str(cmd.get("url", ""))
+            if not url.startswith("ftp:///"):  # as a P2S answers file:///sdcard/: unsupported file path or name
+                self.report(gcode_state="FAILED", print_error=0x05004002)
+                return
+            name = url[len("ftp:///"):]
             if name not in self.files:
                 self.report(gcode_state="FAILED", print_error=0x0500C010)
                 return
@@ -350,6 +354,8 @@ class FakePrinter:
                     say("230 logged in" if logged_in else "530 wrong access code")
                 elif not logged_in:
                     say("530 log in first")
+                elif verb == "MKD":
+                    say("550 already there" if arg == "cache" else "257 made")
                 elif verb in ("PBSZ", "PROT", "TYPE"):
                     say("200 ok")
                 elif verb == "PASV":

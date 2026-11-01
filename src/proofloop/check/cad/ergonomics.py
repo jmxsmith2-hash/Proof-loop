@@ -16,7 +16,7 @@ import numpy as np
 import trimesh
 import yaml
 
-from proofloop.check.cad.checks import CadFinding, Context
+from proofloop.check.cad.context import CadFinding, Context
 
 
 @lru_cache(maxsize=1)
@@ -46,9 +46,9 @@ def section_profile(mesh: trimesh.Trimesh, axis: int, value: float) -> dict[str,
             segs.append(good[:2])
     if not segs:
         return None
-    segs = np.array(segs)
-    perimeter = float(np.linalg.norm(segs[:, 0] - segs[:, 1], axis=1).sum())
-    plane = np.delete(segs.reshape(-1, 3), axis, axis=1)
+    stacked = np.array(segs)
+    perimeter = float(np.linalg.norm(stacked[:, 0] - stacked[:, 1], axis=1).sum())
+    plane = np.delete(stacked.reshape(-1, 3), axis, axis=1)
     widths = np.ptp(plane, axis=0)
     return {"perimeter_mm": perimeter, "width_mm": float(widths.max()), "thickness_mm": float(widths.min()),
             "equivalent_diameter_mm": perimeter / math.pi}

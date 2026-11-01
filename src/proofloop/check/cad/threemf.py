@@ -62,7 +62,19 @@ class _Package:
     def objects(self, part: str) -> dict[str, ET.Element]:
         root, _ = self.model(part)
         res = root.find(f"{CORE}resources")
-        return {o.get("id"): o for o in (res.findall(f"{CORE}object") if res is not None else [])}
+        return {_attr(o, "id"): o for o in (res.findall(f"{CORE}object") if res is not None else [])}
+
+
+def _attr(el: ET.Element, name: str) -> str:
+    value = el.get(name)
+    if value is None:
+        raise ConfigError(f"3MF <{el.tag.rsplit('}', 1)[-1]}> has no {name!r} attribute")
+    return value
+
+
+def _children(el: ET.Element, container: str, tag: str) -> list[ET.Element]:
+    parent = el.find(f"{CORE}{container}")
+    return list(parent.iter(f"{CORE}{tag}")) if parent is not None else []
 
 
 def _collect(pkg: _Package, part: str, object_id: str, transform: np.ndarray,
@@ -75,17 +87,17 @@ def _collect(pkg: _Package, part: str, object_id: str, transform: np.ndarray,
     _, scale = pkg.model(part)
     mesh = obj.find(f"{CORE}mesh")
     if mesh is not None:
-        verts = np.array([(float(v.get("x")), float(v.get("y")), float(v.get("z")))
-                          for v in mesh.find(f"{CORE}vertices").iter(f"{CORE}vertex")], dtype=float) * scale
-        faces = np.array([(int(t.get("v1")), int(t.get("v2")), int(t.get("v3")))
-                          for t in mesh.find(f"{CORE}triangles").iter(f"{CORE}triangle")], dtype=np.int64)
+        verts = np.array([(float(_attr(v, "x")), float(_attr(v, "y")), float(_attr(v, "z")))
+                          for v in _children(mesh, "vertices", "vertex")], dtype=float) * scale
+        faces = np.array([(int(_attr(t, "v1")), int(_attr(t, "v2")), int(_attr(t, "v3")))
+                          for t in _children(mesh, "triangles", "triangle")], dtype=np.int64)
         if len(verts) and len(faces):
             homo = np.c_[verts, np.ones(len(verts))] @ transform.T
             out.append((homo[:, :3], faces))
     comps = obj.find(f"{CORE}components")
     for comp in (comps.findall(f"{CORE}component") if comps is not None else []):
         target = comp.get(PROD_PATH) or part
-        _collect(pkg, target, comp.get("objectid"), transform @ _matrix(comp.get("transform")), out, depth + 1)
+        _collect(pkg, target, _attr(comp, "objectid"), transform @ _matrix(comp.get("transform")), out, depth + 1)
 
 
 def read_3mf(path: Path | str) -> trimesh.Trimesh:
@@ -104,7 +116,7 @@ def read_3mf(path: Path | str) -> trimesh.Trimesh:
     for item in items:
         if item.get("printable", "1") in ("0", "false"):
             continue
-        _collect(pkg, item.get(PROD_PATH) or part, item.get("objectid"), _matrix(item.get("transform")), pieces)
+        _collect(pkg, item.get(PROD_PATH) or part, _attr(item, "objectid"), _matrix(item.get("transform")), pieces)
     if not pieces:
         raise ConfigError(f"{path.name} contains no triangles")
     offset, verts, faces = 0, [], []

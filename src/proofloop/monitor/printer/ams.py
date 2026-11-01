@@ -138,6 +138,7 @@ def _tray(tid: int, t: dict, unit: dict | None) -> dict:
         "nozzle_temp_max": _float(t.get("nozzle_temp_max")),
         "drying_temp": _float(t.get("drying_temp")),
         "drying_hours": _float(t.get("drying_time")),
+        "weight_g": _float(t.get("tray_weight")),  # what the spool held when new, from a Bambu RFID tag
         "humidity_pct": _float(unit.get("humidity_raw")) if unit else None,
     }
 

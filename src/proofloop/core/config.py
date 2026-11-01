@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError, field_validator
 
 from proofloop.core import paths
 from proofloop.core.logging import get_logger
@@ -178,7 +178,7 @@ def load_settings(config_dir: Path | None = None, overrides: dict[str, Any] | No
         raw[key] = value
     try:
         settings = Settings.model_validate(raw)
-    except Exception as exc:  # pydantic.ValidationError, kept readable for the CLI
+    except ValidationError as exc:  # kept readable for the CLI
         raise ConfigError(f"invalid settings in {settings_file}: {exc}") from exc
     if not settings.data_dir.is_absolute():
         settings.data_dir = (config_dir.parent / settings.data_dir).resolve()

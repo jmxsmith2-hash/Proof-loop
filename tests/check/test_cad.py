@@ -244,3 +244,17 @@ def test_material_names_from_the_slicer_resolve(profiles):
     assert load_profiles(CFG, None, "PLA Basic")[1]["name"] == "PLA"
     assert load_profiles(CFG, None, "petg hf")[1]["name"] == "PETG"
     assert profiles[0]["name"] == "bambu_p2s"                      # the default printer
+
+
+def test_3mf_with_a_missing_attribute_is_a_config_error_not_a_crash(tmp_path):
+    import zipfile
+
+    from proofloop.check.cad.threemf import read_3mf
+
+    core = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+    with zipfile.ZipFile(tmp_path / "bad.3mf", "w") as z:
+        z.writestr("3D/3dmodel.model",
+                   f'<model xmlns="{core}"><resources><object id="1"><mesh><vertices><vertex x="0" y="0"/></vertices>'
+                   '<triangles/></mesh></object></resources><build><item objectid="1"/></build></model>')
+    with pytest.raises(ConfigError, match="no 'z' attribute"):
+        read_3mf(tmp_path / "bad.3mf")

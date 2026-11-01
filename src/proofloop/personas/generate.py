@@ -212,10 +212,11 @@ def save_personas(db: Database, personas: list[Persona], study: str | None = Non
 
 def load_personas(db: Database, ids: list[str] | None = None, study: str | None = None) -> list[Persona]:
     if ids:
-        rows = [db.one("SELECT * FROM personas WHERE id = ?", [i]) for i in ids]
-        missing = [i for i, r in zip(ids, rows, strict=False) if r is None]
+        found = [db.one("SELECT * FROM personas WHERE id = ?", [i]) for i in ids]
+        missing = [i for i, r in zip(ids, found, strict=False) if r is None]
         if missing:
             raise KeyError(f"unknown persona ids: {missing}")
+        rows = [r for r in found if r is not None]
     elif study:
         rows = db.all("SELECT * FROM personas WHERE study = ? ORDER BY rowid", [study])
     else:

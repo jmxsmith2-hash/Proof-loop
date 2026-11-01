@@ -44,14 +44,45 @@ def test_every_line_is_your_price_times_the_files_quantities():
     assert line(r, "material") == pytest.approx(50 / 1000 * 20 + 10 / 1000 * 60)  # PETG 30 per 500 g = 60/kg
     hours = (3600 + 300 + 900) / 3600
     assert line(r, "energy") == pytest.approx((1 * 200 + (1200 / 3600) * 50) / 1000 * 0.5, abs=1e-4)
-    assert line(r, "machine") == pytest.approx(hours * 1000 / 5000, abs=1e-4)
+    assert line(r, "machine") == pytest.approx(1 * 1000 / 5000, abs=1e-4)  # print hours only
     assert line(r, "plate") == pytest.approx(0.1)
     assert line(r, "labor") == pytest.approx(1.0)
     assert line(r, "overhead") == pytest.approx(hours * 0.2, abs=1e-4)
     assert r.setup == pytest.approx(6.0)
     assert r.totals["run"] == pytest.approx(r.totals["per_loop"] * 5 + 6, abs=1e-3)
     assert r.totals["per_part"] == pytest.approx(r.totals["run"] / 20, abs=1e-4)
-    assert r.totals["complete"] and not r.missing
+    assert r.totals["complete"] and not r.missing and not r.checks
+
+
+def test_printer_wear_counts_print_hours_not_cooldown():
+    r = cost(full(), SLOTS, GRAMS, 4, Times(3600, 300, 7200, "measured"))
+    assert line(r, "machine") == pytest.approx(0.2)
+
+
+def test_maintenance_is_your_time_at_your_rate():
+    t = Times(7200, 300, 900, "measured")  # 2 print hours, 2.33 h a loop
+    r = cost(full(maintenance_min=30, maintenance_every=100), SLOTS, GRAMS, 4, t)  # 30 min at $30/h = $15
+    assert line(r, "maintenance") == pytest.approx(15 * 2 / 100)
+    assert "30 min at $30/h ($15.00) every 100 print hours" in next(ln.how for ln in r.lines if ln.key == "maintenance")
+    r = cost(full(maintenance_min=30, maintenance_every=50, maintenance_unit="loops"), SLOTS, GRAMS, 4, t)
+    assert line(r, "maintenance") == pytest.approx(15 / 50)
+    r = cost(full(maintenance_min=30, maintenance_every=7, maintenance_unit="days"), SLOTS, GRAMS, 4, t)
+    assert line(r, "maintenance") == pytest.approx(15 * (8400 / 3600) / (7 * 600 / 30), abs=1e-4)  # 140 h a week
+    r = cost(full(maintenance_min=30, maintenance_every=100, labor_rate=None), SLOTS, GRAMS, 4, t)
+    assert line(r, "maintenance") is None and any("how often you do maintenance" in m for m in r.missing)
+    assert not any(ln.key == "maintenance" for ln in cost(full(), SLOTS, GRAMS, 4, t).lines)  # not used: no line
+
+
+def test_rates_far_from_the_usual_are_used_but_pointed_out():
+    c = full(printer_life_hours=100000, plate_life_loops=10000, labor_min_per_run=15, labor_rate=20,
+             electricity_per_kwh=4)
+    r = cost(c, SLOTS, GRAMS, 4, T, loops=1)
+    assert line(r, "plate") == pytest.approx(30 / 10000)  # still what you entered
+    said = " ".join(r.checks)
+    assert "electricity price is $4, well above what" in said and "printer life is 100,000" in said
+    assert "loops per plate is 10,000" in said and "setup is" in said  # $5 setup on a 1-loop run
+    assert r.as_dict()["checks"] == r.checks
+    assert not any("setup is" in m for m in cost(c, SLOTS, GRAMS, 4, T, loops=20).checks)  # spread over 20 loops
 
 
 def test_nothing_is_guessed_missing_prices_are_listed_not_invented():
@@ -105,6 +136,23 @@ def test_selling_breakeven_and_target_price():
     # at the break-even price, profit really is zero
     at_be = cost(c.model_copy(update={"price_per_part": s["breakeven_price"]}), SLOTS, GRAMS, 4, T)
     assert at_be.selling["profit"] == pytest.approx(0, abs=1e-3)
+
+
+def test_every_slice_is_quoted_even_without_a_price():
+    c = full(tax_included_pct=20, marketplace_fee_pct=5, target_margin_pct=30)
+    r = cost(c, SLOTS, GRAMS, 4, T, loops=3)
+    q, cpp = r.quote, r.totals["per_part"]
+    assert r.selling is None and q["complete"] and q["cost_per_part"] == pytest.approx(cpp)
+    share = 1 / 1.2 - 0.05
+    assert q["breakeven_price"] == pytest.approx(cpp / share, abs=0.01)
+    assert q["price"] == pytest.approx(cpp / (share - 0.3), abs=0.01)
+    # charging the quoted price really earns the target margin
+    sold = cost(c.model_copy(update={"price_per_part": q["price"]}), SLOTS, GRAMS, 4, T, loops=3).selling
+    assert sold["margin_pct"] == pytest.approx(30, abs=0.1)
+    # missing rates: still quoted, marked as at least this much
+    assert not cost(CostSettings(), SLOTS, GRAMS, 4, T).quote["complete"]
+    # fees and margin that eat the whole price: no price can work
+    assert cost(full(marketplace_fee_pct=60, target_margin_pct=50), SLOTS, GRAMS, 4, T).quote["price"] is None
 
 
 def test_capacity_uses_the_real_loop_time():

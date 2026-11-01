@@ -71,6 +71,7 @@
 <div class="card small"><table><tr><th>Where in Bambu Studio / OrcaSlicer</th><th>Setting</th><th class="n">Value</th><th>Fixes</th></tr>
 {% for st in r.setting_fixes %}<tr><td>{{ st.label }}</td><td><code>{{ st.key }}</code></td><td class="n"><b>{{ st.value }}</b></td><td>{{ st.why }}</td></tr>{% endfor %}</table>
 {% if r.fix_presets %}<p>Or import them as presets (File › Import › Import Configs): {% for k, v in r.fix_presets.items() %}<a href="{{ v }}">{{ k }} preset</a>{% if not loop.last %}, {% endif %}{% endfor %}. They inherit from the presets this file was sliced with.</p>{% endif %}
+{% if r.slice_again_note %}<p class="muted">{{ r.slice_again_note }}</p>{% endif %}
 </div>{% endif %}
 
 <h2>What the file does</h2>

@@ -11,6 +11,9 @@ plate). When a printer with a job waiting comes free, ProofLoop tells you once, 
 log and your notification targets. Nothing in the queue starts by itself: you send or download each
 job (sending needs Sending to printers turned on, and your confirmation).
 
+A printer switched to hands-off gets its next job sent by itself once its plate checks empty
+(``monitor/handsoff.py``).
+
 A job you sent or downloaded is followed on its printer from what the printer reports: *printing*
 once its file runs there (with the loop it's on), then *done* when the file finishes, or *stopped*
 when it fails or is cancelled. Only then is the printer's next job offered.
@@ -26,6 +29,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from proofloop.core import schema
 from proofloop.monitor.journal import CANCELLED_ERROR
 from proofloop.monitor.send import BUSY, match_trays
 from proofloop.monitor.tracking import job_key
@@ -108,16 +112,16 @@ class Queue:
 
     def _load(self) -> list[dict[str, Any]]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            doc, _ = schema.upgrade("queue", json.loads(self.path.read_text(encoding="utf-8")), self.path.name,
+                                    newer_ok=True)  # a newer file is read, never written over
         except (OSError, ValueError):
             return []
-        return data if isinstance(data, list) else []
+        runs = doc.get("runs") if isinstance(doc, dict) else None
+        return runs if isinstance(runs, list) else []
 
     def _save(self, runs: list[dict[str, Any]]) -> None:
-        self.folder.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(runs, indent=2), encoding="utf-8")
-        tmp.replace(self.path)
+        schema.check_write("queue", self.path)
+        schema.write_json(self.path, schema.stamp("queue", {"runs": runs}))
 
     def runs(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -139,6 +143,7 @@ class Queue:
         run = {"id": rid, "plate": plate_name, "parts": plan["parts"], "created": time.time(),
                "settings": {k: v for k, v in settings.items() if k != "loops"}, "jobs": jobs}
         with self._lock:
+            schema.check_write("queue", self.path)  # before the plate is written, not after
             self.folder.mkdir(parents=True, exist_ok=True)
             (self.folder / f"{rid}.gcode.3mf").write_bytes(plate)
             runs = self._load()
@@ -222,28 +227,40 @@ class Queue:
             job.update(status="stopped", why="the printer didn't start it", ended=time.time())
         return job != before
 
+    @staticmethod
+    def _next(runs: list[dict[str, Any]], stopped_blocks: bool = False) -> list[tuple[dict, dict]]:
+        """The next waiting job on each printer. A printer still on a job you sent has nothing next yet (a
+        downloaded one may never run); with ``stopped_blocks``, neither has one whose job stopped."""
+        busy = ("sent", "printing", "stopped") if stopped_blocks else ("sent", "printing")
+        seen = {j["printer"] for run in runs for j in run["jobs"] if j["status"] in busy}
+        out = []
+        for run in runs:
+            for job in run["jobs"]:
+                if job["status"] == "waiting" and job["printer"] not in seen:
+                    seen.add(job["printer"])
+                    out.append((run, job))
+        return out
+
+    def next_jobs(self, app) -> list[tuple[dict, dict]]:
+        """For hands-off: each printer's next job, unless a job of its own stopped and wants you first."""
+        with self._lock:
+            return self._next(self._load(), stopped_blocks=True)
+
     def ready(self, app) -> list[tuple[dict, dict]]:
         """Jobs whose printer just came free and that you haven't been told about yet: (run, job)."""
         out = []
         with self._lock:
             runs = self._load()
             changed = False
-            # A printer still on a job you sent has nothing to offer yet (a downloaded one may never run).
-            seen = {j["printer"] for run in runs for j in run["jobs"] if j["status"] in ("sent", "printing")}
-            for run in runs:
-                waiting = [j for j in run["jobs"] if j["status"] == "waiting"]
-                for job in waiting:  # only the next job on each printer
-                    if job["printer"] in seen:
-                        continue
-                    seen.add(job["printer"])
-                    w = app.watches.get(job["printer"])
-                    if job["notified"] or w is None or not w.link.state.online:
-                        continue
-                    if w.link.state.gcode_state.upper() in BUSY:
-                        continue
-                    job["notified"] = True
-                    changed = True
-                    out.append((run, job))
+            for run, job in self._next(runs):
+                w = app.watches.get(job["printer"])
+                if job["notified"] or w is None or not w.link.state.online:
+                    continue
+                if w.link.state.gcode_state.upper() in BUSY:
+                    continue
+                job["notified"] = True
+                changed = True
+                out.append((run, job))
             if changed:
                 self._save(runs)
         return out

@@ -9,7 +9,7 @@
     proofloop app                  run in this terminal instead, until Ctrl+C
     proofloop stop | status        quit the background ProofLoop / is it running?
     proofloop autostart on|off     start in the background when you log in
-    proofloop phone on|off|forget  phone access on your network
+    proofloop phone on|off|forget  phone access on your network (--role watch|operator, --json)
     proofloop doctor               check the setup (--slice-test, --send-test, --printer-test)
     proofloop summary              what happened on your printers (--hours, --json)
     proofloop try                  try everything with three pretend printers (no hardware needed)
@@ -134,7 +134,7 @@ def cmd_service(a) -> int:
     try:
         svc = Service(a.port)
         svc.start()
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - the command boundary: any failed start is exit code 2, traceback in the log
         logging.exception("ProofLoop couldn't start")
         return 2
     if a.tray:
@@ -229,26 +229,39 @@ def cmd_autostart(a) -> int:
 def cmd_phone(a) -> int:
     body = {"status": {}, "on": {"on": True}, "off": {"on": False}, "forget": {"forget": True, "on": True}}[a.what]
     r = _ask(a.port, "/proofloop/phone" if body else "/proofloop/status", body or None, timeout=15)
-    if r is None:
-        print("ProofLoop isn't running: start it first (proofloop).", file=sys.stderr)
-        return 2
-    if "error" in r:
-        print(r["error"], file=sys.stderr)
+    if r is None or "error" in r:
+        message = "ProofLoop isn't running: start it first (proofloop)." if r is None else r["error"]
+        if a.json:
+            from proofloop.core.output import emit
+
+            emit({"error": message})
+        else:
+            print(message, file=sys.stderr)
         return 2
     ph = r.get("phone") or {}
+    roles = [x for x in ph.get("roles") or [] if a.role in (None, x["role"])]
+    if a.json:
+        from proofloop.core.output import emit
+
+        emit({"on": bool(ph.get("on")), "url": ph.get("url"), "error": ph.get("error"),
+              "roles": [{k: x[k] for k in ("role", "label", "code", "pair_url")} for x in roles]})
+        return 0
     if not ph.get("on"):
         print("Phone access is off." + (f" ({ph['error']})" if ph.get("error") else ""))
         return 0
-    print(f"Phone access is on. On your phone (same Wi-Fi), open {ph['url']} and type the code {ph['code']},")
-    print("or scan this:")
-    try:
-        import qrcode
+    print(f"Phone access is on. On your phone (same Wi-Fi), open {ph['url']} and type a code, or scan its QR code.")
+    what = {"watch": "can only watch", "operator": "can also change things, never sends a print"}
+    for x in roles:
+        print()
+        print(f"{x['label']} ({what[x['role']]}): the code {x['code']}, or scan this:")
+        try:
+            import qrcode
 
-        q = qrcode.QRCode(border=1)
-        q.add_data(ph["pair_url"])
-        q.print_ascii(invert=True)
-    except Exception:  # noqa: BLE001
-        print(ph["pair_url"])
+            q = qrcode.QRCode(border=1)
+            q.add_data(x["pair_url"])
+            q.print_ascii(invert=True)
+        except (ImportError, ValueError, OSError):  # no qrcode package, or a console that can't draw it: the link
+            print(x["pair_url"])
     return 0
 
 
@@ -285,6 +298,19 @@ def cmd_summary(a) -> int:
         print(s["text"] + ("" if s.get("live", True) else "\n(ProofLoop isn't running: from its records, "
                                                          "without the printers' live state)"))
     return 0
+
+
+def cmd_larp(a) -> int:
+    """LARP mode's pretend ProofLoop, started by the real one from More › LARP mode."""
+    from proofloop.app import larp
+
+    larp.enter(a.back)
+    _log_to_file()
+    try:
+        return larp.run(a.port)
+    except Exception:  # noqa: BLE001 - the command boundary: any failed start is exit code 2, traceback in the log
+        logging.exception("LARP couldn't start")
+        return 2
 
 
 def cmd_try(a) -> int:
@@ -412,6 +438,8 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("what", choices=["on", "off", "status"], nargs="?", default="status")
     p = sub.add_parser("phone", help="phone access on your network")
     p.add_argument("what", choices=["on", "off", "forget", "status"], nargs="?", default="status")
+    p.add_argument("--role", choices=["watch", "operator"], help="show only this kind of phone's code (default: both)")
+    p.add_argument("--json", action="store_true", help="as JSON (for programs and assistants)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
     p = sub.add_parser("doctor", help="check that everything ProofLoop needs is there and working")
     p.add_argument("--slice-test", action="store_true", help="also slice a small example part with your slicer")
@@ -428,6 +456,9 @@ def _main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8610)
     p.add_argument("--no-window", dest="window", action="store_false", help="don't open the window")
     p.add_argument("--fresh", action="store_true", help="start the pretend farm over")
+    p = sub.add_parser("larp", help="LARP mode's pretend ProofLoop (turn it on in the window: More › LARP mode)")
+    p.add_argument("--port", type=int, default=8620)
+    p.add_argument("--back", default=f"http://127.0.0.1:{DEFAULT_PORT}/", help="the real window's address")
     p = sub.add_parser("mcp", help="ProofLoop for assistants such as Claude (Model Context Protocol, stdio)")
     p.add_argument("--config", action="store_true", help="print the entry for Claude Desktop's config, and the "
                    "command for Claude Code")
@@ -444,7 +475,7 @@ def _main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     return {"open": cmd_open, "service": cmd_service, "app": cmd_app, "stop": cmd_stop, "status": cmd_status,
             "autostart": cmd_autostart, "phone": cmd_phone, "doctor": cmd_doctor, "update": cmd_update,
-            "summary": cmd_summary, "mcp": cmd_mcp, "try": cmd_try}[a.cmd](a)
+            "summary": cmd_summary, "mcp": cmd_mcp, "try": cmd_try, "larp": cmd_larp}[a.cmd](a)
 
 
 if __name__ == "__main__":

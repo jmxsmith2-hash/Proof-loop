@@ -43,7 +43,7 @@ def test_batch_keeps_order_and_pauses_between_every_plate():
 def test_batch_refuses_plates_that_cant_share_a_file():
     a = sf(plain(BUCKET), "a")
     petg = sf(make_3mf(plate_gcode(SMALL, filament="PETG"), SMALL, filament="PETG"), "petg")
-    with pytest.raises(ProcessError, match="same filament slots"):
+    with pytest.raises(ProcessError, match="give each filament its own slot"):
         process_batch([(a, 1), (petg, 1)], P, LoopSettings())
     a1 = sf(make_3mf(plate_gcode(SMALL), SMALL, model_id="N2S"), "a1")
     with pytest.raises(ProcessError, match="different printer"):

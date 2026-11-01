@@ -2,22 +2,190 @@
 // Part of loop.html; the files load in order and share their top-level names.
 
 // ---------- make ----------
-dropZone($('#makeDrop'), $('#makeFile'), async (file) => {
+dropZone($('#makeDrop'), $('#makeFile'), async (file, more = []) => {
   $('#makeError').classList.add('hidden'); $('#noProfile').classList.add('hidden');
   $('#makeDrop strong').textContent = 'Reading ' + file.name + '…';
   try {
     const fd = new FormData(); fd.append('file', file);
-    showOpened(await json('/api/plates', {method: 'POST', body: fd}));
+    const res = await json('/api/plates', {method: 'POST', body: fd});
+    if (res.model) {  // several models dropped together go on one plate
+      await openSlice(res.model);
+      if (more.length && res.model.kind === 'mesh') await addModels(more);
+    } else {
+      $('#sliceCard').classList.add('hidden');
+      PLATES = res.plates || [];
+      showOpened(res);
+      if (PLATES.length) toast(`${file.name} has ${PLATES.length} sliced plates: pick one above, or add them all to the batch`);
+    }
   } catch (e) { makeError(e); }
-  $('#makeDrop strong').textContent = 'Drop another plate, or click to choose';
+  $('#makeDrop strong').textContent = 'Drop another model or plate, or click to choose';
 });
+
+// ---------- slicing a model here ----------
+// A model or a Bambu Studio project dropped above: pick the printer and presets, then it is sliced by the
+// slicer on this computer and opens below like any sliced plate.
+let MODEL = null, SLICE = null, EXTRA = [];  // EXTRA: more models on the same plate {token, name, copies, filament}
+async function openSlice(model) {
+  MODEL = model; EXTRA = []; renderExtra();
+  $('#slName').textContent = model.name;
+  const card = $('#sliceCard');
+  card.classList.remove('hidden'); card.classList.toggle('project', model.kind === 'project');
+  $('#sliceTitle').textContent = 'Slice ' + model.name;
+  $('#sliceKind').textContent = model.kind === 'project' ? 'Bambu Studio project' : 'model';
+  $('#sliceHint').textContent = model.kind === 'project'
+    ? `Sliced with the project's own settings: painting, supports and modifiers stay as you made them. Only the nozzle flow follows the printer${model.nozzle_flow ? ` (the project is set for ${model.nozzle_flow})` : ''}.`
+    : 'Pick the printer it is for: the nozzle and flow come from it, and the filament from what is in its AMS.';
+  $('#sliceErr').classList.add('hidden'); $('#makeResult').classList.add('hidden'); $('#sliceWait').textContent = '';
+  if (!SLICE) {
+    $('#sliceWait').textContent = 'Reading the slicer presets…';
+    SLICE = await json('/api/slice/options');
+    $('#sliceWait').textContent = '';
+  }
+  if (!SLICE.slicer) { sliceError(SLICE.error); $('#sliceBtn').disabled = $('#sliceBatchBtn').disabled = true; return; }
+  $('#sliceBtn').disabled = $('#sliceBatchBtn').disabled = false;
+  $('#slPrinter').innerHTML = SLICE.printers.map(p => `<option value="${esc(p.name)}">${esc(p.name)}${p.nozzle ? ` · ${p.nozzle} mm ${esc(p.nozzle_flow || '')}` : ''}</option>`).join('')
+    + `<option value="">Any ${esc(SLICE.printer_model.replace('Bambu Lab ', ''))}</option>`;
+  $('#slMachine').innerHTML = SLICE.machines.map(m => `<option value="${esc(m.name)}">${esc(m.nozzle)} mm${m.mine ? ` · ${esc(m.name)}` : ''}</option>`).join('');
+  slicePrinterChanged();
+}
+function sliceError(msg) { $('#sliceErr').innerHTML = `<span class="ic danger">✖</span><div>${esc(msg)}</div>`; $('#sliceErr').classList.remove('hidden'); }
+function slicePrinter() { return SLICE.printers.find(p => p.name === $('#slPrinter').value); }
+function slicePrinterChanged() {
+  const p = slicePrinter();
+  if (p && p.machine) $('#slMachine').value = p.machine;
+  else if (!$('#slMachine').value) $('#slMachine').value = (SLICE.machines.find(m => m.nozzle === '0.4') || SLICE.machines[0] || {}).name;
+  if (p && p.nozzle_flow) $('#slFlow').value = p.nozzle_flow;
+  $('#slPrinterHint').textContent = !p ? 'Pick the nozzle and flow yourself.' : !p.online ? `${p.name} isn't connected: its nozzle and AMS are as last seen.` : p.nozzle ? `${p.nozzle} mm ${p.nozzle_flow || ''} nozzle fitted.` : '';
+  sliceMachineChanged();
+}
+function sliceMachineChanged() {
+  const name = $('#slMachine').value, m = SLICE.machines.find(x => x.name === name) || {};
+  for (const opt of $('#slFlow').options) opt.disabled = !(m.flows || ['Standard']).includes(opt.value);
+  if ($('#slFlow').selectedOptions[0]?.disabled) $('#slFlow').value = 'Standard';
+  const procs = SLICE.processes[name] || [];
+  $('#slProcess').innerHTML = procs.map(n => `<option ${n === m.default_process ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  const fils = SLICE.filaments[name] || [], p = slicePrinter();
+  const trays = (p && p.machine === name ? p.trays : []).filter(t => t.preset);
+  const opt = (n, label) => `<option value="${esc(n)}">${esc(label || n)}</option>`;
+  // A tray's option carries its colour and number, so the plate keeps that tray's slot (A3 = slot 3)
+  const tray = t => `<option value="${esc(t.preset)}" data-color="${esc(t.color || '')}" data-slot="${t.tray < 16 ? t.tray + 1 : 0}">${esc(`${t.label} · ${t.sub_brand || t.type} ${t.color || ''} → ${t.preset}`)}</option>`;
+  $('#slFilament').innerHTML =
+    (trays.length ? `<optgroup label="In ${esc(p.name)}'s AMS">${trays.map(tray).join('')}</optgroup>` : '')
+    + (fils.some(f => f.mine) ? `<optgroup label="Yours">${fils.filter(f => f.mine).map(f => opt(f.name)).join('')}</optgroup>` : '')
+    + `<optgroup label="All for this nozzle">${fils.filter(f => !f.mine).map(f => opt(f.name)).join('')}</optgroup>`;
+  if (!trays.length && m.default_filament) $('#slFilament').value = m.default_filament;
+  renderExtra();
+}
+// The filament a select shows, as the server takes it: the preset, and the tray's colour and slot if it is one
+function filamentOf(sel) {
+  const o = sel.selectedOptions[0];
+  return {filament: sel.value, colour: o?.dataset.color || '', slot: +(o?.dataset.slot || 0)};
+}
+function renderExtra() {
+  const opts = $('#slFilament').innerHTML;
+  $('#slMore').innerHTML = EXTRA.map((x, i) => `<div class="sl-model"><b class="sl-name">${esc(x.name)}</b>
+    <label class="field"><span>Copies</span><input type="number" min="1" max="100" value="${x.copies}" data-xi="${i}" data-xf="copies"></label>
+    <label class="field"><span>Filament</span><select data-xi="${i}" data-xf="filament">${opts}</select></label>
+    <button type="button" class="linkbtn" data-xrm="${i}" aria-label="Take ${esc(x.name)} off the plate">✕</button></div>`).join('');
+  $$('#slMore select').forEach(s => {
+    const x = EXTRA[+s.dataset.xi], at = [...s.options].findIndex(o => o.value === x.filament && +(o.dataset.slot || 0) === x.slot);
+    if (at >= 0) s.selectedIndex = at; else if (x.filament && [...s.options].some(o => o.value === x.filament)) s.value = x.filament;
+    Object.assign(x, filamentOf(s));
+  });
+  $('#slMoreHint').classList.toggle('hidden', EXTRA.length > 0);
+  $('#slFill').disabled = EXTRA.length > 0;
+  if (EXTRA.length) $('#slFill').checked = false;
+  $('#slCopies').disabled = $('#slFill').checked;
+}
+$('#slMore').addEventListener('input', (e) => {
+  const t = e.target, x = EXTRA[+t.dataset.xi]; if (!x) return;
+  if (t.dataset.xf === 'copies') x.copies = Math.max(1, Math.min(100, +t.value || 1)); else Object.assign(x, filamentOf(t));
+});
+$('#slMore').addEventListener('click', (e) => {
+  const i = e.target.dataset?.xrm; if (i === undefined) return;
+  EXTRA.splice(+i, 1); renderExtra();
+});
+$('#slAdd').addEventListener('click', () => $('#slAddFile').click());
+$('#slAddFile').addEventListener('change', () => { const files = [...$('#slAddFile').files]; $('#slAddFile').value = ''; addModels(files); });
+async function addModels(files) {
+  for (const file of files) {
+    $('#sliceWait').textContent = 'Reading ' + file.name + '…';
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      const res = await json('/api/plates', {method: 'POST', body: fd});
+      if (res.model?.kind !== 'mesh') { toast(`${file.name} can't share the plate: add .stl, .obj or .step models`); continue; }
+      const first = filamentOf($('#slFilament'));
+      EXTRA.push({token: res.model.token, name: res.model.name, copies: 1, ...first});
+    } catch (err) { toast(err.message); }
+  }
+  $('#sliceWait').textContent = ''; renderExtra();
+}
+$('#slPrinter').addEventListener('change', slicePrinterChanged);
+$('#slMachine').addEventListener('change', sliceMachineChanged);
+$('#slFill').addEventListener('change', () => { $('#slCopies').disabled = $('#slFill').checked; });
+async function sliceNow(toBatch) {
+  if (!MODEL) return;
+  const sup = $('#slSupport').value, first = filamentOf($('#slFilament'));
+  const body = {model_id: SLICE.model_id, machine: $('#slMachine').value, nozzle_flow: $('#slFlow').value};
+  if (MODEL.kind === 'mesh') Object.assign(body, {process: $('#slProcess').value, filament: first.filament, plate: $('#slPlate').value,
+    filament_colour: first.colour, filament_slot: first.slot,
+    copies: +$('#slCopies').value || 1, fill: $('#slFill').checked, orient: $('#slOrient').checked, support: sup ? sup === 'on' : null,
+    extra: EXTRA.map(x => ({token: x.token, copies: x.copies, filament: x.filament, colour: x.colour, slot: x.slot}))});
+  $('#sliceBtn').disabled = $('#sliceBatchBtn').disabled = true;
+  $('#sliceErr').classList.add('hidden'); $('#sliceWait').textContent = 'Slicing with ' + SLICE.slicer + '…';
+  try {
+    const res = await send(`/api/models/${MODEL.token}/slice`, body);
+    $('#sliceWait').textContent = '✓ Sliced' + (res.slice_notes?.length ? ': ' + res.slice_notes.join('; ') : '') + '. Change anything and slice again, or carry on below.';
+    PLATES = res.plates || [];
+    showOpened(res);
+    if (toBatch && !res.no_profile) {
+      $('#addToBatch').click();
+      $('#sliceWait').textContent += ` It's in the batch: drop the next model to add another plate.`;
+      $('#batchCard').scrollIntoView({behavior: 'smooth', block: 'start'});
+    } else $('#makeResult').scrollIntoView({behavior: 'smooth', block: 'start'});
+  } catch (e) { sliceError(e.message); $('#sliceWait').textContent = ''; }
+  $('#sliceBtn').disabled = $('#sliceBatchBtn').disabled = false;
+}
+$('#sliceBtn').addEventListener('click', () => sliceNow(false));
+$('#sliceBatchBtn').addEventListener('click', () => sliceNow(true));
 function makeError(e) { $('#makeError').innerHTML = `<span class="ic danger">✖</span><div>${esc(e.message)}</div>`; $('#makeError').classList.remove('hidden'); $('#makeResult').classList.add('hidden'); }
 function showOpened(res) {
   if (res.no_profile) { showNoProfile(res); $('#makeResult').classList.add('hidden'); return; }
   const kept = PLATE && BATCH.find(x => x.token === PLATE.token);
   if (kept) kept.part_push = {...partPush};  // the plate leaving the screen keeps its own heights
-  partPush = {}; PLATE = res; renderPlate(res);
+  partPush = {}; PLATE = res; renderPlate(res); renderPlatePick(); refreshTargets('plate', true);
 }
+
+// ---------- a file with several sliced plates ('Export all sliced file') ----------
+// The server keeps each plate as its own file; this picks which one is on screen.
+let PLATES = [];
+function renderPlatePick() {
+  const on = !!PLATE && PLATES.some(p => p.token === PLATE.token);
+  $('#platePick').classList.toggle('hidden', !on);
+  if (!on) { $('#platePick').innerHTML = ''; return; }
+  const all = PLATES.every(p => BATCH.some(b => b.token === p.token));
+  $('#platePick').innerHTML = `<span class="hint">${PLATES.length} sliced plates in this file:</span>` +
+    PLATES.map(p => `<button type="button" class="btn${p.token === PLATE.token ? ' primary' : ''}" data-plate="${esc(p.token)}" aria-pressed="${p.token === PLATE.token}">Plate ${p.plate}</button>`).join('') +
+    `<button type="button" class="linkbtn" id="addAllPlates" ${all ? 'disabled' : ''}>${all ? '✓ All in the batch' : `+ Add all ${PLATES.length} to the batch`}</button>`;
+}
+$('#platePick').addEventListener('click', async (e) => {
+  const t = e.target.closest('button');
+  if (!t || t.disabled) return;
+  try {
+    if (t.dataset.plate) { if (t.dataset.plate !== PLATE.token) showOpened(await send(`/api/plates/${encodeURIComponent(t.dataset.plate)}/open`, {})); return; }
+    if (t.id !== 'addAllPlates') return;
+    let added = 0;
+    for (const p of PLATES) {
+      if (BATCH.some(b => b.token === p.token)) continue;
+      const a = p.token === PLATE.token ? PLATE : await send(`/api/plates/${encodeURIComponent(p.token)}/open`, {});
+      if (a.no_profile) throw new Error(`No hardware profile for the ${a.printer} yet`);
+      BATCH.push({token: p.token, file: a.file, parts: a.parts.length, count: +$('#sLoops').value || 1, part_push: p.token === PLATE.token ? {...partPush} : {}});
+      added++;
+    }
+    $('#addToBatch').textContent = '✓ In the batch';
+    renderBatch(); toast(`Added ${added} plate${added === 1 ? '' : 's'} to the batch`);
+  } catch (err) { toast(err.message); }
+});
 
 // ---------- inside the ProofLoop window ----------
 // The window shows this page as its Loop files and Printers tabs, and hands plates to and from Check.
@@ -56,7 +224,8 @@ function currentSettings() {
   return {
     profile_id: $('#sProfile').value, loops: +$('#sLoops').value || 1, release_temp: +$('#sRelease').value,
     floor_z: +$('#sFloor').value, push_offset: +$('#sDepth').value, natural_cooldown_min: +$('#sNatural').value || 0, bender_fitted: $('#sBender').checked,
-    cooldown_fan: $('#sFan').value, wait_for_monitor: $('#sMonitor').checked, pause_first_sweep: $('#sFirstPause').dataset.mode || 'auto', part_push: partPush,
+    cooldown_fan: $('#sFan').value, wait_for_monitor: $('#sMonitor').checked,
+    sounds: $('#sSounds').value, load_line_every_loop: $('#sLoadLine').checked, level_once: $('#sLevelOnce').checked, pause_first_sweep: $('#sFirstPause').dataset.mode || 'auto', part_push: partPush,
   };
 }
 function fillSettings(s, a) {
@@ -66,6 +235,7 @@ function fillSettings(s, a) {
   $('#sLoops').value = s.loops; $('#sRelease').value = s.release_temp; $('#sFloor').value = s.floor_z; $('#sDepth').value = s.push_offset;
   syncSliders();
   $('#sNatural').value = s.natural_cooldown_min; $('#sBender').checked = s.bender_fitted; $('#sFan').value = s.cooldown_fan; $('#sMonitor').checked = s.wait_for_monitor;
+  $('#sSounds').value = s.sounds || 'every'; $('#sLoadLine').checked = !!s.load_line_every_loop; $('#sLevelOnce').checked = !!s.level_once;
   const fp = $('#sFirstPause'); fp.dataset.mode = s.pause_first_sweep || 'auto'; fp.checked = !!a.first_pause;
   $('#firstPauseHint').dataset.auto = fp.dataset.mode === 'auto' ? (a.first_pause ? 'on' : 'off') : '';
   const prof = STATE.profiles.find(p => p.id === s.profile_id) || {};
@@ -77,7 +247,7 @@ function fillSettings(s, a) {
   $('#naturalHint').innerHTML = warp.length && !s.natural_cooldown_min ? `<b style="color:var(--warn)">${esc(warp.join(', '))} on this plate:</b> consider a natural cooldown so parts don't warp when the door opens.` : 'Door shut and fans off before the door opens. Helps ASA, ABS and PC keep their shape.';
 }
 const schedule = () => { clearTimeout(pending); pending = setTimeout(reanalyze, 350); };
-['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor', '#sFirstPause'].forEach(id => $(id).addEventListener('input', schedule));
+['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor', '#sSounds', '#sLoadLine', '#sLevelOnce', '#sFirstPause'].forEach(id => $(id).addEventListener('input', schedule));
 $('#sFirstPause').addEventListener('input', (e) => { e.target.dataset.mode = e.target.checked ? 'on' : 'off'; $('#firstPauseHint').dataset.auto = ''; });
 // Every slider is paired with its number box; either one can be used.
 function syncSliders() { $$('input[type=range][data-num]').forEach(r => { r.value = $('#' + r.dataset.num).value; }); }
@@ -95,12 +265,13 @@ function renderPlate(a, keepSettings) {
   $('#plateChip').innerHTML = a.ok ? '<span class="chip ok">ready</span>' : '<span class="chip bad">needs attention</span>';
   $('#plateFacts').innerHTML = [
     ['Printer', a.printer], ['Filament', (a.filaments || []).join(', ') || '—'], ['Plate', a.bed_type || '—'],
+    ['Nozzle', a.nozzle ? `${a.nozzle} mm${a.nozzle_flow ? ', ' + a.nozzle_flow : ''}` : (a.nozzle_flow || '—')],
     ['Print time', fmtDur(a.print_seconds)], ['Parts', a.parts.length], ['Sliced with', a.slicer || '—'],
   ].map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   if (!keepSettings) fillSettings(a.settings, a); else fillSettings(currentSettings(), a);
   stopAnim(); drawTop(a); drawSide(a); planPrinters(); renderPlan();
   if (document.activeElement !== $('#cLoops')) $('#cLoops').value = +$('#sLoops').value || 1;
-  refreshCost(); refreshPlateFil();
+  refreshCost(); refreshPlateFil(); refreshTargets('plate');
   $('#changesOut').innerHTML = '';
   $('#addToBatch').textContent = BATCH.some(b => b.token === a.token) ? '✓ In the batch' : '+ Add this plate';
   const floor = +$('#sFloor').value || 0;
@@ -189,32 +360,93 @@ $('#download').onclick = async () => {
 };
 // ---------- send to a printer (only when turned on, never from a phone) ----------
 function renderSend() {
-  const on = !!(STATE && STATE.send_to_printer), mons = (STATE && STATE.monitor) || [];
-  $('#sendCard').classList.toggle('hidden', !(STATE && STATE.can_send));
-  $('#restoreBtn').classList.toggle('hidden', !(STATE && STATE.can_send));  // a phone can't restore
+  const on = !!(STATE && STATE.send_to_printer), mons = (STATE && STATE.monitor) || [], can = !!(STATE && STATE.can_send);
+  $('#sendCard').classList.toggle('hidden', !can);
+  $('#restoreBtn').classList.toggle('hidden', !can);  // a phone can't restore
   $('#sendToggle').checked = on;
-  $('#sendBox').classList.toggle('hidden', !on || !mons.length);
+  $('#sendAsk').checked = !STATE || STATE.send_confirm !== false;
+  $('#sendBox').classList.toggle('hidden', !can || !mons.length);
+  $('#batchSend').classList.toggle('hidden', !can || !mons.length || !BATCH.length);
+  $('#sendOff').classList.toggle('hidden', on);
   $('#spreadBtn').classList.toggle('hidden', !mons.length);
-  const keep = $('#sendPrinter').value;
-  $('#sendPrinter').innerHTML = mons.map(m => {
-    const st = (m.printer.gcode_state || '').toLowerCase(), online = m.printer.online;
-    return `<option value="${esc(m.name)}">${esc(m.name)} · ${online ? (st || 'connected') : 'not connected'}</option>`;
+  refreshTargets('plate'); refreshTargets('batch');
+}
+// Sending the plate on screen, or the batch: which printers it could go to now (asked again with each
+// change and every few seconds), the AMS tray feeding each filament, and one button to send and start.
+const SENDERS = {
+  plate: {box: '#sendBox', list: '#sendTargets', btn: '#sendBtn', ask: '/api/plates/{t}/printers', go: '/api/plates/{t}/send',
+    key: () => PLATE && PLATE.token, body: () => currentSettings(), askBody: () => ({loops: +$('#sLoops').value || 1}),
+    what: () => { const n = +$('#sLoops').value || 1; return `${PLATE.file} (${n} loop${n > 1 ? 's' : ''})`; }},
+  batch: {box: '#batchSend', list: '#batchTargets', btn: '#batchSendBtn', ask: '/api/batch/printers', go: '/api/batch/send',
+    key: () => BATCH.length ? JSON.stringify(batchBody().items) : '', body: () => batchBody(),
+    what: () => { const n = BATCH.reduce((a, b) => a + b.count, 0); return `the batch (${BATCH.length} plates, ${n} loops)`; }},
+};
+const sendUrl = (k, url) => url.replace('{t}', encodeURIComponent(SENDERS[k].key() || ''));
+async function refreshTargets(k, force) {
+  const S = SENDERS[k], key = S.key(), ask = S.askBody ? S.askBody() : S.body(), sig = key + JSON.stringify(ask);
+  if (!key || $(S.box).classList.contains('hidden')) return;
+  if (!force && S.for === sig && Date.now() - (S.at || 0) < 5000) return;  // asked again when the loops change
+  S.at = Date.now(); S.for = sig;
+  try { S.targets = (await send(sendUrl(k, S.ask), ask)).printers; }
+  catch (e) { S.targets = null; $(S.list).innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; updateSendBtn(k); return; }
+  renderTargets(k);
+}
+// Whether each tray lasts the run. A tray that runs out part-way is in the notes (or the reasons) already.
+const trayLines = (t) => {
+  const rows = (t.filament || []).filter(f => f.status === 'enough' || f.status === 'unknown');
+  return rows.length ? `<div class="hint">${rows.map(f => `${f.status === 'enough' ? '<span class="chip ok">enough</span>' : '<span class="chip">amount unknown</span>'} ${esc(f.text)}`).join('<br>')}</div>` : '';
+};
+function renderTargets(k) {
+  const S = SENDERS[k], box = $(S.list), keep = (box.querySelector('input:checked') || {}).value;
+  const pick = (S.targets.find(t => t.printer === keep && t.ready) || S.targets.find(t => t.ready) || {}).printer;
+  box.innerHTML = S.targets.map(t => {
+    const state = !t.online ? 'not connected' : (t.state || 'connected');
+    const slots = t.slots.map(sl => `<span class="chip${sl.tray == null ? ' bad' : ''}">${swatch(sl.color)} ${esc(sl.type)} → ${sl.tray_label ? esc(sl.tray_label) : (t.use_ams ? 'not loaded' : 'external spool')}</span>`).join('');
+    return `<label class="send-target${t.ready ? '' : ' off'}"><input type="radio" name="sendTo-${k}" value="${esc(t.printer)}" ${t.ready ? '' : 'disabled'} ${t.printer === pick ? 'checked' : ''}>
+      <div><div class="spread"><b>${esc(t.printer)}</b>${t.ready ? '<span class="chip ok">ready</span>' : `<span class="chip">${esc(state)}</span>`}</div>
+        ${slots ? `<div class="slots">${slots}</div>` : ''}
+        ${trayLines(t)}
+        ${t.reasons.length ? `<div class="hint">${t.reasons.map(esc).join('<br>')}</div>` : ''}
+        ${t.notes.length ? `<div class="hint" style="color:var(--warn)">${t.notes.map(esc).join('<br>')}</div>` : ''}</div></label>`;
   }).join('');
-  if (keep) $('#sendPrinter').value = keep;
+  updateSendBtn(k);
+}
+function updateSendBtn(k) {
+  const S = SENDERS[k], on = !!(STATE && STATE.send_to_printer), to = ($(S.list).querySelector('input:checked') || {}).value;
+  $(S.btn).disabled = !on || !to;
+  $(S.btn).textContent = !on ? 'Turn on sending above first' : to ? `Send and start on ${to}` : 'No printer is ready';
+}
+async function sendNow(k) {
+  const S = SENDERS[k], printer = ($(S.list).querySelector('input:checked') || {}).value;
+  if (!S.key() || !printer) return;
+  const t = (S.targets || []).find(x => x.printer === printer);
+  const feed = t ? t.slots.filter(sl => sl.tray_label).map(sl => `${sl.type} ${sl.color} from ${sl.tray_label}`).join(', ') : '';
+  if (STATE.send_confirm !== false && !confirm(`Start ${S.what()} on ${printer}?${feed ? '\n\nFilament: ' + feed + '.' : ''}${t && t.notes.length ? '\n\nNote: ' + t.notes.join('\nNote: ') : ''}\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
+  $(S.btn).disabled = true; $(S.btn).textContent = `Sending to ${printer}…`;
+  try { const r = await send(sendUrl(k, S.go), {...S.body(), printer, confirm: printer}); toast(`Started ${r.file} on ${r.printer}`); }
+  catch (e) { toast(e.message); }
+  refreshTargets(k, true);
+}
+for (const k of Object.keys(SENDERS)) {
+  $(SENDERS[k].list).addEventListener('change', () => updateSendBtn(k));
+  $(SENDERS[k].btn).onclick = () => sendNow(k);
+}
+$('#sendRefresh').onclick = () => refreshTargets('plate', true);
+$('#batchRefresh').onclick = () => refreshTargets('batch', true);
+async function setSending(body) {
+  const r = await send('/api/send-to-printer', body, 'PUT');
+  STATE.send_to_printer = r.send_to_printer; STATE.send_confirm = r.send_confirm; renderSend();
+  for (const k of Object.keys(SENDERS)) updateSendBtn(k);
+  return r;
 }
 $('#sendToggle').onchange = async () => {
-  try { const r = await send('/api/send-to-printer', {on: $('#sendToggle').checked}, 'PUT'); STATE.send_to_printer = r.send_to_printer; renderSend();
-    toast(r.send_to_printer ? 'ProofLoop can send loop files to your printers now' : 'Sending to printers is off'); }
+  try { const r = await setSending({on: $('#sendToggle').checked}); toast(r.send_to_printer ? 'ProofLoop can send loop files to your printers now' : 'Sending to printers is off'); }
   catch (e) { $('#sendToggle').checked = !$('#sendToggle').checked; toast(e.message); }
 };
-$('#sendBtn').onclick = async () => {
-  const printer = $('#sendPrinter').value, s = currentSettings();
-  if (!PLATE || !printer) return;
-  if (!confirm(`Start ${PLATE.file} (${s.loops} loop${s.loops > 1 ? 's' : ''}) on ${printer}?\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
-  $('#sendBtn').disabled = true;
-  try { const r = await send(`/api/plates/${PLATE.token}/send`, {...s, printer, confirm: printer}); toast(`Started ${r.file} on ${r.printer}`); }
-  catch (e) { toast(e.message); }
-  $('#sendBtn').disabled = false;
+$('#sendTurnOn').onclick = async () => { try { await setSending({on: true}); toast('ProofLoop can send loop files to your printers now'); } catch (e) { toast(e.message); } };
+$('#sendAsk').onchange = async () => {
+  try { const r = await setSending({confirm: $('#sendAsk').checked}); toast(r.send_confirm ? 'ProofLoop asks before each send' : 'Send starts the printer straight away, without asking'); }
+  catch (e) { $('#sendAsk').checked = !$('#sendAsk').checked; toast(e.message); }
 };
 
 $('#saveDefaults').onclick = async () => { try { STATE.defaults = await send('/api/defaults', currentSettings(), 'PUT'); toast('Saved as your defaults'); } catch (e) { toast(e.message); } };
@@ -291,7 +523,7 @@ $('#planApply').onclick = () => { $('#sLoops').value = $('#planApply').dataset.l
 
 // ---------- spread a run over your printers, and the queue ----------
 let SPREAD = null;
-const when = (s) => s == null ? '—' : new Date(Date.now() + s * 1000).toLocaleString([], {weekday: 'short', hour: '2-digit', minute: '2-digit'});
+const fmtWhen = (s) => s == null ? '—' : new Date(Date.now() + s * 1000).toLocaleString([], {weekday: 'short', hour: '2-digit', minute: '2-digit'});
 $('#spreadBtn').onclick = async () => {
   const qty = +$('#planQty').value;
   if (!PLATE || !qty) { toast('Enter how many parts you need first'); return; }
@@ -305,33 +537,48 @@ function renderSpread() {
   if (!s.rows.length) { $('#spreadOut').innerHTML = `<div class="banner warn" style="margin-top:10px"><span class="ic warning">!</span><div>No printer can print this plate right now.${out}</div></div>`; return; }
   $('#spreadOut').innerHTML = `<div class="tw" style="margin-top:10px"><table><tr><th>Printer</th><th class="n">Loops</th><th class="n">Parts</th><th>Starts</th><th>Finishes</th><th>Cooldown</th></tr>
     ${s.rows.map(r => `<tr><td>${esc(r.printer)}</td><td class="n">${r.loops}${r.files > 1 ? ` <span class="hint">(${r.files} files)</span>` : ''}</td><td class="n">${r.parts}</td>
-      <td>${r.starts_in_s ? 'in ' + fmtDur(r.starts_in_s) : 'now'}</td><td>${when(r.finish_s)}</td><td class="hint">${esc(r.cooldown)}</td></tr>`).join('')}</table></div>
-    <p class="hint">${s.loops} loops, ${s.parts} parts, done around <b>${when(s.finish_s)}</b>${s.cooldown_known ? '' : ' plus the cooldowns, which no printer has timed yet'}.</p>${out}
+      <td>${r.starts_in_s ? 'in ' + fmtDur(r.starts_in_s) : 'now'}</td><td>${fmtWhen(r.finish_s)}</td><td class="hint">${esc(r.cooldown)}</td></tr>`).join('')}</table></div>
+    <p class="hint">${s.loops} loops, ${s.parts} parts, done around <b>${fmtWhen(s.finish_s)}</b>${s.cooldown_known ? '' : ' plus the cooldowns, which no printer has timed yet'}.</p>${out}
     <button class="btn primary" id="keepQueue">Keep it as a queue</button>
-    <p class="hint">ProofLoop tells you when each printer is free for its next job. You send or download each one; nothing starts by itself.</p>`;
+    <p class="hint">ProofLoop tells you when each printer is free for its next job. You send or download each one, unless you switch a printer to Hands-off under Printers › Monitor: then its next job is sent once its plate checks empty.</p>`;
   $('#keepQueue').onclick = async () => {
     try { await send('/api/queue', {token: PLATE.token, parts: +$('#planQty').value, settings: currentSettings()}); toast('Queued: see Printers › Overview'); SPREAD = null; renderSpread(); refreshQueue(); }
     catch (e) { toast(e.message); }
   };
 }
 async function refreshQueue() {
-  let runs = [];
+  let runs;
   try { runs = await json('/api/queue'); } catch (e) { return; }
   const sendOn = !!(STATE && STATE.send_to_printer);
   const label = (j) => ({waiting: '<span class="chip">waiting</span>', sent: '<span class="chip info">sent, not started yet</span>',
     downloaded: '<span class="chip info">downloaded</span>', printing: `<span class="chip info">printing loop ${j.loop || 1} of ${j.loops}</span>`,
     done: '<span class="chip ok">done</span>', stopped: `<span class="chip bad">stopped: ${esc(j.why || '')}</span>`})[j.status] || '';
   const again = (j) => j.status === 'waiting' || j.status === 'stopped';
+  const hands = new Set((STATE?.monitor || []).filter(m => m.hands_off).map(m => m.name));
+  const auto = (j) => {  // the hands-off queue: when it sends, and Hold
+    if (j.status !== 'waiting' || !hands.has(j.printer) || !sendOn) return '';
+    if (j.held) return `<span class="chip warn">held</span> <button class="linkbtn" data-qhold="0" data-job="${esc(j.rid)}/${esc(j.id)}">Let hands-off send it</button>`;
+    const left = j.auto_at ? Math.max(0, j.auto_at - Date.now() / 1000) : null;
+    return `<span class="chip info">${left == null ? 'hands-off: when the plate checks empty' : left > 0 ? `hands-off: sending in ${Math.ceil(left / 60)} min` : 'hands-off: sending now'}</span>
+      <button class="btn" data-qhold="1" data-job="${esc(j.rid)}/${esc(j.id)}">Hold</button>`;
+  };
+  const supply = (j) => {  // whether its printer's trays last the job, after what that printer prints first
+    const f = j.filament || [], warn = f.filter(x => x.status !== 'enough' && x.status !== 'unknown'), unknown = f.filter(x => x.status === 'unknown');
+    if (!f.length) return '';
+    if (!warn.length && !unknown.length) return '<div class="hint"><span class="chip ok">filament: enough</span></div>';
+    return `<div class="hint">${warn.map(x => `<span style="color:var(--warn)">${esc(x.text)}</span>`).concat(unknown.map(x => esc(x.text))).join('<br>')}</div>`;
+  };
   $('#queueOut').innerHTML = runs.length ? runs.map(run => `<div style="padding:8px 0;border-top:1px solid var(--line)">
       <div class="spread"><b>${esc(run.plate)}</b><span><span class="hint">${run.parts} parts</span> <button class="linkbtn" data-qremove="${esc(run.id)}">Remove</button></span></div>
-      ${run.jobs.map(j => `<div class="spread" style="margin-top:4px"><span>${esc(j.printer)} · ${j.loops} loop${j.loops > 1 ? 's' : ''} ${label(j)}</span>
+      ${run.jobs.map(j => ({...j, rid: run.id})).map(j => `<div class="spread" style="margin-top:4px"><span>${esc(j.printer)} · ${j.loops} loop${j.loops > 1 ? 's' : ''} ${label(j)} ${auto(j)}</span>
         <span class="row">${again(j) && sendOn ? `<button class="btn" data-qsend="${esc(run.id)}/${esc(j.id)}" data-printer="${esc(j.printer)}">Send and start</button>` : ''}
-        ${again(j) ? `<button class="btn" data-qget="${esc(run.id)}/${esc(j.id)}">Download</button>` : ''}</span></div>`).join('')}
+        ${again(j) ? `<button class="btn" data-qget="${esc(run.id)}/${esc(j.id)}">Download</button>` : ''}</span></div>${supply(j)}`).join('')}
     </div>`).join('') : '<p class="hint">Nothing queued. Under <a href="#" data-goto="make">Make a loop file</a>, plan a run and spread it over your printers.</p>';
 }
 $('#queueOut').addEventListener('click', async (e) => {
   const b = e.target.closest('button'); if (!b) return;
   try {
+    if (b.dataset.qhold) { await send(`/api/queue/${b.dataset.job}/hold`, {held: b.dataset.qhold === '1'}); toast(b.dataset.qhold === '1' ? 'Held: hands-off leaves it for you' : 'Hands-off will send it'); }
     if (b.dataset.qremove) { if (!confirm('Remove this run from the queue?')) return; await json('/api/queue/' + b.dataset.qremove, {method: 'DELETE'}); }
     if (b.dataset.qget) { const name = await saveBlob(await api(`/api/queue/${b.dataset.qget}/download`, {method: 'POST'}), 'loop.gcode.3mf'); toast('Saved ' + name); }
     if (b.dataset.qsend) {
@@ -367,6 +614,7 @@ function renderBatch() {
     <div class="row"><button class="linkbtn" data-up="${i}" ${i ? '' : 'disabled'}>↑</button><button class="linkbtn" data-rm="${i}">remove</button></div></div>`).join('');
   $('#batchDownload').classList.toggle('hidden', !BATCH.length);
   if (BATCH.length) previewBatch(); else $('#batchOut').innerHTML = '';
+  renderPlatePick(); renderSend();
 }
 $('#batchRows').addEventListener('click', (e) => {
   const t = e.target;
@@ -386,9 +634,59 @@ async function previewBatch() {
     $('#batchOut').innerHTML = `<p class="hint"><b>${r.loops} loops</b>, ${r.parts} parts, about ${fmtDur(r.print_seconds)} of printing plus cooldowns.</p>` +
       (probs.length || r.notes.length ? `<ul class="list">${probs.map(p => `<li><span class="ic danger">✖</span><div>${esc(p)}</div></li>`).join('')}${r.notes.map(n => `<li><span class="ic info">i</span><div class="hint">${esc(n)}</div></li>`).join('')}</ul>` : '');
     $('#batchDownload').disabled = !r.ok;
+    refreshTargets('batch', true);
   } catch (e) { $('#batchOut').innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; $('#batchDownload').disabled = true; }
 }
 $('#batchDownload').onclick = async () => {
   try { const r = await api('/api/batch/download', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(batchBody())}); toast('Saved ' + await saveBlob(r, 'batch.gcode.3mf')); }
   catch (e) { toast(e.message); }
 };
+
+// ---------- the watch folder ----------
+// Models saved into a folder are sliced on this computer (monitor/watchfolder.py); this shows the setting and what's ready.
+let WF = null, wfSeen = null, wfSaveTimer = null;
+async function refreshWatchFolder() {
+  try { WF = await json('/api/watch-folder'); } catch (e) { return; }
+  const fresh = (WF.items || []).filter(i => wfSeen && !wfSeen.has(i.file + i.at));
+  wfSeen = new Set((WF.items || []).map(i => i.file + i.at));
+  fresh.forEach(i => toast(i.status === 'ready' ? `${i.file} from the watch folder is sliced: open it below Watch folder` : `${i.file} couldn't be sliced: ${i.error}`));
+  renderWatchFolder();
+}
+function renderWatchFolder() {
+  const w = WF, editing = $('#wfCard').contains(document.activeElement) || wfSaveTimer !== null;  // never undo a change not saved yet
+  $('#wfChip').className = 'chip' + (w.on ? (w.exists ? ' ok' : ' warn') : '');
+  $('#wfChip').textContent = !w.on ? 'off' : w.exists ? `watching · ${(w.items || []).filter(i => i.status === 'ready').length} ready` : 'folder not found';
+  if (!editing) {
+    $('#wfOn').checked = w.on; $('#wfPath').value = w.path; $('#wfPath').placeholder = w.folder;
+    const names = (STATE?.monitor || []).map(m => m.name);
+    $('#wfPrinter').innerHTML = `<option value="">${names.length ? 'The first printer' : 'No printers yet'}</option>` + names.map(n => `<option ${n === w.printer ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  }
+  const u = w.usual;
+  $('#wfUsual').innerHTML = u.process
+    ? `Slices with ${esc(u.process)}, ${esc(u.filament || 'the filament in the AMS')}${u.plate ? ', ' + esc(u.plate) : ''}${u.fill ? ', filling the plate' : u.copies > 1 ? `, ${u.copies} copies` : ''}: the last presets you sliced with above.`
+    : 'Slice one model with the Slice card first: the watch folder uses the presets you pick there.';
+  $('#wfItems').innerHTML = (w.items || []).slice(0, 10).map((i, n) => `<li>
+    <span class="ic ${i.status === 'ready' ? 'ok' : 'danger'}">${i.status === 'ready' ? '✓' : '✖'}</span>
+    <div><b>${esc(i.file)}</b><div class="hint">${new Date(i.at * 1000).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})} · ${esc(i.status === 'ready' ? (i.notes || []).join('; ') || 'sliced' : i.error)}</div></div>
+    ${i.status === 'ready' ? `<button class="btn" type="button" data-wfopen="${n}">Open</button>` : ''}</li>`).join('');
+}
+function saveWatchFolder() {
+  clearTimeout(wfSaveTimer);
+  const body = {on: $('#wfOn').checked, path: $('#wfPath').value.trim(), printer: $('#wfPrinter').value};  // as you left them
+  wfSaveTimer = setTimeout(async () => {
+    try { WF = await send('/api/watch-folder', body, 'PUT'); } catch (e) { toast(e.message); }
+    wfSaveTimer = null; renderWatchFolder();
+  }, 400);
+}
+['#wfOn', '#wfPrinter'].forEach(id => $(id).addEventListener('change', saveWatchFolder));
+$('#wfPath').addEventListener('input', saveWatchFolder);
+$('#wfItems').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-wfopen]'); if (!b) return;
+  const item = WF.items[+b.dataset.wfopen];
+  try {
+    $('#sliceCard').classList.add('hidden'); PLATES = [];
+    showOpened(await send(`/api/plates/${encodeURIComponent(item.token)}/open`, {}));
+    $('#makeResult').scrollIntoView({behavior: 'smooth', block: 'start'});
+  } catch (err) { toast(err.message.includes('expired') ? `${item.file} has been pushed out of the recent files: save it into the folder again` : err.message); }
+});
+if (!WATCH_ONLY()) { refreshWatchFolder(); setInterval(() => { if (!document.hidden) refreshWatchFolder(); }, 5000); }

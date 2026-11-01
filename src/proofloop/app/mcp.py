@@ -28,7 +28,11 @@ from typing import Any
 
 from proofloop import __version__
 from proofloop.app.config import DEFAULT_PORT
+from proofloop.core.logging import get_logger
 from proofloop.core.output import dumps
+from proofloop.core.proc import NO_WINDOW
+
+log = get_logger(__name__)
 
 PROTOCOLS = ("2025-06-18", "2025-03-26", "2024-11-05")
 MAX_IMAGES = 4  # renders and finding pictures returned with a check
@@ -67,7 +71,6 @@ TOOLS = [
            "printer": {"type": "string"}, "material": {"type": "string", "description": "PLA, PETG, ABS, TPU..."},
            "units": {"type": "string", "enum": ["mm", "cm", "m", "in"]},
            "handheld": {"type": "boolean"}, "auto_eject": {"type": "boolean"},
-           "process": {"type": "string", "enum": ["print", "injection", "cnc"]},
            "images": {"type": "boolean", "description": "Return renders and finding pictures (default true)."}},
           ["path"]),
     _tool("check_gcode", "Check sliced G-code (.gcode or a Bambu .gcode.3mf): plate, temperatures, flow, cooling, "
@@ -169,7 +172,10 @@ class Server:
                 result = self.call(params.get("name", ""), params.get("arguments") or {})
             else:
                 return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": f"no method {method}"}}
-        except Exception as e:  # noqa: BLE001 - the server must answer, whatever happens
+        except ValueError as e:  # a mistake in the request, like an unknown prompt
+            return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(e)}}
+        except Exception as e:  # noqa: BLE001 - the server must answer, whatever happens; the log has the traceback
+            log.exception("%s failed", method)
             return {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": str(e)}}
         return {"jsonrpc": "2.0", "id": mid, "result": result}
 
@@ -229,7 +235,7 @@ class Server:
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         try:
             r = subprocess.run([self.python, "-m", "proofloop", *args, "--json"], capture_output=True, timeout=timeout,
-                               env=env, stdin=subprocess.DEVNULL)
+                               env=env, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
         except subprocess.TimeoutExpired as e:
             raise ToolError(f"ProofLoop took longer than {timeout / 60:.0f} minutes") from e
         out = r.stdout.decode("utf-8", "replace").strip()
@@ -270,10 +276,10 @@ class Server:
     # ---- tools -----------------------------------------------------------------------------
     def t_check_part(self, path: str, design: str | None = None, printer: str | None = None,
                      material: str | None = None, units: str | None = None, handheld: bool = False,
-                     auto_eject: bool = False, process: str | None = None, images: bool = True):
+                     auto_eject: bool = False, images: bool = True):
         args = ["check", "design", self._file(path)]
         for flag, value in (("--design", design), ("--printer", printer), ("--material", material),
-                            ("--units", units), ("--process", process)):
+                            ("--units", units)):
             if value:
                 args += [flag, value]
         args += ["--handheld"] * handheld + ["--auto-eject"] * auto_eject + ["--personas", "3"]

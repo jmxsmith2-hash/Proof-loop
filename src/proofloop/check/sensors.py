@@ -31,7 +31,10 @@ def _parse_time(value: str) -> float:
     try:
         return float(value)
     except ValueError:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+        when = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if when.tzinfo is None:   # no zone given: UTC, so the hours reported don't depend on this machine's zone
+            when = when.replace(tzinfo=UTC)
+        return when.timestamp()
 
 
 def load_sensor_csv(path: Path) -> list[SensorSeries]:
@@ -131,7 +134,7 @@ def analyse(path: Path, usage_column: str | None = None) -> SensorReport:
             if sess:
                 durations = np.array([(b - a) / 60 for a, b in sess])
                 hours = np.array([datetime.fromtimestamp(a, UTC).hour for a, _ in sess])
-                busiest = int(np.bincount(hours, minlength=24).argmax())
+                busiest = int(np.argmax(np.bincount(hours, minlength=24)))
                 report.findings.append({
                     "kind": "usage", "column": s.name, "sessions": len(sess),
                     "median_minutes": round(float(np.median(durations)), 1),

@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 
 from proofloop.app.checks import Checks, file_kind, safe_name
 from proofloop.app.shell import HEADER, Shell
+from proofloop.loopfiles import threemf
+from tests.plates import two_plates
 
 REPO = Path(__file__).resolve().parents[2]
 EX = REPO / "examples" / "gcode"
@@ -120,6 +122,19 @@ def test_plates_handed_over_between_tabs(c, shell):
     wait(c, flat.id)
     with pytest.raises(ValueError):
         shell.checks.job_source(flat.id)  # plain G-code: nothing to make a loop file from
+
+
+def test_every_plate_of_a_multi_plate_file_is_checked(c, shell):
+    plate = (EX / "bracket_plate.gcode.3mf").read_bytes()
+    first = upload(c, "pair.gcode.3mf", two_plates(plate, plate)).json()
+    jobs = [j for j in c.get("/check/api/jobs").json() if j["title"].startswith("pair")]
+    assert first["title"] == "pair-plate1.gcode.3mf"
+    assert sorted(j["title"] for j in jobs) == ["pair-plate1.gcode.3mf", "pair-plate2.gcode.3mf"]
+    for j in jobs:
+        assert wait(c, j["id"])["status"] == "done"
+    second = next(j for j in jobs if j["title"].endswith("plate2.gcode.3mf"))
+    data, name = shell.checks.job_source(second["id"])
+    assert name == "pair-plate2.gcode.3mf" and threemf.sliced_plates(data) == [2]  # Make a loop file gets plate 2 alone
 
 
 def test_jobs_are_kept_after_proofloop_closes(c, shell):

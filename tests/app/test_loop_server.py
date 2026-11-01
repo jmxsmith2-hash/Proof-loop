@@ -149,3 +149,49 @@ def test_uploads_are_kept_on_disk_and_survive_a_restart(tmp_path):
             raise AssertionError("expected KeyError")
         except KeyError:
             pass
+
+
+def test_camera_errors_are_a_502_and_unknown_printers_a_404(tmp_path):
+    c, app = client(tmp_path)
+    c.post(
+        "/api/monitor/printers",
+        json={"name": "Left", "host": "10.0.0.2", "serial": "S", "access_code": "1", "model_id": "N7"},
+    )
+    link = app.watches["Left"].link
+
+    def no_picture():
+        raise OSError("timed out")
+
+    link.snapshot = no_picture
+    r = c.get("/api/monitor/Left/snapshot")
+    assert r.status_code == 502 and "camera: timed out" in r.json()["detail"]
+    assert c.post("/api/monitor/Left/references").status_code == 502
+    assert c.get("/api/monitor/Nobody/snapshot").status_code == 404
+
+
+def test_every_api_route_is_registered_once_and_guarded(tmp_path):
+    from fastapi.routing import APIRoute
+
+    c, app = client(tmp_path)
+    app.settings.app_token = "secret"
+    seen = set()
+    for route in c.app.routes:
+        if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
+            continue
+        for method in route.methods - {"HEAD"}:
+            assert (method, route.path) not in seen, f"{method} {route.path} is registered twice"
+            seen.add((method, route.path))
+            path = route.path.replace("{", "x").replace("}", "")
+            if route.path == "/api/live":
+                continue  # a stream; the token check is the same dependency
+            assert c.request(method, path).status_code == 401, f"{method} {route.path} isn't guarded"
+    assert len(seen) > 50
+
+
+def test_the_filament_spreadsheet_never_holds_a_formula(tmp_path):
+    from proofloop.monitor.filament import Spool
+
+    app = App(tmp_path, connect=False)
+    app.inventory.save(Spool(material="PLA", color="#FFFFFF", net_g=1000, name="=HYPERLINK(\"x\")"), sealed=True)
+    text = TestClient(create_app(app)).get("/api/filament/export.csv").text
+    assert "'=HYPERLINK" in text and ",=HYPERLINK" not in text

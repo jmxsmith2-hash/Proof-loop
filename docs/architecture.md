@@ -8,7 +8,7 @@ parts match the window's tabs:
                   │ shell.py: the window's server (127.0.0.1:8600)   service.py: background │
                   │ tray.py, autostart.py, phone.py (:8601), doctor.py, update.py, window.py│
                   └──────────┬──────────────────────────────────┬──────────────────────────┘
-             checks.py: Check (/check)           loop_server.py + loop_routes.py:
+             checks.py: Check (/check)           loop_server.py + routes/:
                              │                   Loop files + Printers (/loop, API at /)
              ┌───────────────┴───────────┐              ┌─────┴──────────────┐
       proofloop.check            proofloop.personas   proofloop.loopfiles   proofloop.monitor
@@ -41,12 +41,40 @@ parts match the window's tabs:
 | Package | Job |
 |---|---|
 | `core/` | `paths.py` (`~/.proofloop`, `PROOFLOOP_HOME`), `config.py` (built-in YAML in `data/` with yours in `config/` over it), `settings.py` (`settings.json`: printers, notifications, loop-file defaults, costs, filament), `db.py` + `migrations/` (`results.db`), `llm.py` + `cost.py` (optional model engine for personas and predictions), `notify.py` (ntfy, Discord, webhooks), `printers.py` (Bambu model ids), `theme.py`, `commands.py` (shared by the `check` commands). |
-| `check/` | `cad/` (mesh loading incl. 3MF, voxel/print checks, fine detail, auto-eject, moulding and CNC, renders, ergonomics, personas, print iteration), `gcode/` (parser for plain and Bambu `.gcode.3mf`, checks, layer previews, slicer-setting fixes), `slicer.py` + `prepare.py` (headless slicing and the print-ready verdict), `learn.py` (from the print journal), `feedback.py` (false alarms), product predictions (`inputs.py`, `reviews.py`, `evaluate.py`, `sensors.py`, `guardrails.py`), `templates/` (reports). |
+| `check/` | `cad/` (mesh loading incl. 3MF, voxel/print checks, fine detail, auto-eject, renders, ergonomics, personas, print iteration), `gcode/` (parser for plain and Bambu `.gcode.3mf`, checks, layer previews, slicer-setting fixes), `slicer.py` + `prepare.py` (headless slicing and the print-ready verdict), `learn.py` (from the print journal), `feedback.py` (false alarms), product predictions (`inputs.py`, `reviews.py`, `evaluate.py`, `sensors.py`, `guardrails.py`), `templates/` (reports). |
 | `loopfiles/` | See below. |
 | `monitor/` | See below. |
 | `personas/` | people who differ in hand size, grip, body size, motor control and eyesight: traits, deliberate design, generation, diversity (used by the design check and product predictions). |
-| `app/` | the window's server (`shell.py`) with Check (`checks.py`) and Loop files & Printers (`loop_server.py`, `loop_routes.py`) on it; the first-run guide (`guide.py`); backup and restore (`backup.py`); assistants over MCP (`mcp.py`); the pretend farm (`pretend_farm.py`); background service, tray, start at login, phone access, setup check, updates; the pages (`static/`, `templates/`). |
-| `data/` | built-in YAML (settings, models, printers, processes) and reference data (body sizes, product checklists). |
+| `app/` | the window's server (`shell.py`) with Check (`checks.py`) and Loop files & Printers (`loop_server.py` and one module per feature in `routes/`) on it; the first-run guide (`guide.py`); backup and restore (`backup.py`); assistants over MCP (`mcp.py`); the pretend farm (`pretend_farm.py`) and LARP mode (`larp.py`); background service, tray, start at login, phone access, setup check, updates; the pages (`static/`, `templates/`). |
+| `data/` | built-in YAML (settings, models, printers) and reference data (body sizes, product checklists). |
+
+## The Loop files & Printers API
+
+`app/loop_server.py` holds `create_app`: the page, `/api/live`, the page's scripts, the error handlers and the
+access-token guard. Every other route lives in `app/routes/`, one module per feature:
+
+| Module | Routes |
+|---|---|
+| `state.py` | `/api/state`, everything the page draws itself from |
+| `plates.py` | upload, open, analyze, changes, download and send a plate; `send-to-printer` |
+| `queue.py` | spread a run over the printers, the queue and its jobs |
+| `summary.py` | the printers' summary and when it's sent |
+| `orders.py` | orders with a quantity and due date |
+| `costs.py` | your rates, the cost of a plate |
+| `batch.py` | several plates in one loop file |
+| `journal.py` | print outcomes, their files and pictures |
+| `check.py` | check a loop file |
+| `profiles.py` | hardware profiles, loop-file defaults, calibration prints |
+| `monitor.py` | add and find printers, connection test, plate pictures, resume, events, failure watch |
+| `camera.py` | the camera view, camera settings, timelapses, proof photos |
+| `notifications.py` | quiet hours, where notices go |
+| `filament.py` | spools, usage, weigh-ins, AMS links, Spoolman, what a plate needs |
+| `overview.py` | the Overview |
+| `backup.py` | backup and restore |
+
+`routes/common.py` has what several modules share (uploads, a plate's settings, making and sending a loop
+file). Each module has `register(api, app, guard, allow_send)`. To add a feature, write a module and add it to
+`MODULES` in `routes/__init__.py`; `create_app` registers them in that order.
 
 ## Loop files
 
@@ -85,10 +113,13 @@ parts match the window's tabs:
 | `service.py` | The running monitor: settings, profiles, uploaded plates and watched printers (`App`). |
 | `printer/state.py`, `printer/bambu.py`, `printer/ams.py` | MQTT status, pause/resume, camera frames; AMS trays from MQTT reports (partial updates merged). |
 | `watch.py` | Recognises loop-end pauses, checks the plate, resumes only when it's empty. |
-| `vision.py` | Empty-plate comparison against reference pictures. |
+| `vision.py` | Empty-plate comparison against reference pictures; the look at a print in progress (compact growth against a ragged tangle). |
+| `timelapse.py` | A picture every few layers while a print runs, one small animation when it ends. |
+| `proofs.py` | A picture of each loop's finished plate before the sweep, kept per job; each order's gallery. |
 | `journal.py` | Print journal: how every print ended (layer, HMS, temperatures, plate check, picture); keeps the files ProofLoop makes. |
 | `filament.py` | Spool inventory, usage log, weigh-ins, which spool feeds a slot, how many loops your spools cover. |
 | `tracking.py` | Remembers the files ProofLoop makes; charges finished and part-way loops to spools; holds a loop the spools can't cover; links RFID spools to AMS trays. |
+| `runout.py` | Spool swap timing: on which loop of a run (or a queued job) each AMS tray runs out, from the linked spool's count or the AMS's estimate, and whether a matching tray can take over. |
 | `spoolman.py` | Optional Spoolman import and usage reporting. |
 | `costing.py` | Cost per part, loop and run, selling price, fees and capacity, from your own rates and the file's grams and times. Unset rates are reported, never filled in. |
 | `store.py` | `printers.db`: events, outcomes, production, timings. |
@@ -123,9 +154,24 @@ process ends) and restarts the window's server if it dies on its own. Double-cli
 while ProofLoop is running opens its window instead of starting a second copy.
 
 **Phone access** is a second listener on the local network (port 8601) that serves the Loop files &
-Printers page and API only. A phone pairs with the QR code (a link holding a long secret) or the
-six-digit code, and then carries an HttpOnly, SameSite=Lax cookie. Five wrong codes in ten minutes
-lock out typing codes; *Forget phones* makes new secrets.
+Printers page and API only. A phone pairs with a QR code (a link holding a long secret) or a
+six-digit code, and then carries an HttpOnly, SameSite=Lax cookie. There are two kinds of phone,
+each with its own secret and code (`phone.json`): *operator* (`phone_secret`, `phone_code`: what
+phones paired before there were roles hold, so they stay paired) and *watch only*
+(`phone_watch_secret`, `phone_watch_code`). The cookie holds its kind's secret, so it names the kind.
+One middleware in `app/phone.py` runs before every route: no cookie gets the pairing page or 401; a
+watch-only phone gets 403 for anything but GET, HEAD and OPTIONS, and for the GETs in
+`WATCH_BLOCKED_GETS` (network discovery, opening an invoice, the invoice sender's details); no phone
+of either kind gets the backup (`routes/backup.py` refuses it on the phone app); any change with an `Origin`
+other than the page's own address gets 403 (SameSite doesn't separate two ports on one address);
+web sockets are refused; every answer carries `X-Frame-Options: DENY` and `no-store`. The kind
+reaches the page API as `request.state.role`, and `/api/state` tells the page (`role`) so it hides
+what would be refused. The mounted API keeps its own `allow_send=False` for what no phone may do
+(sending, restoring, the window-only settings). Because the guard is central, a new route needs no
+phone code. `tests/app/test_phone_roles.py` walks every route on the phone's app, and fails when a
+GET route nobody has reviewed appears: check that it changes nothing and shows no secret, or add it
+to `WATCH_BLOCKED_GETS`. Five wrong codes in ten minutes, for both codes together, lock out typing
+codes; *Forget phones* makes new secrets and codes for both kinds.
 
 **Start at login**, for your user only: a shortcut in the Startup folder on Windows (pythonw, so no
 console), a LaunchAgent on macOS that restarts it after a crash, an XDG autostart entry on Linux.

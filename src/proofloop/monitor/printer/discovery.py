@@ -54,10 +54,12 @@ def discover(seconds: float = 6.0) -> list[dict]:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     try:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        except (AttributeError, OSError):
-            pass
+        reuse_port = getattr(socket, "SO_REUSEPORT", None)  # not on Windows
+        if reuse_port is not None:
+            try:
+                sock.setsockopt(socket.SOL_SOCKET, reuse_port, 1)
+            except OSError:
+                pass
         try:
             sock.bind(("", SSDP_PORT))
         except OSError as e:

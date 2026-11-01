@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from proofloop.core.proc import NO_WINDOW
+
 LABEL = "com.proofloop.service"
 
 
@@ -21,8 +23,12 @@ def repo_root() -> Path | None:
 
 
 def background_python() -> Path:
-    """pythonw.exe on Windows (no console window), else this Python."""
+    """pythonw.exe on Windows (no console window), else this Python. In the Windows installer's copy,
+    ProofLoopApp.exe, its windowed program."""
     exe = Path(sys.executable)
+    if getattr(sys, "frozen", False):
+        app = exe.with_name("ProofLoopApp.exe")
+        return app if app.is_file() else exe
     if sys.platform == "win32":
         w = exe.with_name("pythonw.exe")
         if w.is_file():
@@ -69,7 +75,7 @@ def enable() -> Path:
             "$s.Description = 'ProofLoop in the background: watches your printers'; $s.Save()"
         )
         subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script], check=True,
-                       capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       capture_output=True, creationflags=NO_WINDOW)
     elif sys.platform == "darwin":
         from xml.sax.saxutils import escape
 

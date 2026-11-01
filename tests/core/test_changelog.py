@@ -14,7 +14,7 @@ TOML = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encodi
 def test_this_version_has_its_changelog_section():
     assert sections(CHANGELOG)[0]["version"] == proofloop.__version__  # the newest section is this version
     assert f'version = "{proofloop.__version__}"' in TOML  # and pyproject.toml says the same
-    assert "**Orders.**" in notes(CHANGELOG, proofloop.__version__)
+    assert "**Maintenance.**" in notes(CHANGELOG, proofloop.__version__)
 
 
 def test_whats_new_since_an_older_version():

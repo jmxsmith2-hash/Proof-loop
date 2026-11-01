@@ -27,6 +27,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from proofloop import __version__
+from proofloop.core import schema
 from proofloop.core.paths import RESULTS_DB
 from proofloop.core.settings import Settings
 from proofloop.loopfiles.profiles import HardwareProfile
@@ -42,7 +43,7 @@ def make(app) -> bytes:
         "proofloop_backup": 1,
         "version": __version__,
         "created": time.time(),
-        "settings": json.loads(app.settings.model_dump_json()),
+        "settings": schema.stamp("settings", json.loads(app.settings.model_dump_json())),
         "profiles": user_profiles,
         "store": app.store.dump(),
     }
@@ -115,7 +116,11 @@ def restore(app, raw: bytes) -> dict:
     """Replace everything in this ProofLoop with the backup. Raises ValueError for a bad file."""
     try:
         data, z, members = read(raw)
-        settings = Settings.model_validate(data.get("settings") or {})
+        settings = Settings.model_validate(schema.restore_settings(data.get("settings") or {}))
+        # Older files come back in today's format; a backup from a newer ProofLoop is refused here,
+        # before anything is replaced.
+        fixed = {n: schema.restore_member(n, z.read(members[n])) for n in members
+                 if n in schema.FILES.values()} if z is not None else {}
         profiles = [HardwareProfile.from_dict(p) for p in data.get("profiles") or []]
         results = z.read(members[RESULTS_DB]) if z is not None and RESULTS_DB in members else None
         if results is not None:
@@ -123,6 +128,10 @@ def restore(app, raw: bytes) -> dict:
     except (TypeError, KeyError, zipfile.BadZipFile) as e:
         raise ValueError(str(e)) from e
     root = Path(app.data_dir)
+    # This ProofLoop's own files must be ones it may write; if a newer ProofLoop wrote them, nothing is
+    # replaced (and the printers stay watched).
+    for kind, name in schema.FILES.items():
+        schema.check_write(kind, root / name)
     app.store.restore(data.get("store") or {})
     for prof in profiles:
         try:
@@ -136,7 +145,7 @@ def restore(app, raw: bytes) -> dict:
             _restore_db(results, root / RESULTS_DB)
         for name in ("feedback.json", "orders.json"):
             if name in members:
-                (root / name).write_bytes(z.read(members[name]))
+                (root / name).write_bytes(fixed.get(name) or z.read(members[name]))
         for folder in FOLDERS:
             names = [n for n in members if n.startswith(folder + "/")]
             if not names:
@@ -145,7 +154,7 @@ def restore(app, raw: bytes) -> dict:
             for n in names:
                 dest = root / n
                 dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(z.read(members[n]))
+                dest.write_bytes(fixed.get(n) or z.read(members[n]))
     app.settings = settings
     app.save_settings()
     for p in settings.printers:

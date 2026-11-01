@@ -54,9 +54,14 @@ class PrinterState:
     gcode_file: str = ""
     hms: list[HmsEvent] = field(default_factory=list)
     firmware: str = ""
+    nozzle_type: str = ""  # the printer's own code, e.g. HH01 (hardened steel, high flow)
+    nozzle_diameter: float = 0.0
     ams: AmsState = field(default_factory=AmsState)
+    connected_at: float = 0.0  # when the MQTT connection last came up
+    reports: int = 0  # reports merged since then; none means a wrong serial (or a printer that won't say)
 
     def merge(self, report: dict) -> None:
+        self.reports += 1
         p = report.get("print")
         if isinstance(p, dict):
             self.gcode_state = str(p.get("gcode_state", self.gcode_state))
@@ -72,6 +77,9 @@ class PrinterState:
             self.subtask_name = str(p.get("subtask_name", self.subtask_name))
             self.gcode_file = str(p.get("gcode_file", self.gcode_file))
             self.ams.merge_print(p)
+            if p.get("nozzle_type"):
+                self.nozzle_type = str(p["nozzle_type"])
+            self.nozzle_diameter = _float(p.get("nozzle_diameter"), self.nozzle_diameter)
             if isinstance(p.get("hms"), list):
                 events = []
                 for h in p["hms"]:
@@ -86,6 +94,14 @@ class PrinterState:
             for m in info["module"]:
                 if isinstance(m, dict) and m.get("name") == "ota" and m.get("sw_ver"):
                     self.firmware = str(m["sw_ver"])
+
+    @property
+    def nozzle_flow(self) -> str:
+        """The nozzle flow, "High Flow" or "Standard", from the code newer printers report (HH01, HS01)."""
+        code = self.nozzle_type.upper()
+        if len(code) == 4 and code[2:].isdigit():
+            return {"H": "High Flow", "S": "Standard"}.get(code[1], "")
+        return ""
 
     @property
     def commands_rejected(self) -> bool:
@@ -105,6 +121,7 @@ class PrinterState:
             "job": self.subtask_name,
             "hms": [{"code": h.code_str, "level": h.level} for h in self.hms],
             "firmware": self.firmware,
+            "nozzle": {"type": self.nozzle_type, "diameter": self.nozzle_diameter or None, "flow": self.nozzle_flow},
             "ams": {
                 "units": self.ams.units_dict(),
                 "trays": self.ams.trays(),

@@ -16,11 +16,13 @@ from proofloop.core.commands import ConfigOpt
 from proofloop.core.commands import database as _db
 from proofloop.core.commands import settings_or_exit as _settings
 from proofloop.core.config import ConfigError, find_config_dir, load_settings
+from proofloop.core.logging import get_logger
 from proofloop.core.output import OK, PROBLEMS, emit, exit_code
 from proofloop.core.paths import config_file
 
 app = typer.Typer(help="Check CAD designs and sliced G-code before you print.", no_args_is_help=True,
                   add_completion=False)
+log = get_logger(__name__)
 SEVERITY_COLOR = {4: "red", 3: "bright_red", 2: "yellow", 1: "cyan"}
 
 
@@ -110,10 +112,6 @@ def design_check(
     handheld: bool = typer.Option(False, "--handheld", help="It is held in the hand (grip and weight checks)."),
     auto_eject: bool = typer.Option(False, "--auto-eject", help="Printed in a FarmLoop loop: check the pusher "
                                                               "can clear it, and how many fit per plate."),
-    process: str | None = typer.Option(None, "--process",
-                                          help="How it will be made: print (default), injection or cnc."),
-    pull: str | None = typer.Option(None, "--pull", help="Injection moulding: mould opening direction x, y, z "
-                                                          "or auto (default: the one with the fewest undercuts)."),
     personas: int = typer.Option(5, "--personas", "-n", help="How many personas react to the design."),
     out: Path | None = typer.Option(None, "--out", "-o", help="Report folder."),
     config: Path | None = ConfigOpt,
@@ -139,8 +137,7 @@ def design_check(
         spec.use["auto_eject"] = True
     people = asyncio.run(PersonaGenerator(seed=11).generate(personas, include_accessibility=True))
     try:
-        result = check_design(s, db, cad_file, spec, people, out, printer, material, units, process=process,
-                              pull=pull)
+        result = check_design(s, db, cad_file, spec, people, out, printer, material, units)
     except ConfigError as exc:
         typer.secho(f"Cannot check {cad_file}: {exc}", fg="red", err=True)
         raise typer.Exit(2) from None
@@ -148,23 +145,18 @@ def design_check(
     if as_json:
         emit(summary.design(result))
         raise typer.Exit(code)
-    made = result["process"]
     pr = result["printer"]
-    how = (pr.get("names") or [pr.get("label") or pr["name"]])[0] if made["kind"] == "print" else \
-        made["label"] + (f", pull {made['pull'].upper()}" if made.get("pull") else "")
+    how = (pr.get("names") or [pr.get("label") or pr["name"]])[0]
     typer.secho(f"{result['design']} v{result['version']}", bold=True, nl=False)
     typer.echo(f"  ({how}, {result['material']['name']})")
-    _verdict(result["findings"], "Ready to print" if made["kind"] == "print" else "Ready to make")
+    _verdict(result["findings"], "Ready to print")
     for f in result["findings"]:
         _finding_line(f)
     if not result["findings"]:
         typer.secho("  no problems found by the geometry checks", fg="green")
     est = result["metrics"]["estimates"]
-    if made["kind"] == "print":
-        support = f" + {est['support_grams']} g support" if est.get("support_grams") else ""
-        typer.echo(f"  about {est['printed_grams']} g{support}, {est['print_hours']} h, material {est['material_cost']}")
-    else:
-        typer.echo("  " + "; ".join(f"{label}: {value}" for value, label in est.get("process_stats", [])))
+    support = f" + {est['support_grams']} g support" if est.get("support_grams") else ""
+    typer.echo(f"  about {est['printed_grams']} g{support}, {est['print_hours']} h, material {est['material_cost']}")
     c = result["comparison"]
     if c:
         typer.echo(f"  since v{c['previous_version']}: {len(c['fixed'])} fixed, {len(c['persisting'])} still there, "
@@ -175,9 +167,8 @@ def design_check(
     if note:
         typer.echo(f"  auto-eject: {note}")
     typer.secho(f"report: {result['report']}", fg="green")
-    if made["kind"] == "print":
-        typer.echo(f"After printing: proofloop check printed \"{result['design']}\" --measure measurements.csv "
-                   "[--defect warping ...]")
+    typer.echo(f"After printing: proofloop check printed \"{result['design']}\" --measure measurements.csv "
+               "[--defect warping ...]")
     raise typer.Exit(code)
 
 
@@ -311,8 +302,10 @@ def _print_history(config: Path | None, files: list[Path] | None = None, quiet: 
     db = _db(s)
     try:
         counts = import_prints(db, s.config_dir, None, files)
-    except Exception as exc:  # noqa: BLE001 - learning must never stop a check
-        if not quiet:
+    except Exception as exc:  # noqa: BLE001 - broad on purpose: the journal is a bonus and must never stop a check
+        if quiet:
+            log.warning("could not read the print journal: %s", exc)
+        else:
             typer.secho(f"Could not read the print journal: {exc}", fg="yellow", err=True)
         counts = {"new": 0}
     if counts["new"] and quiet and say:

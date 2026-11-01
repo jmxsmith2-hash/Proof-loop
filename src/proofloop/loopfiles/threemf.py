@@ -20,6 +20,10 @@ from pathlib import Path
 from proofloop.core import printers
 
 _PLATE_RE = re.compile(r"^Metadata/plate_(\d+)\.gcode$")
+# One plate's own entries: G-code and checksum, pictures and plate settings (plate_2.png, top_2.png, ...)
+_PLATE_FILE_RE = re.compile(
+    r"^Metadata/(?:plate|plate_no_light|top|pick)_(\d+)(?:_small)?\.(?:gcode|gcode\.md5|png|json)$"
+)
 _HEADER_KV = re.compile(r"^;\s*([^:=]+?)\s*:\s*(.*?)\s*$")
 _CONFIG_KV = re.compile(r"^;\s*([a-z0-9_]+)\s*=\s*(.*?)\s*$")
 
@@ -59,6 +63,7 @@ class PlateInfo:
     # slot id -> the slicer's filament preset for that slot (name, vendor, density, drying...), from CONFIG_BLOCK
     presets: dict[str, dict] = field(default_factory=dict)
     nozzle: str = ""
+    nozzle_flow: str = ""  # "Standard" or "High Flow": the nozzle flow the plate was sliced for
 
     def as_dict(self) -> dict:
         return dict(self.__dict__)
@@ -137,6 +142,83 @@ def loads(raw: bytes, name: str = "", plate: int | None = None) -> SlicedFile:
     return SlicedFile(gcode=gcode, plate=plate, info=info, name=name, _entries=entries, _order=order)
 
 
+def sliced_plates(raw: bytes) -> list[int]:
+    """The plates sliced in a file: one for 'Export plate sliced file', several for 'Export all sliced file'."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as z:
+            return sorted(int(m.group(1)) for n in z.namelist() if (m := _PLATE_RE.match(n)))
+    except (zipfile.BadZipFile, ValueError, OSError, EOFError):
+        return []
+
+
+def only_plate(raw: bytes, plate: int) -> bytes:
+    """The file with just one of its sliced plates, the way Bambu Studio exports a single plate.
+
+    The plate keeps its number (the printer is told to start ``Metadata/plate_<n>.gcode``); the other
+    plates' G-code, checksums, pictures and plate settings are left out, everything else is kept as it is.
+    """
+    def other(name: str) -> bool:
+        m = _PLATE_FILE_RE.match(name)
+        return m is not None and int(m.group(1)) != plate
+
+    with zipfile.ZipFile(io.BytesIO(raw)) as z:
+        if f"Metadata/plate_{plate}.gcode" not in z.namelist():
+            raise PlateFileError(f"plate {plate} is not sliced in this file")
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as out:
+            for info in z.infolist():
+                if not other(info.filename):
+                    out.writestr(info.filename, z.read(info))
+    return buf.getvalue()
+
+
+def _plate_element(sf: SlicedFile) -> tuple[ET.Element, ET.Element] | None:
+    """(slice_info root, this plate's <plate>) of a file, or None when it has no readable slice_info."""
+    raw = sf._entries.get("Metadata/slice_info.config")
+    try:
+        root = ET.fromstring(raw) if raw else None
+    except ET.ParseError:
+        return None
+    if root is None:
+        return None
+    for p in root.iter("plate"):
+        if {m.get("key"): m.get("value") for m in p.findall("metadata")}.get("index", "1") == str(sf.plate):
+            return root, p
+    return None
+
+
+def with_filaments(first: SlicedFile, plates: list[SlicedFile]) -> bytes:
+    """``first``'s slice_info listing every filament slot the ``plates`` use, each as its own plate lists it.
+
+    The printer and Bambu Studio take a file's filaments (to map to AMS trays) from slice_info, so a
+    batch whose later plates use slots the first plate doesn't must list them there too.
+    """
+    target = _plate_element(first)
+    if target is None:
+        return first._entries.get("Metadata/slice_info.config", b"")
+    root, plate = target
+    slots: dict[str, ET.Element] = {}
+    for sf in plates:
+        found = target if sf is first else _plate_element(sf)
+        for f in found[1].findall("filament") if found else []:
+            slots.setdefault(f.get("id", ""), f)
+    for f in list(plate.findall("filament")):
+        plate.remove(f)
+    at = next((i for i, el in enumerate(plate) if el.tag not in ("metadata", "object")), len(plate))
+    order = sorted(slots, key=lambda s: (not s.isdigit(), int(s) if s.isdigit() else 0, s))
+    for i, sid in enumerate(order):
+        plate.insert(at + i, slots[sid])
+    return ET.tostring(root, encoding="UTF-8", xml_declaration=True)
+
+
+def plate_name(name: str, plate: int) -> str:
+    """``widget.gcode.3mf`` -> ``widget-plate2.gcode.3mf``: each plate of a multi-plate file gets its own name."""
+    for ext in (".gcode.3mf", ".3mf"):
+        if name.lower().endswith(ext):
+            return f"{name[: -len(ext)]}-plate{plate}{name[-len(ext):]}"
+    return f"{name}-plate{plate}"
+
+
 def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
     info = PlateInfo()
     header = _header_block(gcode)
@@ -184,27 +266,29 @@ def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
             if not info.print_seconds and meta.get("prediction"):
                 info.print_seconds = _num(meta["prediction"])
             for o in p.findall("object"):
-                if o.get("identify_id"):
-                    info.object_names[o.get("identify_id")] = o.get("name", "")
+                oid = o.get("identify_id")
+                if oid:
+                    info.object_names[oid] = o.get("name", "")
             for f in p.findall("filament"):
-                if f.get("id", "").isdigit():
-                    idx_by_slot[f.get("id")] = int(f.get("id")) - 1  # slice_info ids are 1-based
-                if f.get("type"):
-                    used.append(f.get("type"))
-                    info.filament_slots.append(
-                        (f.get("id", ""), f.get("type", ""), (f.get("color") or "").upper())
-                    )
+                fid = f.get("id", "")
+                ftype = f.get("type")
+                if fid.isdigit():
+                    idx_by_slot[fid] = int(fid) - 1  # slice_info ids are 1-based
+                if ftype:
+                    used.append(ftype)
+                    info.filament_slots.append((fid, ftype, (f.get("color") or "").upper()))
                 info.filament_grams += _num(f.get("used_g"))
-                if f.get("id"):
-                    info.slot_grams[f.get("id")] = info.slot_grams.get(f.get("id"), 0.0) + _num(
-                        f.get("used_g")
-                    )
+                if fid:
+                    info.slot_grams[fid] = info.slot_grams.get(fid, 0.0) + _num(f.get("used_g"))
     plate_json = entries.get(f"Metadata/plate_{plate}.json")
     if plate_json and not info.bed_type:
         try:
             info.bed_type = str(json.loads(plate_json).get("bed_type", ""))
         except ValueError:
             pass
+    # Bambu Studio 2: each extruder's flow ("Standard", "High Flow"); one extruder on a P2S
+    flow = [f.strip().strip('"') for f in re.split(r"[;,]", config.get("nozzle_volume_type", "")) if f.strip()]
+    info.nozzle_flow = flow[0] if flow else ""
     info.filaments = sorted(set(used or cfg_filaments))
     info.presets = _presets(config, info.filament_slots, idx_by_slot)
     if not info.printer_model_id and info.printer_model:
@@ -264,9 +348,9 @@ def _presets(config: dict, slots, idx_by_slot: dict[str, int]) -> dict[str, dict
                 ("filament_dev_ams_drying_temperature", "ams_drying_temp"),
                 ("filament_dev_ams_drying_time", "ams_drying_hours"),
             ):
-                vals = {x.strip() for x in config.get(key, "").split(",") if x.strip()}
-                if len(vals) == 1:
-                    p[name] = _num(vals.pop())
+                agreed = {x.strip() for x in config.get(key, "").split(",") if x.strip()}
+                if len(agreed) == 1:
+                    p[name] = _num(agreed.pop())
         out[sid] = p
     return out
 

@@ -3,10 +3,13 @@
 ```bash
 pip install -e ".[all,dev]" -c constraints.txt
 ruff check src tests tools examples
-mypy src                      # types (pyproject.toml lists the older modules not checked yet)
+mypy src                      # types: every module is checked
 pytest -q                     # everything, a few minutes
 pytest -q --cov=proofloop     # and how much of the code the tests run
 pytest -q --ignore=tests/e2e  # without the CAD examples end to end
+npm ci && npm run lint        # the page scripts (static/js and the scripts inside the pages)
+pip install playwright && python -m playwright install chromium
+pytest -m browser             # the window in a real browser, against `proofloop try` (not part of plain pytest)
 ```
 
 The tests never touch your real `~/.proofloop`: every test gets an empty folder of its own
@@ -53,9 +56,54 @@ pins (and the CI actions) forward; CI tests it before it can be merged.
 Each version has a section in `CHANGELOG.md`, newest first (`## 0.4.0 · 2026-10-30`). To release:
 set the version in `pyproject.toml` and `src/proofloop/__init__.py`, write its section, merge, then
 push a tag `v0.4.0`. The release workflow checks that the tag, the version and the changelog agree,
-runs the tests, builds the package and makes the GitHub release with that section as its notes.
+runs the tests, builds the package and the Windows installer, and makes the GitHub release with that
+section as its notes, the package, `ProofLoop-Setup-0.4.0.exe` and `SHA256SUMS.txt` attached.
 `proofloop update` shows what an update brings before it installs it, and the window shows the
 newest sections under *More › What's new* (the version badge lights up after an update).
+
+### The Windows installer
+
+`packaging/windows/proofloop.spec` has PyInstaller bundle ProofLoop and Python into one folder with
+`proofloop.exe` (the command line) and `ProofLoopApp.exe` (opens the window, no console; the
+shortcuts use it), and `packaging/windows/proofloop.iss` (Inno Setup) wraps that folder in an installer for
+the current user, with no admin rights. To build it by hand on Windows:
+
+```bash
+pip install ".[all]" pyinstaller -c constraints.txt
+pyinstaller packaging/windows/proofloop.spec --noconfirm --distpath dist --workpath build/pyinstaller
+ISCC /DAppVersion=0.4.0 /DIconFile=build\pyinstaller\proofloop.ico packaging\windows\proofloop.iss
+```
+
+`dist/ProofLoop/` runs as it is; the installer is `dist/installer/ProofLoop-Setup-0.4.0.exe`. The
+release job checks the folder (`--version`, `doctor`, a G-code check and a loop-file check), then
+installs the installer, runs it and uninstalls it. A new package that is imported only inside a function
+may need adding to `hiddenimports` in the spec; `proofloop.exe` fails with `No module named ...` when it does.
+The installer isn't code-signed, so SmartScreen warns the first time. To sign it, get a code-signing
+certificate (or Azure Trusted Signing) and add a `signtool` step before the upload, and a
+`SignTool=` line to the `.iss`.
+
+### PyPI
+
+`publish.yml` builds the package once and uploads it to PyPI with
+[Trusted Publishing](https://docs.pypi.org/trusted-publishers/): GitHub proves to PyPI which workflow is
+running, so no API token is stored in the repository. It runs when `release.yml` has made a release (only
+if the repository variable `PUBLISH_TO_PYPI` is `true`), and from the Actions tab with **Run workflow**:
+`testpypi` (the default) to try it, or `pypi`. Once, as the owner:
+
+1. Check that the name is free: `https://pypi.org/project/proofloop/` must be a 404. (It is taken by
+   an unrelated project, so choose another `name` in `pyproject.toml` first, and change the
+   `url:` lines in `publish.yml` to match. The command stays `proofloop`.)
+2. On pypi.org: your account, *Publishing*, *Add a new pending publisher*. Project name as in
+   `pyproject.toml`, owner `jmxsmith2-hash`, repository `Proof-loop`, workflow `publish.yml`,
+   environment `pypi`. A pending publisher creates the project on its first upload.
+3. The same on test.pypi.org with environment `testpypi`, to try it first.
+4. On GitHub: *Settings › Environments*, make `pypi` (and `testpypi`). On `pypi`, add yourself as a
+   required reviewer if you want to approve each upload.
+5. Run **publish** with `testpypi`, then `pip install -i https://test.pypi.org/simple/ <name>` in a clean
+   environment. When that works, add the repository variable `PUBLISH_TO_PYPI` = `true` (*Settings ›
+   Secrets and variables › Actions › Variables*): every later release goes to PyPI by itself.
+
+A PyPI version can't be replaced or reused, so a bad release is fixed by releasing the next version.
 
 ## CI
 
@@ -63,6 +111,8 @@ CI runs once per change: on pull requests and on pushes to `main` (a newer push 
 cancels the run it replaces). Start it by hand from the Actions tab with **Run workflow**.
 
 - **Tests** on Python 3.11 to 3.13 with the plain install (what Docker runs), with ruff and mypy.
+- **JS lint**: ESLint over the page scripts (`eslint.config.mjs` knows the names the files share).
+- **Browser**: `pytest -m browser` drives the window, Loop files, Printers and Check in Chromium.
 - **Evidence**: the built-in P2S profile against the public FarmLoop files it was learned from.
 - **Everything** on Windows and Linux: every test, with `[all]` as setup installs it (on Linux with
   the coverage report in the run's summary); a UTF-8

@@ -19,14 +19,20 @@ from proofloop.loopfiles.gcode.routines import LoopSettings
 from proofloop.loopfiles.gcode.sweep import SweepSettings
 from proofloop.loopfiles.profiles import ProfileStore
 from proofloop.monitor.filament import Inventory, Spool
+from proofloop.monitor.handsoff import HandsOff
+from proofloop.monitor.homeassistant import HomeAssistantExport
 from proofloop.monitor.journal import PrintJournal
 from proofloop.monitor.orders import Orders
+from proofloop.monitor.proofs import ProofPhotos
 from proofloop.monitor.queue import Queue
+from proofloop.monitor.runout import run_of
 from proofloop.monitor.spoolman import Spoolman
 from proofloop.monitor.store import Store
-from proofloop.monitor.tracking import FilamentTracker
+from proofloop.monitor.timelapse import Timelapse
+from proofloop.monitor.tracking import FilamentTracker, job_key
 from proofloop.monitor.vision import BedVerifier
 from proofloop.monitor.watch import PrinterWatch
+from proofloop.monitor.watchfolder import FolderWatch
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +55,9 @@ def loop_settings(
         bender_fitted=d.bender_fitted,
         cooldown_fan=d.cooldown_fan,
         wait_for_monitor=d.wait_for_monitor,
+        sounds=d.sounds,
+        load_line_every_loop=d.load_line_every_loop,
+        level_once=d.level_once,
         sweep=SweepSettings(push_offset=d.push_offset, floor_z=d.floor_z, part_push_z=dict(part_push or {})),
     )
 
@@ -145,11 +154,14 @@ class App:
         self.settings: Settings = self.settings_store.load()
         self.profiles = ProfileStore(self.data_dir / "profiles")
         self.store = Store(self.data_dir / PRINTERS_DB)
+        self.store.rename_jobs(job_key)  # files recorded before names were kept as the printer reports them
         self.uploads = UploadCache(40, self.data_dir / "uploads")
         self.queue = Queue(self.data_dir / "queue")
         self.orders = Orders(self.data_dir / "orders.json")
+        self._maintenance_at = 0.0  # when maintenance was last checked for tasks that came due
         self.notifier = Notifier(self.settings.notifications)
         self.connect = connect
+        self.homeassistant = HomeAssistantExport(self, active=connect)  # opt-in MQTT export
         self.link_factory = link_factory or self._default_link
         self.watches: dict[str, PrinterWatch] = {}
         self._stop = threading.Event()
@@ -159,15 +171,22 @@ class App:
         self.tracker = FilamentTracker(self)
         self.journal = PrintJournal(self.store, self.data_dir, {p.name: p.model_id for p in self.settings.printers})
         self._migrate_cost_spools()
+        self.folder_watch = FolderWatch(self)  # models saved into a folder, sliced (monitor/watchfolder.py)
+        self.hands_off = HandsOff(self)  # queued jobs sent by themselves (monitor/handsoff.py)
+        self.proofs = ProofPhotos(self.data_dir / "proofs", lambda: self.settings.camera)  # each finished plate
         for p in self.settings.printers:
             self._start_watch(p)
         if connect:
+            self.homeassistant.configure(self.settings.mqtt_export)
             threading.Thread(target=self._ticker, daemon=True, name="proofloop-ticker").start()
+            threading.Thread(target=self.folder_watch.run, args=(self._stop,), daemon=True,
+                             name="proofloop-watch-folder").start()
 
     # ---- settings ---------------------------------------------------------------
     def save_settings(self) -> None:
         self.settings_store.save(self.settings)
         self.notifier = Notifier(self.settings.notifications)
+        self.homeassistant.configure(self.settings.mqtt_export)
 
     def update_defaults(self, values: dict) -> Defaults:
         merged = {**self.settings.defaults.model_dump(), **values}
@@ -224,6 +243,10 @@ class App:
             filament=self.tracker,
             journal=self.journal,
             failure_watch=lambda: self.settings.failure_watch,
+            look_every=lambda: self.settings.camera.look_every_pct,
+            look_every_s=lambda: self.settings.camera.look_every_s,
+            timelapse=Timelapse(self.data_dir / "timelapse", p.name, lambda: self.settings.camera),
+            proofs=self.proofs,
         )
         self.journal.models[p.name] = p.model_id
         link.add_listener(w.on_state)
@@ -240,16 +263,26 @@ class App:
             for w in list(self.watches.values()):
                 try:
                     w.tick()
-                except Exception:
+                except Exception:  # broad: one printer's bug must not stop the ticker for all of them
                     log.exception("%s: tick failed", w.name)
             try:
                 self.tell_queue()
-            except Exception:
+            except Exception:  # broad: the ticker thread must never die
                 log.exception("queue check failed")
             try:
+                self.hands_off.tick()
+            except Exception:  # broad: the ticker thread must never die
+                log.exception("the hands-off queue failed")
+            try:
                 self.morning_summary()
-            except Exception:
+            except Exception:  # broad: the ticker thread must never die
                 log.exception("the morning summary failed")
+            try:
+                if time.time() - self._maintenance_at >= 600:
+                    self._maintenance_at = time.time()
+                    self.tell_maintenance()
+            except Exception:  # broad: the ticker thread must never die
+                log.exception("the maintenance check failed")
 
     def morning_summary(self, now: float | None = None) -> dict | None:
         """The daily summary, at the time you chose, to every notification target (once a day)."""
@@ -283,10 +316,19 @@ class App:
             self._emit(self.store.add_event(None, "info", "order_done",
                                             f"Order for {o['customer']} is made: {o['quantity']} × {o['plate']}."))
         for run, job in self.queue.ready(self):
+            if self.hands_off.on(job["printer"]):
+                continue  # hands-off sends it, and says so
             self._emit(self.store.add_event(
                 job["printer"], "warning", "queue_ready",
                 f"{job['printer']} is free. Next in the queue: {run['plate']}, {job['loops']} loop"
                 f"{'s' if job['loops'] != 1 else ''}. Send or download it under Printers › Overview."))
+
+    def tell_maintenance(self, now: float | None = None) -> None:
+        """A notice for each maintenance task that has come due (once; see monitor/maintenance.py)."""
+        from proofloop.monitor.maintenance import notices
+
+        for printer, text in notices(self, now):
+            self._emit(self.store.add_event(printer, "warning", "maintenance_due", text))
 
     def add_printer(self, p: PrinterConfig) -> PrinterWatch:
         if any(x.name == p.name for x in self.settings.printers):
@@ -308,21 +350,65 @@ class App:
     def send(self, name: str, filename: str, data: bytes, sf, danger: list[str]) -> dict:
         """Send a loop file to printer ``name`` and start it, if everything checks out (monitor/send.py)."""
         from proofloop.monitor.printer.ams import label
-        from proofloop.monitor.send import SendError, plan, start_command
+        from proofloop.monitor.send import (
+            SendError,
+            plan,
+            plate_facts,
+            printer_filename,
+            remote_path,
+            start_command,
+        )
 
         if not self.settings.send_to_printer:
             raise SendError("sending to printers is off: turn it on under Printers › Monitor first")
         cfg, w = self.printer_config(name), self.watches.get(name)
         if w is None:
             raise SendError(f"no printer called {name!r}")
+        job = self.store.job(job_key(filename))  # made_file recorded it: the grams of every loop
         p = plan(name, w.link.state, cfg.model_id, sf.info.printer_model_id or "", sf.info.filament_slots, danger,
-                 plate=sf.plate or 1)
-        p.filename = filename
-        w.link.send(filename, data, start_command(p))
+                 plate=sf.plate or 1, nozzle=sf.info.nozzle, nozzle_flow=sf.info.nozzle_flow,
+                 run=run_of(job)[1] if job else None, spools=self.inventory.all(archived=False),
+                 hold=self.settings.filament.hold_when_short)
+        p.filename = filename = printer_filename(filename)
+        md5, filaments = plate_facts(data, p.plate)
+        w.link.send(remote_path(cfg.model_id, filename), data, start_command(p, cfg.model_id, md5, filaments))
+        w.started()  # a new run, even of a file sent before
         mapping = ", ".join(f"slot {i + 1} from {label(t)}" for i, t in enumerate(p.ams_mapping) if t >= 0)
         self._emit(self.store.add_event(name, "info", "sent", f"Sent {filename} and started it"
                                         + (f" ({mapping})" if mapping else "")))
         return {"printer": name, "file": filename, "use_ams": p.use_ams, "ams_mapping": p.ams_mapping, "notes": p.notes}
+
+    def send_readiness(self, sf, slots: list[tuple[str, str, str]] | None = None,
+                       run: list[dict[str, float]] | None = None) -> list[dict]:
+        """For each printer, whether this plate could go to it now, which AMS tray feeds each slot, and
+        whether each tray lasts the ``run`` (grams per slot of each loop).
+
+        The loop-file checks run on the finished file when you press Send; everything else is here.
+        """
+        from proofloop.monitor.printer.ams import label
+        from proofloop.monitor.send import check
+
+        out = []
+        spools = self.inventory.all(archived=False)
+        for cfg in self.settings.printers:
+            w = self.watches.get(cfg.name)
+            if w is None:
+                continue
+            need = sf.info.filament_slots if slots is None else slots
+            p, reasons = check(cfg.name, w.link.state, cfg.model_id, sf.info.printer_model_id or "",
+                               need, [], plate=sf.plate or 1, nozzle=sf.info.nozzle,
+                               nozzle_flow=sf.info.nozzle_flow, run=run, spools=spools,
+                               hold=self.settings.filament.hold_when_short)
+            rows = []
+            for sid, ftype, colour in need:
+                i = int(sid) - 1 if str(sid).isdigit() else -1
+                tray = p.ams_mapping[i] if p.use_ams and 0 <= i < len(p.ams_mapping) else -1
+                rows.append({"slot": sid, "type": ftype, "color": colour,
+                             "tray": tray if tray >= 0 else None, "tray_label": label(tray) if tray >= 0 else None})
+            out.append({"printer": cfg.name, "ready": not reasons, "reasons": reasons, "slots": rows,
+                        "use_ams": p.use_ams, "notes": p.notes, "filament": p.filament,
+                        "state": (w.link.state.gcode_state or "").lower(), "online": w.link.state.online})
+        return out
 
     def printer_config(self, name: str) -> PrinterConfig:
         for p in self.settings.printers:
@@ -332,6 +418,7 @@ class App:
 
     def shutdown(self) -> None:
         self._stop.set()
+        self.homeassistant.stop()
         for w in self.watches.values():
             close = getattr(w.link, "close", None)
             if close:

@@ -26,6 +26,7 @@ from typing import Any
 
 import numpy as np
 
+from proofloop.core.config import ConfigError
 from proofloop.core.db import Database
 from proofloop.core.logging import get_logger
 from proofloop.core.paths import PRINTERS_DB, home
@@ -94,14 +95,14 @@ def layer_index(ctx: Any, layer: int, loop_no: int | None) -> int | None:
 
 def evidence(ctx: Any, layer: int | None, loop_no: int | None) -> dict[str, Any]:
     """What the file does overall, and on the layers up to the one a print stopped at."""
-    from proofloop.check.gcode.checks import _at_moves
+    from proofloop.check.gcode.context import _at_moves
 
     t, m = ctx.trace, ctx.metrics
     out: dict[str, Any] = {"peak_flow": m.get("peak_flow_mm3_s"), "typical_flow": m.get("typical_flow_mm3_s"),
                            "nozzle_c": m.get("nozzle_c"), "bed_c": m.get("bed_c"), "fan_pct": m.get("fan_pct"),
                            "first_layer_mm": m.get("first_layer_mm"), "layers": m.get("layers")}
     idx = layer_index(ctx, layer, loop_no) if layer else None
-    if idx is None:
+    if layer is None or idx is None:
         return out
     window = [i for i in range(idx - 2, idx + 1) if i >= 0]
     sel = ctx.extrude & ctx.model & np.isin(t.layer, window)
@@ -180,7 +181,8 @@ def import_prints(db: Database, config_dir: Path | str | None, data_dir: Path | 
             if key not in analysed:
                 try:
                     analysed[key] = analyse(config_dir, path)[0]
-                except Exception as exc:  # noqa: BLE001 - a file we can't read still counts as a print
+                except Exception as exc:  # noqa: BLE001 - runs the whole G-code check on any file; one bad file
+                    # must not stop the import (the print still counts, without file evidence)
                     log.warning("could not re-check %s: %s", path, exc)
                     analysed[key] = None
             ctx = analysed[key]
@@ -189,7 +191,7 @@ def import_prints(db: Database, config_dir: Path | str | None, data_dir: Path | 
         if material is None and rec.get("filaments"):
             try:
                 material = load_profiles(profiles_dir(config_dir), printer, rec["filaments"][0]["type"])[1]["name"]
-            except Exception:  # noqa: BLE001 - an AMS filament type printers.yaml doesn't know
+            except ConfigError:   # an AMS filament type printers.yaml doesn't know
                 material = rec["filaments"][0]["type"]
         ev = evidence(ctx, rec.get("layer"), rec.get("loop_no") if rec.get("loop_file") else None) if ctx else {}
         hot = mflow = None
@@ -219,9 +221,8 @@ def history_for(db: Database, printer: str, material: str, job: str | None = Non
         by_cause[r["cause"] or "unknown"] = by_cause.get(r["cause"] or "unknown", 0) + 1
     ok_peaks = sorted((r["evidence_json"] or {}).get("peak_flow") or 0 for r in done if r["outcome"] == "finished")
     ok_peaks = [p for p in ok_peaks if p]
-    flow_fails = [((r["evidence_json"] or {}).get("at_stop") or {}).get("peak_flow") for r in failed
-                  if r["cause"] == "flow"]
-    flow_fails = [f for f in flow_fails if f]
+    flow_fails = [f for r in failed if r["cause"] == "flow"
+                  if (f := ((r["evidence_json"] or {}).get("at_stop") or {}).get("peak_flow"))]
     checked = [r for r in rows if r["eject"]]
     hist: dict[str, Any] = {
         "printer": printer, "material": material, "prints": len(done), "finished": len(done) - len(failed),

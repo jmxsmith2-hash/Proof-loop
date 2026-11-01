@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import os
 import re
 import shutil
 import threading
@@ -21,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -41,6 +43,10 @@ PREFIX = "/check"
 
 
 NOTIFY_AFTER_S = 30  # only jobs that take this long are worth a phone alert
+SLICE_AGAIN_NOTE = ("Slicing again with these settings needs the 3D model, which this file doesn't have. Upload the "
+                    "STL, 3MF or STEP file in the Check window and Fix and slice again does it for you.")
+NO_SLICER = ("Install Bambu Studio (free) to slice again. Open it once after installing, so it downloads its "
+             "printer presets.")
 
 
 @dataclass
@@ -62,6 +68,13 @@ class Job:
     findings: list[dict[str, Any]] = field(default_factory=list)  # the top ones, to mark "not a problem"
     printer: str | None = None     # what it was checked for, so your verdicts apply to the same setup
     material: str | None = None
+    model: str | None = None       # the CAD file of a print-ready check, kept to slice it again with the fixes
+    options: dict[str, str] = field(default_factory=dict)  # what it was checked with, for the second go
+    fixes: list[dict[str, Any]] = field(default_factory=list)  # slicer settings that would fix findings
+    rounds: list[dict[str, Any]] = field(default_factory=list)  # fix jobs: what each round changed
+    downloads: list[dict[str, str]] = field(default_factory=list)  # fix jobs: name, label, path of each file
+    fix_of: str | None = None      # this job fixed and sliced that one again
+    fixed_by: str | None = None    # that job fixed and sliced this one again
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Job:
@@ -71,10 +84,13 @@ class Job:
     def public(self) -> dict[str, Any]:
         data = asdict(self)
         data.pop("report")
-        data.pop("source")
+        for private in ("source", "model", "options", "downloads"):
+            data.pop(private)
         data["report_url"] = f"{PREFIX}/job/{self.id}/" if self.report else None
         data["can_loop"] = bool(self.source)
         data["download"] = f"{PREFIX}/job/{self.id}/download/{Path(self.download).name}" if self.download else None
+        data["downloads"] = [{"label": d["label"], "url": f"{PREFIX}/job/{self.id}/download/{quote(d['name'])}"}
+                             for d in self.downloads]
         return data
 
 
@@ -164,23 +180,41 @@ class Checks:
                     for k, v in (data.get("printers") or {}).items()]
         farm = farm_printers(data)  # the printers you added under Printers: one list for everything
         materials = list((data.get("materials") or {}).keys())
-        procs = load_yaml_file(config_file(self.settings.config_dir, "processes.yaml")) or {}
-        process_materials = {"print": materials, **{k: list((v or {}).get("materials", {})) for k, v in procs.items()}}
+        slicer = self._slicer()
+        return self.env.get_template("check_app.html.j2").render(
+            printers=printers, materials=materials, default_printer=data.get("default_printer"),
+            slicer=slicer, default_material=data.get("default_material"),
+            prefix=PREFIX, farm=farm, default_farm=farm[0]["id"] if farm else None,
+            no_slicer=NO_SLICER, slice_again_note=SLICE_AGAIN_NOTE)
+
+    @staticmethod
+    def _slicer() -> str | None:
+        """The name of the slicer that can slice here, or None."""
         try:
             from proofloop.check.slicer import find_slicer
 
             found = find_slicer()
-            slicer = found.label if found and found.profile_dirs else None
-        except Exception:  # noqa: BLE001 - a broken slicer install just hides the option
-            slicer = None
-        return self.env.get_template("check_app.html.j2").render(
-            printers=printers, materials=materials, default_printer=data.get("default_printer"),
-            process_materials=process_materials, slicer=slicer, default_material=data.get("default_material"),
-            prefix=PREFIX, farm=farm, default_farm=farm[0]["id"] if farm else None)
+            return found.label if found and found.profile_dirs else None
+        except (OSError, RuntimeError):  # a broken slicer install (or no home folder) just hides the option
+            return None
+
+    def _fixing(self, job: Job) -> bool:
+        """Fix and slice again was started for this job and has not failed (a failed or removed one can be retried)."""
+        other = self.jobs.get(job.fixed_by or "")
+        return other is not None and other.status != "failed"
 
     def list_jobs(self) -> list[dict[str, Any]]:
         with self.lock:
-            return [j.public() for j in sorted(self.jobs.values(), key=lambda j: -j.created)]
+            jobs = sorted(self.jobs.values(), key=lambda j: -j.created)
+            out = [j.public() for j in jobs]
+        slicer: bool | None = None                   # looked for once, and only when a job could use it
+        for job, data in zip(jobs, out, strict=True):
+            data["can_fix"] = data["needs_slicer"] = False
+            data["needs_model"] = bool(job.status == "done" and job.kind == "gcode" and job.fixes)
+            if job.status == "done" and job.model and job.fixes and not self._fixing(job):
+                slicer = bool(self._slicer()) if slicer is None else slicer
+                data["can_fix"], data["needs_slicer"] = slicer, not slicer
+        return out
 
     # ------------------------------------------------------------------ jobs
     def _new(self, kind: str, title: str) -> Job:
@@ -198,7 +232,7 @@ class Checks:
             job.status, job.stage = "done", "finished"
         except (ConfigError, ValueError, PermissionError) as exc:
             job.status, job.error = "failed", str(exc)
-        except Exception as exc:  # noqa: BLE001 - report any failure in the window, keep the server up
+        except Exception as exc:  # noqa: BLE001 - runs on a worker thread: any failure goes to the window and the log
             log.exception("check %s failed", job.id)
             job.status, job.error = "failed", f"{type(exc).__name__}: {exc}"
         finally:
@@ -232,14 +266,33 @@ class Checks:
         path = folder / name
         try:
             body_reader(path)
-        except Exception:
+        except BaseException:  # clean up the half-written upload, then let the error through
             with self.lock:
                 self.jobs.pop(job.id, None)
             shutil.rmtree(folder, ignore_errors=True)
             raise
+        plates = self._sliced_plates(path) if kind == "gcode" and not options.get("plate") else []
+        if len(plates) > 1:  # 'Export all sliced file': one check per plate, each on that plate alone
+            data = path.read_bytes()
+            with self.lock:
+                self.jobs.pop(job.id, None)
+            shutil.rmtree(folder, ignore_errors=True)
+            from proofloop.loopfiles import threemf
+
+            jobs = [self.submit_bytes(threemf.plate_name(name, n), threemf.only_plate(data, n), options)
+                    for n in plates]
+            return jobs[0]
         work = self._cad_work if kind == "cad" else self._gcode_work
         self.checks.submit(self._run, job, lambda j: work(j, path, options))
         return job
+
+    @staticmethod
+    def _sliced_plates(path: Path) -> list[int]:
+        if not path.name.lower().endswith(".3mf"):
+            return []
+        from proofloop.loopfiles import threemf
+
+        return threemf.sliced_plates(path.read_bytes())
 
     def _cad_work(self, job: Job, path: Path, opt: dict[str, str]) -> None:
         from proofloop.check.cad.pipeline import check_design, design_spec
@@ -252,38 +305,33 @@ class Checks:
         if opt.get("auto_eject") in ("1", "true", "on"):
             spec.use["auto_eject"] = True
         people = asyncio.run(PersonaGenerator(seed=11).generate(5, include_accessibility=True))
-        process = opt.get("process") if opt.get("process") in ("injection", "cnc") else None
-        if not process and opt.get("slice") in ("1", "true", "on"):
+        if opt.get("slice") in ("1", "true", "on"):
             return self._prepare_work(job, path, opt)
-        if process:
-            job.stage = {"injection": "checking it for injection moulding", "cnc": "checking it for CNC machining"}[process]
         result = check_design(self.settings, self.db, path, spec, people, path.parent / "report",
-                              opt.get("printer") or None, opt.get("material") or None, opt.get("units") or None,
-                              process=process, pull=opt.get("pull") or None)
+                              opt.get("printer") or None, opt.get("material") or None, opt.get("units") or None)
         job.report = result["report"]
         job.title = f"{result['design']} v{result['version']}"
         self._summarise(job, result["findings"], result["printer"]["name"], result["material"]["name"])
         est = result["metrics"]["estimates"]
-        if result["process"]["kind"] == "print":
-            printer = (result["printer"].get("names") or [result["printer"]["name"]])[0]
-            job.summary.append(f"about {est['printed_grams']} g, {est['print_hours']} h on {printer}")
-        else:
-            job.summary.append(f"{result['process']['label']} in {result['material']['name']}: " +
-                               "; ".join(f"{label} {value}" for value, label in est.get("process_stats", [])[:3]))
+        printer = (result["printer"].get("names") or [result["printer"]["name"]])[0]
+        job.summary.append(f"about {est['printed_grams']} g, {est['print_hours']} h on {printer}")
 
     def _prepare_work(self, job: Job, path: Path, opt: dict[str, str]) -> None:
         from proofloop.check.learn import history_for
         from proofloop.check.prepare import prepare
 
-        job.stage = "checking the design, slicing it, then checking the G-code"
+        fix = opt.get("fix") in ("1", "true", "on")
+        job.stage = ("checking the design, slicing it, fixing the settings and slicing again" if fix else
+                     "checking the design, slicing it, then checking the G-code")
+        job.model, job.options = str(path), {k: v for k, v in opt.items() if k != "fix"}
         support = {"on": True, "off": False}.get(opt.get("support") or "")
         r = prepare(self.settings, self.db, path, printer=opt.get("printer") or None,
                     material=opt.get("material") or None, support=support, out=path.parent / "report",
                     loops=int(opt["loops"]) if (opt.get("loops") or "").isdigit() else 0, design=opt.get("design") or None,
-                    auto_eject=opt.get("auto_eject") in ("1", "true", "on"),
+                    auto_eject=opt.get("auto_eject") in ("1", "true", "on"), fix=fix,
                     history=lambda p, m, j: history_for(self.db, p, m, j))
         job.report = r["report"]
-        job.title = f"{r['model']}: {'ready to print' if r['ready'] else 'fix first'}"
+        job.title = f"{r['model']}: {'ready to print' if r['ready'] else 'fix first'}" +             (" (after the fixes)" if r["rounds"] else "")
         everything = r["slicer_findings"] + r["design"]["findings"] + r["gcode"]["findings"]
         self._summarise(job, sorted(everything, key=lambda f: -f["severity"]), r["printer"]["name"],
                         r["material"]["name"])
@@ -292,16 +340,43 @@ class Checks:
         job.summary = ([f"Ready to print: {r['grams']} g, {r['time']}" if r["ready"] else
                         f"Fix {r['blocking']} thing(s) first ({r['grams']} g, {r['time']})"]
                        + [f["title"] for f in sorted(everything, key=lambda f: -f["severity"])[:4] if f["severity"] >= 3])
+        job.fixes = [{k: st[k] for k in ("preset", "key", "label", "value", "why")} for st in r["setting_fixes"]]
+        if fix:
+            self._record_fix(job, r)
+
+    @staticmethod
+    def _record_fix(job: Job, r: dict[str, Any]) -> None:
+        """What a Fix and slice again run changed, and the files to take away from it."""
+        if not r["rounds"]:
+            job.summary.insert(1, "No slicer setting fixes what was found, so it was sliced once")
+            return
+        job.rounds = [{"blocking_before": rd["blocking_before"], "blocking_after": rd["blocking_after"],
+                       "applied": [{k: st.get(k) for k in ("preset", "key", "label", "old", "value", "why")}
+                                   for st in rd["applied"]]} for rd in r["rounds"]]
+        for n, rd in enumerate(job.rounds, 1):
+            changed = len(rd["applied"])
+            job.summary.insert(n, f"Round {n}: changed {changed} slicer setting{'' if changed == 1 else 's'}; "
+                                  f"{rd['blocking_before']} to {rd['blocking_after']} G-code and slicer problems "
+                                  "that stop it printing")
+        stem = safe_name(Path(r["model"]).name.split(".")[0])
+        job.source = r["sliced"]                       # the fixed plate: Make a loop file takes it from here
+        job.downloads = [{"name": f"{stem}-fixed.gcode.3mf", "label": "Download the fixed sliced plate",
+                          "path": r["sliced"]}]
+        base = Path(r["report"]).parent
+        for kind, rel in r["fix_presets"].items():
+            job.downloads.append({"name": f"{stem}-{kind}-fixes.json", "path": str(base / rel),
+                                  "label": f"Download the {kind} preset (import it in the slicer)"})
 
     def _gcode_work(self, job: Job, path: Path, opt: dict[str, str]) -> None:
+        from proofloop.check.cad.report import write_report
         from proofloop.check.gcode.pipeline import check_gcode
         from proofloop.check.learn import history_for, import_prints
 
         job.stage = "reading what your printers recorded about earlier prints"
         try:
             import_prints(self.db, self.settings.config_dir)
-        except Exception as exc:  # noqa: BLE001 - learning must never stop a check
-            log.warning("could not read the print journal: %s", exc)
+        except Exception:  # noqa: BLE001 - learning must never stop a check, whatever the journal holds
+            log.warning("could not read the print journal", exc_info=True)
         job.stage = "reading every move"
         result = check_gcode(self.settings.config_dir, path, printer=opt.get("printer") or None,
                              history=lambda p, m, j: history_for(self.db, p, m, j),
@@ -310,6 +385,10 @@ class Checks:
                              out=path.parent / "report")
         job.report = result["report"]
         self._summarise(job, result["findings"], result["printer"]["name"], result["material"]["name"])
+        job.fixes = [{k: st[k] for k in ("preset", "key", "label", "value", "why")} for st in result["setting_fixes"]]
+        if job.fixes:        # the report says so too: there is no model here to slice again
+            result["slice_again_note"] = SLICE_AGAIN_NOTE
+            write_report("gcode.html.j2", result, Path(result["report"]).parent)
         when = result["time"]["slicer"] or result["time"]["replay"]
         m = result["metrics"]
         if m.get("loop_file"):
@@ -321,6 +400,32 @@ class Checks:
                                f"{m.get('filament_g', 0)} g, {when}")
             if path.name.lower().endswith(".3mf"):
                 job.source = str(path)
+
+    def submit_fix(self, job_id: str) -> Job:
+        """Apply the slicer-setting fixes to a checked CAD file and slice it again: a new job on the same file."""
+        with self.lock:
+            src = self.jobs.get(job_id)
+        if src is None or src.status != "done" or not src.model or not src.fixes or not Path(src.model).is_file():
+            raise ValueError("that check has no slicer settings to fix, or its model is gone")
+        if self._fixing(src):
+            raise ValueError("Fix and slice again was already started for this check")
+        if not self._slicer():
+            raise ConfigError(NO_SLICER)
+        job = self._new("cad", Path(src.model).name)
+        job.fix_of, job.stage = src.id, "waiting"
+        folder = self.root / job.id
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / Path(src.model).name
+        try:
+            os.link(src.model, path)                    # the same file, kept even if the first check is removed
+        except OSError:
+            shutil.copy2(src.model, path)
+        src.fixed_by = job.id
+        self._save(src)
+        self._save(job)
+        opts = {**src.options, "slice": "1", "fix": "1"}
+        self.checks.submit(self._run, job, lambda j: self._prepare_work(j, path, opts))
+        return job
 
     def submit_loop(self, job_id: str, loops: int) -> Job:
         """Turn a checked Bambu plate into a loop file, then check the loop file."""
@@ -381,6 +486,9 @@ class Checks:
         job = self.jobs.get(job_id)
         if job is not None and job.download and rel == f"download/{Path(job.download).name}":
             return Path(job.download)
+        made = next((d for d in (job.downloads if job else []) if rel == f"download/{d['name']}"), None)
+        if made:
+            return Path(made["path"])
         if job is None or not job.report:
             raise FileNotFoundError(job_id)
         base = Path(job.report).resolve().parent
@@ -429,8 +537,8 @@ def register(api: FastAPI, checks: Checks, window_only: Callable[[Request], None
             raise HTTPException(404, "not found")
         headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
         if rel.startswith("download/"):
-            return FileResponse(file, media_type="application/octet-stream", filename=safe_name(file.name),
-                                headers=headers)
+            return FileResponse(file, media_type="application/octet-stream",
+                                filename=safe_name(rel.split("/", 1)[1]), headers=headers)
         return FileResponse(file, media_type=mimetypes.guess_type(file.name)[0] or "application/octet-stream",
                             headers=headers)
 
@@ -469,6 +577,14 @@ def register(api: FastAPI, checks: Checks, window_only: Callable[[Request], None
         form = await body_json(request)
         try:
             return checks.submit_loop(str(form.get("job", "")), int(form.get("loops") or 0)).public()
+        except (ConfigError, ValueError) as e:
+            return fail(e)
+
+    @api.post(f"{PREFIX}/api/fix", status_code=201)
+    async def fix(request: Request):
+        form = await body_json(request)
+        try:
+            return checks.submit_fix(str(form.get("job", ""))).public()
         except (ConfigError, ValueError) as e:
             return fail(e)
 

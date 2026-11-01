@@ -182,3 +182,10 @@ def test_findings_come_with_the_slicer_settings_that_fix_them(tmp_path):
     proc = json.loads((tmp_path / "s" / r["fix_presets"]["process"]).read_text(encoding="utf-8"))
     assert proc["layer_height"] == "0.3" and proc["initial_layer_print_height"] == "0.24"
     assert not check_gcode(CFG, EX / "bracket_good.gcode", out=tmp_path / "g")["setting_fixes"]
+
+
+def test_header_totals_sum_the_loops_and_survive_odd_values():
+    from proofloop.check.gcode.header import _sum_header
+
+    assert _sum_header({"filament used [mm]": ["12.5, 3", "7"]}, ("filament used [mm]",), 2) == 19.5
+    assert _sum_header({"filament used [mm]": ["x, 4"]}, ("filament used [mm]",), 1) is None

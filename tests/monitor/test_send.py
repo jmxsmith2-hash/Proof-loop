@@ -46,7 +46,7 @@ def test_refuses_anything_unsafe(st, model, danger, why):
 
 def test_without_an_ams_only_a_one_filament_file_goes_to_the_external_spool():
     p = plan("p2s", state(ams=None), "N7", "N7", [("1", "PLA", "#F2F2F2")], [])
-    assert not p.use_ams and p.ams_mapping == []
+    assert not p.use_ams and p.ams_mapping == [254]  # the slot feeds from the external spool
     with pytest.raises(SendError, match="has no AMS"):
         plan("p2s", state(ams=None), "N7", "N7", [("1", "PLA", "#F2F2F2"), ("2", "PLA", "#000000")], [])
 
@@ -95,7 +95,7 @@ def test_send_from_make_a_loop_file(farm):
     r = c.post(f"/api/plates/{token}/send", json=body)
     assert r.status_code == 409 and "sending to printers is off" in r.json()["detail"]
     assert c.get("/api/state").json()["send_to_printer"] is False
-    assert c.put("/api/send-to-printer", json={"on": True}).json() == {"send_to_printer": True}
+    assert c.put("/api/send-to-printer", json={"on": True}).json() == {"send_to_printer": True, "send_confirm": True}
     assert c.post(f"/api/plates/{token}/send", json={**body, "confirm": "other"}).status_code == 400
     farm.watches["p2s"].link.state.gcode_state = "RUNNING"
     r = c.post(f"/api/plates/{token}/send", json=body)
@@ -103,8 +103,10 @@ def test_send_from_make_a_loop_file(farm):
     farm.watches["p2s"].link.state.gcode_state = "FINISH"
     r = c.post(f"/api/plates/{token}/send", json=body)
     assert r.status_code == 200, r.text
-    name, head, cmd = farm.watches["p2s"].link.sent[0]
-    assert name.startswith("FL_S2_") and head == b"PK" and cmd["print"]["ams_mapping"] == [0]
+    path, head, cmd = farm.watches["p2s"].link.sent[0]
+    name = path.removeprefix("cache/")  # a P2S takes files in cache/
+    assert path == f"cache/{name}" and name.startswith("FL_S2_") and head == b"PK" and cmd["print"]["ams_mapping"] == [0]
+    assert cmd["print"]["url"] == f"ftp:///cache/{name}" and cmd["print"]["file"] == name
     assert r.json()["file"] == name
     assert any(e["kind"] == "sent" for e in farm.store.events())
     assert (farm.data_dir / "files" / name).is_file()  # kept, so the journal can check what ran

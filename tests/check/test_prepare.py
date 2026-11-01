@@ -56,6 +56,8 @@ def profiles(tmp_path, monkeypatch):
                 "hot_plate_temp": ["55"], "compatible_printers": [MACHINE]})
     monkeypatch.setenv("PROOFLOOP_SLICER_PROFILES", str(tmp_path / "profiles"))
     monkeypatch.setenv("PROOFLOOP_SLICER", str(FAKE))
+    for var, folder in (("APPDATA", "appdata"), ("HOME", "home"), ("USERPROFILE", "home")):
+        monkeypatch.setenv(var, str(tmp_path / folder))      # not this machine's own Bambu Studio / Orca install
     return tmp_path / "profiles"
 
 

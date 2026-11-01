@@ -12,13 +12,14 @@ import sys
 from pathlib import Path
 
 from proofloop.app.autostart import repo_root
+from proofloop.core.proc import NO_WINDOW
 
 EXTRAS = "[all]"
 
 
 def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=check,
-                          encoding="utf-8", errors="replace")
+                          encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
 
 
 def behind(root: Path) -> tuple[int, str]:
@@ -38,12 +39,25 @@ def _whats_new(root: Path, branch: str) -> str:
     return as_text(newer_than(r.stdout, __version__)) if r.returncode == 0 else ""
 
 
+def how_to_update() -> str:
+    """What to do instead, for a ProofLoop that isn't a git checkout."""
+    kept = "Your settings and data are in ~/.proofloop and are kept."
+    if getattr(sys, "frozen", False):  # the Windows installer
+        return ("Download the newest ProofLoop-Setup from https://github.com/jmxsmith2-hash/Proof-loop/releases "
+                f"and run it. {kept}")
+    if "pipx" in Path(sys.prefix).parts or "pipx" in sys.prefix.lower():
+        return f"This ProofLoop was installed with pipx: run  pipx upgrade proofloop  instead. {kept}"
+    if repo_root() is None:  # installed with pip into an environment
+        return (f'This ProofLoop was installed with pip: run  pip install -U "proofloop{EXTRAS}"  (or the same '
+                f"command you installed it with) instead. {kept}")
+    return ("This ProofLoop wasn't installed with git, so it can't update itself. Download it again from "
+            f"https://github.com/jmxsmith2-hash/Proof-loop and run setup.bat. {kept}")
+
+
 def update(check_only: bool = False, say=print) -> int:
     root = repo_root()
     if root is None or not (root / ".git").exists():
-        say("This ProofLoop wasn't installed with git, so it can't update itself. Download it again from "
-            "https://github.com/jmxsmith2-hash/Proof-loop and run setup.bat. Your settings and data are in "
-            "~/.proofloop and are kept.")
+        say(how_to_update())
         return 2
     try:
         n, branch = behind(root)
@@ -75,7 +89,7 @@ def update(check_only: bool = False, say=print) -> int:
     args = [sys.executable, "-m", "pip", "install", "--quiet", "-e", f"{root}{EXTRAS}"]
     if (root / "constraints.txt").is_file():  # the versions this ProofLoop was tested with
         args += ["-c", str(root / "constraints.txt")]
-    r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
     if r.returncode:
         say("Installing the update failed:\n" + (r.stderr or r.stdout)[-2000:])
         return 2

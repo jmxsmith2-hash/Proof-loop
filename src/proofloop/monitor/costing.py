@@ -12,7 +12,10 @@ Model, per loop (one plate printed, cooled, ejected):
 
 * material   = sum over slots of grams x (spool price / spool weight)
 * energy     = (print hours x printing W + cooldown/eject hours x idle W) / 1000 x price per kWh
-* machine    = loop hours x (printer price / expected life hours + maintenance per hour)
+* machine    = print hours x printer price / expected life in print hours
+  (a printer cooling down or ejecting hardly wears, so waits and cooldown aren't charged)
+* maintenance = your maintenance minutes / 60 x hourly rate, spread over how often you do it
+  (every so many print hours or loops, or every so many days of the printer's running hours)
 * plate wear = plate price / loops per plate
 * kit wear   = FarmLoop kit price / loops the kit lasts
 * labour     = minutes per loop / 60 x hourly rate
@@ -23,12 +26,21 @@ Model, per loop (one plate printed, cooled, ejected):
 A run adds one-off setup labour. Selling subtracts tax included in the price,
 marketplace and payment fees, and per-order costs (shipping, boxes) spread over
 the parts in an order.
+
+Every report also carries a quote, whether or not you've set a price: the
+break-even price per part and the price that earns your target margin, worked
+back through the same tax and fees. It is "at least" while costs are missing.
+
+A rate far outside what printers like these usually see (a printer lasting
+100,000 hours, a plate lasting 10,000 loops) is still used as entered,
+but the report says so in ``checks``: a typo there can make every quote wrong.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -63,7 +75,9 @@ class CostSettings(_M):
     watts_idle: float | None = Field(None, ge=0)  # cooling and ejecting, bed off
     printer_price: float | None = Field(None, ge=0)
     printer_life_hours: float | None = Field(None, gt=0)
-    maintenance_per_hour: float | None = Field(None, ge=0)  # nozzles, rods, belts... spread per hour
+    maintenance_min: float | None = Field(None, ge=0)  # your time cleaning, oiling, changing nozzles...
+    maintenance_every: float | None = Field(None, gt=0)  # ...once every this many
+    maintenance_unit: Literal["hours", "loops", "days"] = "hours"  # print hours, loops, or days
     plate_price: float | None = Field(None, ge=0)
     plate_life_loops: float | None = Field(None, gt=0)
     kit_price: float | None = Field(None, ge=0)
@@ -128,7 +142,9 @@ class CostReport:
     selling: dict | None = None
     capacity: dict | None = None
     missing: list[str] = field(default_factory=list)
+    checks: list[str] = field(default_factory=list)  # rates far outside the usual: used, but worth a look
     materials: list[dict] = field(default_factory=list)
+    quote: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {
@@ -142,7 +158,9 @@ class CostReport:
             "selling": self.selling,
             "capacity": self.capacity,
             "missing": self.missing,
+            "checks": self.checks,
             "materials": self.materials,
+            "quote": self.quote,
         }
 
 
@@ -182,6 +200,7 @@ def cost(
     """``prices``: slot id -> {"spool", "name", "per_kg"} from the filament inventory. Without it the
     older price list in ``c.spools`` is used."""
     rep = CostReport(c.currency, parts_per_plate, loops)
+    rep.checks = checks(c)
     cur = c.currency
     hours = times.known_s / 3600
     print_h, rest_h = times.print_s / 3600, (times.fixed_s + (times.cooldown_s or 0)) / 3600
@@ -251,7 +270,7 @@ def cost(
         f"pick a spool with a price and weight for {', '.join(mat_missing)}" if mat_missing else "",
     )
 
-    if None in (c.electricity_per_kwh, c.watts_printing):
+    if c.electricity_per_kwh is None or c.watts_printing is None:
         add(
             "energy",
             "Electricity",
@@ -274,19 +293,13 @@ def cost(
             "machine",
             "Printer wear",
             None,
-            "printer price / expected life hours",
-            "set the printer price and its expected life in hours",
+            "printer price / expected life in print hours",
+            "set the printer price and its expected life in print hours",
         )
     else:
         per_h = c.printer_price / c.printer_life_hours
-        add("machine", "Printer wear", hours * per_h, f"{hours:.2f} h x {cur}{per_h:.4g}/h")
-    if c.maintenance_per_hour is not None:
-        add(
-            "maintenance",
-            "Maintenance",
-            hours * c.maintenance_per_hour,
-            f"{hours:.2f} h x {cur}{c.maintenance_per_hour:g}/h",
-        )
+        add("machine", "Printer wear", print_h * per_h, f"{print_h:.2f} print h x {cur}{per_h:.4g}/h")
+    _maintenance(c, add, print_h, hours)
     if c.plate_price is not None and c.plate_life_loops is not None:
         add(
             "plate",
@@ -351,6 +364,11 @@ def cost(
         rep.setup = round(c.labor_min_per_run / 60 * c.labor_rate, 4)
     run = per_loop * loops + (rep.setup or 0)
     parts = max(1, parts_per_plate * loops)
+    if rep.setup and run and rep.setup / run > 1 / 3:
+        rep.checks.append(
+            f"setup is {rep.setup / run:.0%} of this run ({cur}{rep.setup:.2f} for {c.labor_min_per_run:g} min): "
+            "more loops in one run spread it over more parts"
+        )
     rep.totals = {
         "per_loop": round(per_loop, 4),
         "per_part": round(run / parts, 4),
@@ -360,10 +378,62 @@ def cost(
         "complete": not rep.missing,
     }
 
-    rep.selling = _selling(c, run / parts) if c.price_per_part is not None else None
+    breakeven, target = price_points(c, run / parts)
+    rep.quote = {"cost_per_part": round(run / parts, 4), "breakeven_price": _r(breakeven, 2),
+                 "price": _r(target, 2), "target_margin_pct": c.target_margin_pct, "complete": not rep.missing}
+    price = c.price_per_part
+    rep.selling = _selling(c, run / parts, price) if price is not None else None
     if times.cooldown_s is not None and times.known_s > 0:
         rep.capacity = _capacity(c, times.known_s, parts_per_plate, rep.selling)
     return rep
+
+
+def _maintenance(c: CostSettings, add, print_h: float, hours: float) -> None:
+    """Your maintenance time at your hourly rate, this loop's share of it."""
+    if not c.maintenance_min:
+        return
+    session = c.maintenance_min / 60 * c.labor_rate if c.labor_rate is not None else None
+    if c.maintenance_every is None or session is None:
+        add("maintenance", "Maintenance", None, "your maintenance time x your hourly rate",
+            "set how often you do maintenance and your labour rate")
+        return
+    every, cur = c.maintenance_every, c.currency
+    what = f"{c.maintenance_min:g} min at {cur}{c.labor_rate:g}/h ({cur}{session:.2f})"
+    if c.maintenance_unit == "loops":
+        add("maintenance", "Maintenance", session / every, f"{what} every {every:g} loops")
+    elif c.maintenance_unit == "days":
+        # the printer's hours in those days: the hours you run it a month, or all day every day
+        run_h = every * (c.printer_hours_per_month / 30 if c.printer_hours_per_month else c.hours_per_day)
+        add("maintenance", "Maintenance", session * hours / run_h,
+            f"{what} every {every:g} days, about {run_h:g} printer hours; this loop is {hours:.2f} h of them")
+    else:
+        add("maintenance", "Maintenance", session * print_h / every,
+            f"{what} every {every:g} print hours; this loop prints {print_h:.2f} h")
+
+
+# What a desktop FDM printer (Bambu, Prusa class) usually sees. Outside these a rate is likely a typo.
+USUAL = {
+    "printer_life_hours": (1000, 30000, "printer life", "5,000 to 20,000 print hours"),
+    "plate_life_loops": (20, 3000, "loops per plate", "a few hundred to about 2,000 for a textured PEI plate"),
+    "watts_printing": (30, 1000, "printing power", "100 to 350 W averaged over a print"),
+    "watts_idle": (0, 300, "cooldown power", "5 to 40 W with the bed off"),
+    "electricity_per_kwh": (0, 1.0, "electricity price", "0.10 to 0.40 per kWh"),
+    "printer_hours_per_month": (1, 744, "printer hours per month", "at most 744 (a month has no more)"),
+    "failure_rate_pct": (0, 30, "failed loops", "under 10% once a file is dialled in"),
+}
+
+
+def checks(c: CostSettings) -> list[str]:
+    """Rates far outside the usual, said plainly. They're still used as entered."""
+    out = []
+    for key, (lo, hi, label, usual) in USUAL.items():
+        v = getattr(c, key)
+        if v is not None and not lo <= v <= hi:
+            shown = f"{v:g}%" if key.endswith("_pct") else f"{c.currency}{v:g}" if "per_" in key and "hours" not in key \
+                else f"{v:,g}"
+            out.append(f"{label} is {shown}, {'well above' if v > hi else 'well below'} what's usual ({usual}). "
+                       "It's used as you entered it: check it under Costs")
+    return out
 
 
 def _per_order_fixed(c: CostSettings) -> float:
@@ -382,16 +452,23 @@ def _net_share(c: CostSettings) -> float:
     return 1 / (1 + c.tax_included_pct / 100) - (c.marketplace_fee_pct + c.payment_fee_pct) / 100
 
 
-def _selling(c: CostSettings, cost_per_part: float) -> dict:
-    price = c.price_per_part
+def price_points(c: CostSettings, cost_per_part: float) -> tuple[float | None, float | None]:
+    """(break-even price, price for the target margin) per part, after included tax, fees and per-order costs.
+    None when the fees and margin leave nothing of the price (no price can work)."""
+    fixed = _per_order_fixed(c)
+    share = _net_share(c)
+    m = c.target_margin_pct / 100
+    breakeven = (cost_per_part + fixed) / share if share > 0 else None
+    target = (cost_per_part + fixed) / (share - m) if share - m > 0 else None
+    return breakeven, target
+
+
+def _selling(c: CostSettings, cost_per_part: float, price: float) -> dict:
     tax = price - price / (1 + c.tax_included_pct / 100)
     pct_fees = price * (c.marketplace_fee_pct + c.payment_fee_pct) / 100
     fixed = _per_order_fixed(c)
     profit = price - tax - pct_fees - fixed - cost_per_part
-    share = _net_share(c)
-    breakeven = (cost_per_part + fixed) / share if share > 0 else None
-    m = c.target_margin_pct / 100
-    target = (cost_per_part + fixed) / (share - m) if share - m > 0 else None
+    breakeven, target = price_points(c, cost_per_part)
     return {
         "price": round(price, 4),
         "tax": round(tax, 4),

@@ -42,6 +42,15 @@ input[type=number]{max-width:140px}
 .anim-bar select{width:auto}
 .batch-row{display:grid;grid-template-columns:minmax(0,1fr) 120px auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
 .batch-row:first-child{border-top:0}
+.send-targets{display:grid;gap:6px;margin:8px 0 10px}
+.send-target{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.send-target.off{cursor:default;opacity:.8}
+.send-target:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.send-target input{margin-top:3px}
+.send-target .slots{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px}
+.plate-pick{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 12px}
+.plate-pick button.btn{padding:4px 11px;font-size:13px}
+.plate-pick .hint{margin:0 4px 0 0}
 .stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .stepper button{border:0;background:var(--soft);color:var(--ink);width:30px;height:30px;font:inherit;cursor:pointer}
 .stepper span{min-width:34px;text-align:center;font-variant-numeric:tabular-nums}
@@ -90,9 +99,53 @@ input[type=number]{max-width:140px}
 .filrow{padding:8px 0;border-top:1px solid var(--line)}
 .filrow:first-child{border-top:0}
 .filrow select{max-width:320px}
+.meter.warn i{background:var(--warn)}
+.meter.bad i{background:var(--bad)}
 .run{padding:12px 0;border-top:1px solid var(--line)}
 .run:first-child{border-top:0}
+.rate{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:2px 10px;align-items:center;font-size:13px}
+.rate .meter{margin:4px 0}.rate .n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rate .none{grid-column:2/4}
 .thumb{width:100%;border-radius:8px;border:1px solid var(--line);background:var(--soft);aspect-ratio:4/3;object-fit:cover}
+.proofs{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px;margin-top:6px}
+.proof{position:relative;display:block;border-radius:6px;overflow:hidden;border:1px solid var(--line);background:var(--soft);aspect-ratio:4/3}
+.proof img{display:block;width:100%;height:100%;object-fit:cover}
+.proof span{position:absolute;left:4px;bottom:4px;padding:0 5px;border-radius:4px;font-size:11px;background:rgba(0,0,0,.6);color:#fff}
+.gallery summary{cursor:pointer;margin-top:6px}
+.slice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px;align-items:start}
+.slice-grid select,.slice-grid input[type=number]{width:100%}
+.sl-model{display:grid;grid-template-columns:minmax(0,1fr) 90px minmax(0,1.6fr) 28px;gap:4px 12px;align-items:end;padding:8px 0;border-top:1px solid var(--line)}
+.sl-model .field{margin:0}
+.sl-model select,.sl-model input{width:100%}
+.sl-model .sl-name{align-self:center;overflow-wrap:anywhere}
+.sl-model .linkbtn{align-self:center}
+@media (max-width:600px){.sl-model{grid-template-columns:minmax(0,1fr) 90px}.sl-model .sl-name{grid-column:1/-1}}
+#sliceCard.project .sl-mesh{display:none}
+.wf summary{cursor:pointer;list-style:none}
+.wf summary::-webkit-details-marker{display:none}
+.wf[open] summary{margin-bottom:8px}
+.wf-items li{display:flex;align-items:center;gap:10px}
+.wf-items li .btn{margin-left:auto}
+.quote{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin:12px 0 4px;padding:12px 14px;border-radius:var(--radius);background:color-mix(in srgb,var(--accent) 8%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 25%,transparent)}
+.quote .q{display:flex;flex-direction:column}
+.quote .q small{color:var(--muted);font-size:12px}
+.quote .q b{font-size:20px;font-variant-numeric:tabular-nums}
+.quote .q.main b{font-size:24px;color:var(--accent)}
+.quote .hint{flex-basis:100%;margin:0}
+.quote .btn{margin-left:auto}
+.cam-live{position:relative;margin:10px 0 4px;border-radius:var(--radius);overflow:hidden;background:#0b0d10;aspect-ratio:16/9;box-shadow:0 1px 0 var(--line)}
+.cam-live img{display:block;width:100%;height:100%;object-fit:contain;cursor:zoom-in}
+.cam-live img:not([src]){visibility:hidden}
+.cam-badge{position:absolute;top:10px;left:10px;padding:3px 9px;border-radius:999px;background:rgba(0,0,0,.6);color:#fff;font:600 11px/1.4 system-ui,sans-serif;letter-spacing:.04em}
+.cam-badge.on::before{content:"";display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:#e5484d;vertical-align:1px;animation:cam-pulse 1.6s var(--ease) infinite}
+@keyframes cam-pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.cam-badge.on::before{animation:none}}
+.cam-big{position:absolute;top:8px;right:8px;width:32px;height:32px;border:0;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;font-size:17px;cursor:pointer}
+.cam-big:hover,.cam-big:focus-visible{background:rgba(0,0,0,.8)}
+.cam-note{position:absolute;left:10px;right:10px;bottom:10px;margin:0;padding:6px 10px;border-radius:8px;background:rgba(0,0,0,.65);color:#fff;font-size:12px}
+.cam-live.expanded{position:fixed;inset:16px;z-index:1000;margin:0;aspect-ratio:auto;box-shadow:0 0 0 100vmax rgba(0,0,0,.7)}
+.cam-live.expanded img{cursor:zoom-out}
+.cam-live:fullscreen{border-radius:0}
 .num{font-variant-numeric:tabular-nums}
 </style>
 </head>
@@ -104,7 +157,8 @@ input[type=number]{max-width:140px}
       <button role="tab" data-tab="overview">Overview</button>
       <button role="tab" data-tab="monitor">Monitor</button>
       <button role="tab" data-tab="filament">Filament</button>
-      <button role="tab" data-tab="orders">Orders</button></div>
+      <button role="tab" data-tab="orders">Orders</button>
+      <button role="tab" data-tab="maintenance">Maintenance</button></div>
     <div class="navgroup" data-part="loopfiles"><span class="group">Loop files</span>
       <button role="tab" data-tab="make" aria-selected="true">Make a loop file</button>
       <button role="tab" data-tab="check">Check a file</button>
@@ -133,9 +187,11 @@ input[type=number]{max-width:140px}
   <div class="grid two">
     <div class="grid" style="align-content:start">
       <div class="card"><h2>Printers</h2><div id="ovRuns"></div></div>
+      <div class="card"><div class="spread"><h2>Parts per hour</h2><span class="hint" id="ovRateFarm">counted from finished loops</span></div><div id="ovRate"></div></div>
       <div class="card"><div class="spread"><h2>Parts made</h2><span class="hint">last 14 days, good loops only</span></div><div class="svgwrap" id="ovChart"></div><p class="hint" id="ovPerPrinter"></p></div>
     </div>
     <div class="grid" style="align-content:start">
+      <div class="card"><div class="spread"><h2>Open orders</h2><a href="#" data-goto="orders" class="linkbtn">All orders</a></div><div id="ovOrders"></div></div>
       <div class="card"><div class="spread"><h2>Queue</h2><span class="hint">nothing starts by itself</span></div><div id="queueOut"></div></div>
       <div class="card"><div class="spread"><h2>Spools running low</h2><a href="#" data-goto="filament" class="linkbtn">All spools</a></div><div id="ovLow"></div></div>
       <div class="card"><div class="spread"><h2>Latest</h2><a href="#" data-goto="monitor" class="linkbtn">Monitor</a></div><ul class="list" id="ovEvents"></ul></div>
@@ -148,11 +204,15 @@ input[type=number]{max-width:140px}
   <h1>Orders</h1>
   <p class="sub">What someone asked for, by when. Taking an order plans its run over your printers and puts it in the queue; ProofLoop then follows it and tells you whether it will be ready in time. Nothing starts by itself.</p>
   <div class="grid two">
-    <div class="card"><div class="spread"><h2>Open orders</h2><label class="row hint"><input type="checkbox" id="ordersAll"> show finished</label></div><div id="ordersOut"></div></div>
+    <div class="grid" style="align-content:start">
+    <div class="card"><div class="spread"><h2>Open orders</h2><span class="row"><a class="linkbtn" id="csvOrders" href="/api/orders/export.csv" download>Download all (CSV)</a><label class="row hint"><input type="checkbox" id="ordersAll"> show finished</label></span></div><div id="ordersOut"></div></div>
+    <div class="card"><h2>Customers</h2><div class="tw"><table id="customersOut"></table></div><p class="hint">Earned is what the orders you've made are worth; unpaid is the part you haven't marked paid.</p></div>
+    </div>
+    <div class="grid" style="align-content:start">
     <div class="card">
       <h2>New order</h2>
       <form id="orderForm">
-        <label class="drop" id="orderDrop"><strong>Drop the sliced plate</strong><small id="orderPlate">.gcode.3mf: the plain slice of the part</small><input type="file" id="orderFile" accept=".3mf" hidden></label>
+        <label class="drop" id="orderDrop"><strong>Drop the part: a model or a sliced plate</strong><small id="orderPlate">A model (.stl, .obj, .step) or project is sliced for the order; a sliced .gcode.3mf is used as it is</small><input type="file" id="orderFile" accept=".3mf,.stl,.obj,.step,.stp" hidden></label>
         <div class="row" style="margin-top:12px">
           <label class="field" style="flex:1;min-width:160px"><span>Customer</span><input type="text" name="customer" placeholder="Sam's shop" required></label>
           <label class="field" style="width:110px"><span>Parts</span><input type="number" name="quantity" min="1" value="40" required></label></div>
@@ -161,8 +221,51 @@ input[type=number]{max-width:140px}
           <label class="field" style="flex:1;min-width:120px"><span>Price per part</span><input type="number" name="price_each" min="0" step="0.01" placeholder="optional"></label></div>
         <label class="field"><span>Notes</span><input type="text" name="notes" placeholder="colour, packaging…"></label>
         <button class="btn primary" id="orderAdd" disabled>Take the order</button>
-        <p class="hint">Uses your saved loop-file settings; the queue gets one job per printer that can print the plate.</p>
+        <p class="hint">A model is sliced with the presets you last used in the Slice card. Uses your saved loop-file settings; the queue gets one job per printer that can print the plate.</p>
       </form>
+    </div>
+    <div class="card">
+      <h2>Invoices</h2>
+      <p class="hint" style="margin-bottom:10px">Set once. Each order's <b>Invoice</b> button opens a page to print or save as PDF. Anything you leave empty stays a blank on the invoice.</p>
+      <form id="businessForm">
+        <label class="field"><span>Business name</span><input type="text" name="name" maxlength="200"></label>
+        <label class="field"><span>Address</span><textarea name="address" rows="3" maxlength="1000"></textarea></label>
+        <div class="row">
+          <label class="field" style="flex:1;min-width:150px"><span>Email</span><input type="text" name="email" maxlength="200"></label>
+          <label class="field" style="flex:1;min-width:120px"><span>Tax ID</span><input type="text" name="tax_id" maxlength="100"></label></div>
+        <div class="row">
+          <label class="field" style="width:120px"><span>Number prefix</span><input type="text" name="prefix" maxlength="20"></label>
+          <label class="field" style="width:130px"><span>Next number</span><input type="number" name="next_number" min="1" step="1"></label></div>
+        <label class="field"><span>Under the total</span><textarea name="footer" rows="2" maxlength="1000" placeholder="how to pay, thank you…"></textarea></label>
+        <button class="btn">Save</button> <span class="hint" id="businessSaved"></span>
+      </form>
+    </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MAINTENANCE ============ -->
+<section data-panel="maintenance" class="hidden">
+  <h1>Maintenance</h1>
+  <p class="sub">What each printer has done since each job was last done, counted from the prints ProofLoop recorded. Press <b>Done</b> when you've done one and it counts from there. Nothing here stops or pauses a print.</p>
+  <div class="grid two">
+    <div class="grid" style="align-content:start" id="maintOut"></div>
+    <div class="grid" style="align-content:start">
+      <div class="card">
+        <h2>Tasks and how often</h2>
+        <div id="maintEdit"></div>
+        <p class="hint">These intervals are starting points, not the maker's rules. Change them to suit your farm. The ones marked <b>Bambu wiki</b> follow Bambu Lab's maintenance page for the X1 series. A new task counts from when ProofLoop first saw it.</p>
+        <label class="row hint"><input type="checkbox" id="maintRemind"> Tell me once when a task is due, through your notification targets</label>
+      </div>
+      <div class="card">
+        <h2>Add your own</h2>
+        <form id="maintAdd" class="row">
+          <label class="field" style="flex:2;min-width:160px"><span>Task</span><input type="text" name="name" maxlength="60" placeholder="Wipe the chamber window" required></label>
+          <label class="field" style="width:90px"><span>Every</span><input type="number" name="every" min="1" step="any" value="100" required></label>
+          <label class="field" style="width:130px"><span>&nbsp;</span><select name="unit" aria-label="Unit"><option value="hours">print hours</option><option value="prints">prints</option><option value="loops">loops</option><option value="grams">g of filament</option><option value="days">days</option></select></label>
+          <button class="btn primary">Add</button>
+        </form>
+      </div>
     </div>
   </div>
 </section>
@@ -172,10 +275,50 @@ input[type=number]{max-width:140px}
   <h1>Make a loop file</h1>
   <p class="sub">Drop a plate you sliced. ProofLoop adds the cooldown, FarmLoop hardware steps and a sweep that reaches every part, then gives you a file to send to the printer.</p>
   <div id="calBanner" class="banner warn hidden"><span class="ic warning">!</span><div><b>Your sweep floor isn't calibrated yet.</b> ProofLoop starts at Z2 (FarmLoop's push rule reaches Z2 on a 12 mm part). Run the <a href="#" data-goto="calibrate">sweep-floor test</a> once to measure your pusher, so short parts get swept without touching the plate.</div></div>
-  <label class="drop" id="makeDrop"><input type="file" accept=".3mf" hidden id="makeFile">
-    <strong>Drop a sliced plate here, or click to choose</strong>
-    <small>.gcode.3mf from Bambu Studio or OrcaSlicer: <em>File › Export › Export plate sliced file</em>. Use the plain slice, not a FarmLoop file.</small>
+  <label class="drop" id="makeDrop"><input type="file" accept=".3mf,.stl,.obj,.step,.stp" multiple hidden id="makeFile">
+    <strong>Drop a model or a sliced plate here, or click to choose</strong>
+    <small>A model (.stl, .obj, .step) or a Bambu Studio project (.3mf) is sliced here, with Bambu Studio's own engine; drop several models together to print them on one plate. A sliced plate (.gcode.3mf, the plain slice, not a FarmLoop file) opens as it is.</small>
   </label>
+
+  <details class="card wf" id="wfCard" style="margin-top:16px">
+    <summary><span class="spread"><b>Watch folder</b><span class="chip" id="wfChip">off</span></span></summary>
+    <p class="hint">Save a model into this folder and it's sliced with the presets you last used in the Slice card, made to fit the printer below, and waits here to open. Files in the folder are only read, never moved or changed.</p>
+    <div class="row" style="align-items:flex-end">
+      <label class="toggle" style="margin:0"><input type="checkbox" id="wfOn"><span><b>Watch it</b></span></label>
+      <label class="field" style="flex:2;min-width:220px;margin:0"><span>Folder</span><input type="text" id="wfPath" placeholder="Downloads\ProofLoop" spellcheck="false"></label>
+      <label class="field" style="flex:1;min-width:150px;margin:0"><span>For printer</span><select id="wfPrinter"></select></label>
+    </div>
+    <p class="hint" id="wfUsual"></p>
+    <ul class="list wf-items" id="wfItems"></ul>
+  </details>
+
+  <div id="sliceCard" class="card hidden" style="margin-top:16px">
+    <div class="spread"><h2 id="sliceTitle">Slice</h2><span class="chip" id="sliceKind"></span></div>
+    <p class="hint" id="sliceHint"></p>
+    <div id="sliceErr" class="banner bad hidden"></div>
+    <div class="slice-grid">
+      <label class="field"><span>For printer</span><select id="slPrinter"></select><div class="hint" id="slPrinterHint"></div></label>
+      <label class="field"><span>Nozzle</span><select id="slMachine"></select></label>
+      <label class="field"><span>Nozzle flow</span><select id="slFlow"><option value="Standard">Standard</option><option value="High Flow">High Flow</option></select></label>
+      <label class="field sl-mesh"><span>Process</span><select id="slProcess"></select></label>
+      <label class="field sl-mesh"><span>Build plate</span><select id="slPlate"><option>Textured PEI Plate</option><option>Cool Plate</option><option>Engineering Plate</option><option>High Temp Plate</option><option>Supertack Plate</option></select></label>
+      <label class="field sl-mesh"><span>Supports</span><select id="slSupport"><option value="">As the process has them</option><option value="on">On</option><option value="off">Off</option></select></label>
+      <label class="toggle sl-mesh"><input type="checkbox" id="slFill"><span><b>Fill the plate</b><span class="hint">As many copies as fit, keeping the strip the pusher comes down in clear.</span></span></label>
+      <label class="toggle sl-mesh"><input type="checkbox" id="slOrient"><span><b>Turn it to its best side</b><span class="hint">Let the slicer pick the side it prints best on.</span></span></label>
+    </div>
+    <div class="sl-mesh" style="margin-top:12px">
+      <div class="spread"><h3 style="margin:0">On this plate</h3><button class="btn" type="button" id="slAdd">+ Add another model</button></div>
+      <input type="file" id="slAddFile" accept=".stl,.obj,.step,.stp" multiple hidden>
+      <div class="sl-model"><b class="sl-name" id="slName"></b>
+        <label class="field"><span>Copies</span><input type="number" id="slCopies" min="1" max="100" value="1"></label>
+        <label class="field"><span>Filament</span><select id="slFilament"></select></label><span></span></div>
+      <div id="slMore"></div>
+      <p class="hint" id="slMoreHint">Add more models to print them together on every loop, each with its own number of copies and its own AMS tray.</p>
+    </div>
+    <div class="row" style="margin-top:12px"><button class="btn primary" id="sliceBtn" type="button">Slice</button>
+      <button class="btn" id="sliceBatchBtn" type="button" title="Slice, then add the plate to the batch so a run can print several plates">Slice and add to the batch</button>
+      <span class="hint" id="sliceWait" aria-live="polite"></span></div>
+  </div>
 
   <div id="makeError" class="banner bad hidden" style="margin-top:16px"></div>
 
@@ -185,7 +328,9 @@ input[type=number]{max-width:140px}
     <div class="grid">
       <div class="card">
         <div class="spread"><h2 id="plateTitle">Plate</h2><span id="plateChip"></span></div>
+        <div id="platePick" class="plate-pick hidden" role="group" aria-label="Sliced plates in this file"></div>
         <dl class="kv" id="plateFacts"></dl>
+        <div class="quote hidden" id="plateQuote" aria-live="polite"></div>
         <button class="btn hidden" id="toCheck" type="button" title="Layer previews, flow, temperatures and the slicer settings that fix each problem">Full print check</button>
         <h3>Top view <span class="muted" style="font-weight:400">· front of the printer at the bottom</span></h3>
         <div class="anim-bar"><button class="btn" id="playSweep">▶ Play the sweep</button>
@@ -231,6 +376,9 @@ input[type=number]{max-width:140px}
         <label class="field"><span>Natural cooldown</span><div class="slide"><input type="range" data-num="sNatural" min="0" max="120" step="5" aria-label="sNatural"><input type="number" id="sNatural" min="0" max="120" step="5"><span class="muted">min</span></div><div class="hint" id="naturalHint">Door shut and fans off before the door opens. Helps ASA, ABS and PC keep their shape.</div></label>
         <div id="benderRow"><label class="toggle"><input type="checkbox" id="sBender"><span><b>Bender fitted</b><span class="hint">Turn off if you removed the FarmBoard bender. The door still closes at the end.</span></span></label></div>
         <label class="field" id="fanRow"><span>Fan while cooling</span><select id="sFan"><option value="profile">Kit default (as FarmLoop does it)</option><option value="exhaust">Exhaust fan: vents the chamber (P2S)</option><option value="off">Off</option></select></label>
+        <label class="field"><span>Printer sounds</span><select id="sSounds"><option value="every">Every loop (as sliced)</option><option value="last">Only when the whole run ends</option><option value="off">Off</option></select><div class="hint">The tunes the printer plays when each loop starts and finishes.</div></label>
+        <label class="toggle"><input type="checkbox" id="sLoadLine"><span><b>Draw the nozzle load line on every loop</b><span class="hint">Off: only loop 1 draws the line on the front edge. Later loops prime the nozzle with a small dab at its start instead.</span></span></label>
+        <label class="toggle"><input type="checkbox" id="sLevelOnce"><span><b>Level and calibrate on the first loop only</b><span class="hint">Later loops skip bed leveling, the vibration sweep and flow calibration, and use loop 1's results: a few minutes saved on every loop. Homing and the nozzle wipe still run. Leave it off if the plate can shift between loops.</span></span></label>
         <label class="toggle"><input type="checkbox" id="sMonitor"><span><b>Wait for the plate check between loops</b><span class="hint">The printer pauses after each sweep until the camera confirms the plate is empty. If anything is left, or the monitor isn't running, it keeps waiting until you press Resume.</span></span></label>
         <label class="toggle"><input type="checkbox" id="sFirstPause"><span><b>Safety pause before the first sweep</b><span class="hint" id="firstPauseHint">Loop 1 stops after cooling, before the pusher moves, so you can check the push heights against your parts. Press Resume on the printer to carry on. Later loops don't stop.</span></span></label>
         <div class="row"><button class="btn" id="saveDefaults">Save as my defaults</button></div>
@@ -250,17 +398,26 @@ input[type=number]{max-width:140px}
       </div>
       <div class="card" id="batchCard">
         <div class="spread"><h2>Batch</h2><button class="btn" id="addToBatch">+ Add this plate</button></div>
-        <p class="hint" id="batchHint">Mix plates in one file, for example 3× plate A then 2× plate B. Drop another plate after adding this one. Every plate must use the same filament slots, build plate and nozzle, because the printer maps filament once per file.</p>
+        <p class="hint" id="batchHint">Mix plates in one file, for example 3× plate A then 2× plate B. Drop another plate after adding this one. Plates may use different filaments, as long as a slot number means the same filament on every plate (it does for plates from one Bambu Studio project, and for plates sliced here with filament picked from one printer's AMS trays). Every plate must use the same build plate and nozzle.</p>
         <div id="batchRows"></div>
         <div id="batchOut"></div>
         <button class="btn primary hidden" id="batchDownload" style="width:100%;justify-content:center;margin-top:10px">Download batch file</button>
+        <div id="batchSend" class="hidden" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
+          <div class="spread"><b>Or send the batch to a printer and start it</b><button type="button" class="linkbtn" id="batchRefresh">Check again</button></div>
+          <div id="batchTargets" class="send-targets" role="radiogroup" aria-label="Printer to send the batch to"></div>
+          <button type="button" class="btn primary" id="batchSendBtn" style="width:100%;justify-content:center" disabled>Send and start</button>
+        </div>
       </div>
       <div class="card">
         <button class="btn primary big" id="download" style="width:100%;justify-content:center">Download loop file</button>
         <p class="hint" id="downloadHint" style="margin-top:10px">Send it with Bambu Studio (open the file, then <em>Print plate</em>), Bambu Handy or Bambuddy. Keep the <span class="mono">FL_S2_</span> name: FarmBoard kits look for it.</p>
         <div id="sendBox" class="hidden" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
-          <label class="field" style="margin-bottom:8px"><span>Or send it to a printer and start it</span>
-            <div class="row"><select id="sendPrinter" style="flex:1;width:auto"></select><button type="button" class="btn" id="sendBtn">Send and start</button></div></label>
+          <div class="spread"><b>Or send it to a printer and start it</b><button type="button" class="linkbtn" id="sendRefresh">Check again</button></div>
+          <div id="sendOff" class="hidden"><p class="hint">Sending is off. Turn it on once and ProofLoop can copy loop files to your printers and start them, always after you confirm.</p>
+            <button type="button" class="btn" id="sendTurnOn">Turn on sending to printers</button></div>
+          <div id="sendTargets" class="send-targets" role="radiogroup" aria-label="Printer to send to"></div>
+          <button type="button" class="btn primary" id="sendBtn" style="width:100%;justify-content:center" disabled>Send and start</button>
+          <label class="inline hint" style="margin-top:6px"><input type="checkbox" id="sendAsk" checked> Ask before each send</label>
           <p class="hint">Only to a connected, idle printer of the model the plate was sliced for, with the right filament loaded, and only if the loop-file checks pass. You confirm each time.</p>
         </div>
       </div>
@@ -316,6 +473,15 @@ input[type=number]{max-width:140px}
         <div class="kpis" id="capKpis"></div>
         <p class="hint">Based on this plate's real loop time, including the cooldown, with failed loops taken out.</p>
       </div>
+      <div class="card">
+        <h2>What you've made</h2>
+        <p class="hint" style="margin-bottom:10px">Loops, parts, filament and print hours per order, day or month, with cost, price and margin where an order has them. Opens in Excel or Sheets.</p>
+        <div class="row" style="align-items:flex-end">
+          <label class="field" style="margin:0"><span>From</span><input type="date" id="csvFrom"></label>
+          <label class="field" style="margin:0"><span>To</span><input type="date" id="csvTo"></label>
+          <label class="field" style="margin:0"><span>One row per</span><select id="csvBy"><option value="order">order</option><option value="day">day</option><option value="month">month</option></select></label>
+          <a class="btn" id="csvCosts" href="/api/costs/export.csv" download>Download (CSV)</a></div>
+      </div>
     </div>
 
     <div class="card" style="align-self:start">
@@ -328,10 +494,10 @@ input[type=number]{max-width:140px}
           <label class="field"><span>Printer while printing, W</span><input type="number" data-c="watts_printing" step="1" min="0"></label>
           <label class="field"><span>Cooling and ejecting, W</span><input type="number" data-c="watts_idle" step="1" min="0"></label>
           <label class="field"><span>Printer price</span><input type="number" data-c="printer_price" step="1" min="0"></label>
-          <label class="field"><span>Expected life, hours</span><input type="number" data-c="printer_life_hours" step="100" min="1"></label>
-          <label class="field"><span>Maintenance, per hour</span><input type="number" data-c="maintenance_per_hour" step="0.01" min="0"></label>
+          <label class="field"><span>Expected life, print hours</span><input type="number" data-c="printer_life_hours" step="100" min="1"></label>
         </div>
-        <p class="hint">Measure the watts with a smart plug: average them over a whole print, then over a cooldown with the bed off.</p>
+        <p class="hint">Measure the watts with a smart plug: average them over a whole print, then over a cooldown with the bed off.
+          Usual for a desktop printer: 100 to 350 W printing and a life of 5,000 to 20,000 print hours. Wear counts print hours only, not cooldown.</p>
       </details>
       <details class="cost-section"><summary>Build plates and FarmLoop kit</summary>
         <div class="cost-grid">
@@ -340,18 +506,22 @@ input[type=number]{max-width:140px}
           <label class="field"><span>FarmLoop kit price</span><input type="number" data-c="kit_price" step="0.01" min="0"></label>
           <label class="field"><span>Loops the kit lasts</span><input type="number" data-c="kit_life_loops" step="100" min="1"></label>
         </div>
-        <p class="hint">The Monitor counts plate bends, so you can see how many loops your plates really last.</p>
+        <p class="hint">The Monitor counts plate bends, so you can see how many loops your plates really last. A textured PEI plate usually lasts a few hundred to about 2,000.</p>
       </details>
       <details class="cost-section"><summary>Labour, overhead and failures</summary>
         <div class="cost-grid">
           <label class="field"><span>Labour, per hour</span><input type="number" data-c="labor_rate" step="0.5" min="0"></label>
           <label class="field"><span>Hands-on minutes per loop</span><input type="number" data-c="labor_min_per_loop" step="0.5" min="0"></label>
           <label class="field"><span>Setup minutes per run</span><input type="number" data-c="labor_min_per_run" step="1" min="0"></label>
+          <label class="field"><span>Maintenance, minutes</span><input type="number" data-c="maintenance_min" step="5" min="0"></label>
+          <label class="field"><span>…once every</span><input type="number" data-c="maintenance_every" step="1" min="1"></label>
+          <label class="field"><span>Counted in</span><select data-c="maintenance_unit" data-kind="text"><option value="hours">print hours</option><option value="loops">loops</option><option value="days">days</option></select></label>
           <label class="field"><span>Overhead per month</span><input type="number" data-c="overhead_per_month" step="1" min="0"></label>
           <label class="field"><span>Printer hours per month</span><input type="number" data-c="printer_hours_per_month" step="10" min="1"></label>
           <label class="field"><span>Failed loops, %</span><input type="number" data-c="failure_rate_pct" data-kind="zero" step="0.5" min="0" max="90"></label>
         </div>
-        <p class="hint">Overhead is rent, software, insurance and so on, spread over the hours your printers run. A failed loop costs the same as a good one and makes nothing.</p>
+        <p class="hint">Overhead is rent, software, insurance and so on, spread over the hours your printers run. A failed loop costs the same as a good one and makes nothing. Setup is paid once per run, so a one-loop run carries all of it.
+          Maintenance is your own time (cleaning, oiling rods, swapping a nozzle) at your labour rate, shared out over how often you do it: 30 minutes every 7 days, say. Your tasks and how often they're due are in the <a href="#" data-goto="maintenance">Maintenance</a> tab.</p>
       </details>
       <details class="cost-section"><summary>Packaging and extras</summary>
         <h3 style="margin-top:4px">Per part <span class="muted" style="font-weight:400">(bags, magnets, inserts…)</span></h3>
@@ -487,7 +657,7 @@ input[type=number]{max-width:140px}
   <div class="grid two" style="margin-top:16px">
     <div class="grid" style="align-content:start">
     <div class="card">
-      <h2>Print history</h2>
+      <div class="spread"><h2>Print history</h2><a class="linkbtn" id="csvHistory" href="/api/outcomes/export.csv" download>Download all (CSV)</a></div>
       <p class="hint">How every print on these printers ended. Check learns from it which settings fail on your printers.</p>
       <div class="tw"><table id="outcomes"></table></div>
     </div>
@@ -511,10 +681,24 @@ input[type=number]{max-width:140px}
       </div>
       <div class="card" id="failureWatchCard">
         <h2>Failure watch</h2>
-        <p class="hint">Halfway through each print, and again at 80%, ProofLoop looks at the plate. If it still looks empty both times, the part has most likely come loose or the nozzle is clogged.</p>
+        <p class="hint">ProofLoop looks at the plate while a print runs. If it still looks empty halfway and at 80%, the part has most likely come loose or the nozzle is clogged. It also compares each look with the last good one: if the picture changes all over, raggedly, twice in a row (and for at least a minute, when it looks by time), the print has most likely turned to spaghetti or come loose. This is a guess from the picture, so it can be wrong either way.</p>
         <label class="field" style="margin:0"><span>When that happens</span>
           <select id="failureWatch" style="max-width:320px"><option value="alert">Tell me</option><option value="pause">Pause the printer and tell me</option><option value="off">Don't look</option></select></label>
         <p class="hint">Needs pictures of the empty plate. Every alert comes with the camera picture.</p>
+      </div>
+      <div class="card" id="cameraCard">
+        <h2>Camera</h2>
+        <form id="cameraForm">
+          <label class="field"><span>The failure watch looks</span>
+            <select name="look_every" style="max-width:320px"><option value="20s">Every 20 seconds</option><option value="30s">Every 30 seconds</option><option value="60s">Every minute</option><option value="120s">Every 2 minutes</option><option value="300s">Every 5 minutes</option><option value="5">Every 5% of the layers</option><option value="10">Every 10% of the layers</option><option value="15">Every 15% of the layers</option><option value="20">Every 20% of the layers</option><option value="25">Every 25% of the layers</option><option value="0">Only halfway and at 80% (no spaghetti look)</option></select>
+            <div class="hint">By time catches spaghetti sooner. Each look is one camera picture.</div></label>
+          <label class="toggle"><input type="checkbox" name="timelapse"><span><b>Make a timelapse of each print</b><span class="hint">Off unless you turn it on. A picture every few layers, made into a small animation when the print ends. Each printer's last few are on its card.</span></span></label>
+          <div class="row"><label class="field" style="margin:0"><span>A picture every (layers)</span><input type="number" name="timelapse_every_layers" min="1" max="500" style="max-width:100px"></label>
+          <label class="field" style="margin:0"><span>Keep per printer</span><input type="number" name="timelapse_keep" min="1" max="50" style="max-width:100px"></label></div>
+          <label class="toggle"><input type="checkbox" name="proof_photos"><span><b>Save a picture of each finished plate</b><span class="hint">Taken before the sweep, so each order shows what was made. The latest are on the printer's card too.</span></span></label>
+          <div class="row"><label class="field" style="margin:0"><span>Pictures to keep</span><input type="number" name="proof_keep" min="10" max="5000" style="max-width:100px"></label>
+          <button class="btn primary" style="align-self:flex-end">Save</button></div>
+        </form>
       </div>
       <div class="card">
         <h2>Quiet hours</h2>
@@ -526,15 +710,51 @@ input[type=number]{max-width:140px}
           <button class="btn primary" style="align-self:flex-end">Save</button></div>
         </form>
       </div>
-      <div class="card">
+      <div class="card" id="notifyCard">
         <h2>Notifications</h2>
-        <p class="hint" style="margin-top:-4px">When a plate check finds parts left behind, the camera picture comes with the alert.</p>
-        <p class="hint">Get a phone alert when a plate check fails. ntfy is free: install the app, pick a private topic, paste its URL.</p>
+        <p class="hint" style="margin-top:-4px">When a plate check finds parts left behind, the camera picture comes with the alert. Add as many places as you like, each with its own lowest level.</p>
+        <ul class="list" id="notifyList"></ul>
         <form id="notifyForm">
-          <label class="field"><span>Service</span><select name="kind"><option value="ntfy">ntfy</option><option value="discord">Discord webhook</option><option value="webhook">Other webhook (JSON)</option></select></label>
-          <label class="field"><span>URL</span><input type="url" name="url" placeholder="https://ntfy.sh/your-private-topic"></label>
+          <h3 id="notifyHead" style="margin-top:6px">Add a place to send notices</h3>
+          <label class="field"><span>Service</span><select name="kind"><option value="ntfy">ntfy</option><option value="discord">Discord webhook</option><option value="telegram">Telegram</option><option value="email">Email</option><option value="webhook">Other webhook (JSON)</option></select></label>
+          <div data-for="ntfy discord webhook">
+            <label class="field"><span>URL</span><input type="url" name="url" placeholder="https://ntfy.sh/your-private-topic"></label>
+            <p class="hint">ntfy is free: install the app, pick a private topic, paste its URL. For Discord, paste a channel's webhook URL.</p>
+          </div>
+          <div data-for="telegram" class="hidden">
+            <label class="field"><span>Bot token</span><input type="password" name="bot_token" autocomplete="off" placeholder="123456:ABC-DEF..."></label>
+            <label class="field"><span>Chat id</span><input type="text" name="chat_id" autocomplete="off" placeholder="123456789"></label>
+            <p class="hint">Make a bot with @BotFather and copy its token. Send your bot a message, then use your chat id (a number; a group's starts with -).</p>
+          </div>
+          <div data-for="email" class="hidden">
+            <div class="row"><label class="field" style="flex:2;min-width:180px"><span>Mail server (SMTP)</span><input type="text" name="smtp_host" autocomplete="off" placeholder="smtp.example.com"></label>
+            <label class="field" style="flex:1;min-width:90px"><span>Port</span><input type="number" name="smtp_port" min="1" max="65535" placeholder="587"></label>
+            <label class="field" style="flex:1;min-width:140px"><span>Security</span><select name="smtp_security"><option value="starttls">STARTTLS (587)</option><option value="ssl">SSL (465)</option><option value="none">None (25)</option></select></label></div>
+            <div class="row"><label class="field" style="flex:1;min-width:180px"><span>Username</span><input type="text" name="smtp_user" autocomplete="off"></label>
+            <label class="field" style="flex:1;min-width:180px"><span>Password</span><input type="password" name="smtp_password" autocomplete="new-password"></label></div>
+            <label class="field"><span>From</span><input type="text" name="mail_from" placeholder="you@example.com"></label>
+            <label class="field"><span>To (one or more, separated by commas)</span><input type="text" name="mail_to" placeholder="you@example.com, partner@example.com"></label>
+            <p class="hint">Gmail and some others need an app password, not your usual one. The camera picture comes as plate.jpg.</p>
+          </div>
           <label class="field"><span>Send</span><select name="min_level"><option value="error">Only problems</option><option value="warning" selected>Problems and warnings</option><option value="info">Everything</option></select></label>
-          <div class="row"><button class="btn primary">Save</button><button type="button" class="btn" id="notifyClear">Turn off</button></div>
+          <div class="row"><button class="btn primary" id="notifySave">Add</button><button type="button" class="btn hidden" id="notifyCancel">Cancel</button></div>
+        </form>
+      </div>
+      <div class="card" id="haCard">
+        <h2>Home Assistant</h2>
+        <p class="hint" style="margin-top:-4px">Off unless you turn it on. Shares each printer's state (idle, printing, progress, layer, time left, temperatures, job, plate check, loop, and whether it needs you) with your own MQTT broker, so Home Assistant finds the printers by itself. It only publishes: nothing on the broker can control a printer.</p>
+        <form id="haForm">
+          <label class="toggle"><input type="checkbox" name="enabled"><span><b>Share printer states with Home Assistant</b></span></label>
+          <div class="row"><label class="field" style="flex:2;min-width:180px"><span>Broker</span><input type="text" name="host" autocomplete="off" placeholder="homeassistant.local"></label>
+          <label class="field" style="flex:1;min-width:90px"><span>Port</span><input type="number" name="port" min="1" max="65535" placeholder="1883"></label></div>
+          <div class="row"><label class="field" style="flex:1;min-width:180px"><span>Username (if it needs one)</span><input type="text" name="username" autocomplete="off"></label>
+          <label class="field" style="flex:1;min-width:180px"><span>Password</span><input type="password" name="password" autocomplete="new-password"></label></div>
+          <label class="toggle"><input type="checkbox" name="tls"><span><b>Use TLS</b></span></label>
+          <label class="toggle" id="haVerifyRow"><input type="checkbox" name="tls_verify"><span><b>Check the broker's certificate</b><span class="hint">Turn off only for a broker you run yourself with a self-signed certificate.</span></span></label>
+          <div class="row"><label class="field" style="flex:1;min-width:180px"><span>Base topic</span><input type="text" name="base_topic" placeholder="proofloop"></label>
+          <label class="field" style="flex:1;min-width:180px"><span>Home Assistant discovery prefix</span><input type="text" name="discovery_prefix" placeholder="homeassistant"></label></div>
+          <p class="hint" id="haStatus"></p>
+          <div class="row"><button class="btn primary">Save</button><button type="button" class="btn" id="haTest">Test connection</button></div>
         </form>
       </div>
       <div class="card hidden" id="sendCard">
@@ -592,6 +812,7 @@ input[type=number]{max-width:140px}
 <script src="/js/costs.js"></script>
 <script src="/js/filament.js"></script>
 <script src="/js/orders.js"></script>
+<script src="/js/maintenance.js"></script>
 <script src="/js/overview.js"></script>
 <script src="/js/check.js"></script>
 <script src="/js/monitor.js"></script>

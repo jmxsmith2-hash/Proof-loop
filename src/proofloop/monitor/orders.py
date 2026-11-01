@@ -5,7 +5,8 @@ Taking an order plans its run over the printers that can print the plate (``queu
 keeps it in the queue, so it's made the same way as any queued run: you send each job, nothing
 starts by itself. From then on the order follows its jobs: parts made (finished loops of its jobs),
 when it will be done (each printer's remaining loops at its own measured loop time), whether that's
-before the due date, and what it costs and earns.
+before the due date, and what it costs and earns. An order also keeps whether it's been paid and, once
+you make one, its invoice number (the number and date never change).
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ import uuid
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+
+from proofloop.core import schema
 
 DAY = 86400.0
 
@@ -35,16 +38,16 @@ class Orders:
 
     def _load(self) -> list[dict[str, Any]]:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            doc, _ = schema.upgrade("orders", json.loads(self.path.read_text(encoding="utf-8")), self.path.name,
+                                    newer_ok=True)  # a newer file is read, never written over
         except (OSError, ValueError):
             return []
-        return data if isinstance(data, list) else []
+        orders = doc.get("orders") if isinstance(doc, dict) else None
+        return orders if isinstance(orders, list) else []
 
     def _save(self, orders: list[dict[str, Any]]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(orders, indent=2), encoding="utf-8")
-        tmp.replace(self.path)
+        schema.check_write("orders", self.path)
+        schema.write_json(self.path, schema.stamp("orders", {"orders": orders}))
 
     def all(self) -> list[dict[str, Any]]:
         with self._lock:
@@ -86,6 +89,25 @@ class Orders:
                     return o
         raise KeyError(f"no order {oid}")
 
+    def set_paid(self, oid: str, paid: bool) -> dict[str, Any]:
+        return self.update(oid, paid=paid, paid_at=time.time() if paid else None)
+
+    def invoice(self, oid: str, prefix: str, first: int) -> tuple[dict[str, Any], bool]:
+        """The order's invoice number, made on the first call: the next one after every number given so far
+        (and at least ``first``). Returns the invoice and whether it was just made."""
+        with self._lock:
+            orders = self._load()
+            order = next((o for o in orders if o["id"] == oid), None)
+            if order is None:
+                raise KeyError(f"no order {oid}")
+            if isinstance(order.get("invoice"), dict):
+                return order["invoice"], False
+            used = max((o["invoice"]["number"] for o in orders if isinstance(o.get("invoice"), dict)), default=0)
+            number = max(int(first), used + 1)
+            order["invoice"] = {"number": number, "label": f"{prefix}{number:04d}", "date": date.today().isoformat()}
+            self._save(orders)
+            return order["invoice"], True
+
     def remove(self, oid: str) -> dict[str, Any]:
         with self._lock:
             orders = self._load()
@@ -94,6 +116,33 @@ class Orders:
                 raise KeyError(f"no order {oid}")
             self._save([o for o in orders if o["id"] != oid])
         return gone
+
+
+def order_value(order: dict[str, Any]) -> float | None:
+    """What the order sells for (price per part x parts), or None without a price."""
+    price = order.get("price_each")
+    return None if price is None else round(price * order["quantity"], 2)
+
+
+def customers(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each customer's orders (cancelled ones left out), their parts, what they've earned you (orders made)
+    and how much of that is still unpaid."""
+    out: dict[str, dict[str, Any]] = {}
+    for o in orders:
+        if o["status"] == "cancelled":
+            continue
+        c = out.setdefault(o["customer"].strip().casefold(),
+                           {"customer": o["customer"], "orders": 0, "parts": 0, "earned": 0.0, "unpaid": 0.0})
+        c["orders"] += 1
+        c["parts"] += o["quantity"]
+        value = order_value(o)
+        if o["status"] == "done" and value is not None:
+            c["earned"] += value
+            if not o.get("paid"):
+                c["unpaid"] += value
+    for c in out.values():
+        c["earned"], c["unpaid"] = round(c["earned"], 2), round(c["unpaid"], 2)
+    return sorted(out.values(), key=lambda c: (-c["earned"], c["customer"].casefold()))
 
 
 def progress(app, order: dict[str, Any], now: float | None = None) -> dict[str, Any]:
