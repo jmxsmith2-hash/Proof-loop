@@ -66,7 +66,7 @@ def test_rates_far_from_the_usual_are_used_but_pointed_out():
     r = cost(c, SLOTS, GRAMS, 4, T, loops=1)
     assert line(r, "maintenance") == pytest.approx(2.0)  # still what you entered
     said = " ".join(r.checks)
-    assert "maintenance per print hour is $2, well above" in said and "printer life is 100,000" in said
+    assert "maintenance per print hour is $2, well above what" in said and "printer life is 100,000" in said
     assert "loops per plate is 10,000" in said and "setup is" in said  # $5 setup on a 1-loop run
     assert r.as_dict()["checks"] == r.checks
     assert not any("setup is" in m for m in cost(c, SLOTS, GRAMS, 4, T, loops=20).checks)  # spread over 20 loops

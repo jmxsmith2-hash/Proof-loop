@@ -411,8 +411,8 @@ def checks(c: CostSettings) -> list[str]:
         if v is not None and not lo <= v <= hi:
             shown = f"{v:g}%" if key.endswith("_pct") else f"{c.currency}{v:g}" if "per_" in key and "hours" not in key \
                 else f"{v:,g}"
-            out.append(f"{label} is {shown}, {'well above' if v > hi else 'well below'} the usual {usual}: "
-                       "check it under Costs")
+            out.append(f"{label} is {shown}, {'well above' if v > hi else 'well below'} what's usual ({usual}). "
+                       "It's used as you entered it: check it under Costs")
     return out
 
 
