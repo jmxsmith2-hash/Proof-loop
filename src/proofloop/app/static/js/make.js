@@ -211,7 +211,7 @@ function renderPlate(a, keepSettings) {
   if (!keepSettings) fillSettings(a.settings, a); else fillSettings(currentSettings(), a);
   stopAnim(); drawTop(a); drawSide(a); planPrinters(); renderPlan();
   if (document.activeElement !== $('#cLoops')) $('#cLoops').value = +$('#sLoops').value || 1;
-  refreshCost(); refreshPlateFil();
+  refreshCost(); refreshPlateFil(); refreshTargets('plate');
   $('#changesOut').innerHTML = '';
   $('#addToBatch').textContent = BATCH.some(b => b.token === a.token) ? '✓ In the batch' : '+ Add this plate';
   const floor = +$('#sFloor').value || 0;
@@ -315,7 +315,7 @@ function renderSend() {
 // change and every few seconds), the AMS tray feeding each filament, and one button to send and start.
 const SENDERS = {
   plate: {box: '#sendBox', list: '#sendTargets', btn: '#sendBtn', ask: '/api/plates/{t}/printers', go: '/api/plates/{t}/send',
-    key: () => PLATE && PLATE.token, body: () => currentSettings(),
+    key: () => PLATE && PLATE.token, body: () => currentSettings(), askBody: () => ({loops: +$('#sLoops').value || 1}),
     what: () => { const n = +$('#sLoops').value || 1; return `${PLATE.file} (${n} loop${n > 1 ? 's' : ''})`; }},
   batch: {box: '#batchSend', list: '#batchTargets', btn: '#batchSendBtn', ask: '/api/batch/printers', go: '/api/batch/send',
     key: () => BATCH.length ? JSON.stringify(batchBody().items) : '', body: () => batchBody(),
@@ -323,14 +323,19 @@ const SENDERS = {
 };
 const sendUrl = (k, url) => url.replace('{t}', encodeURIComponent(SENDERS[k].key() || ''));
 async function refreshTargets(k, force) {
-  const S = SENDERS[k], key = S.key();
+  const S = SENDERS[k], key = S.key(), ask = S.askBody ? S.askBody() : S.body(), sig = key + JSON.stringify(ask);
   if (!key || $(S.box).classList.contains('hidden')) return;
-  if (!force && S.for === key && Date.now() - (S.at || 0) < 5000) return;
-  S.at = Date.now(); S.for = key;
-  try { S.targets = (await send(sendUrl(k, S.ask), k === 'batch' ? S.body() : {})).printers; }
+  if (!force && S.for === sig && Date.now() - (S.at || 0) < 5000) return;  // asked again when the loops change
+  S.at = Date.now(); S.for = sig;
+  try { S.targets = (await send(sendUrl(k, S.ask), ask)).printers; }
   catch (e) { S.targets = null; $(S.list).innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; updateSendBtn(k); return; }
   renderTargets(k);
 }
+// Whether each tray lasts the run. A tray that runs out part-way is in the notes (or the reasons) already.
+const trayLines = (t) => {
+  const rows = (t.filament || []).filter(f => f.status === 'enough' || f.status === 'unknown');
+  return rows.length ? `<div class="hint">${rows.map(f => `${f.status === 'enough' ? '<span class="chip ok">enough</span>' : '<span class="chip">amount unknown</span>'} ${esc(f.text)}`).join('<br>')}</div>` : '';
+};
 function renderTargets(k) {
   const S = SENDERS[k], box = $(S.list), keep = (box.querySelector('input:checked') || {}).value;
   const pick = (S.targets.find(t => t.printer === keep && t.ready) || S.targets.find(t => t.ready) || {}).printer;
@@ -340,6 +345,7 @@ function renderTargets(k) {
     return `<label class="send-target${t.ready ? '' : ' off'}"><input type="radio" name="sendTo-${k}" value="${esc(t.printer)}" ${t.ready ? '' : 'disabled'} ${t.printer === pick ? 'checked' : ''}>
       <div><div class="spread"><b>${esc(t.printer)}</b>${t.ready ? '<span class="chip ok">ready</span>' : `<span class="chip">${esc(state)}</span>`}</div>
         ${slots ? `<div class="slots">${slots}</div>` : ''}
+        ${trayLines(t)}
         ${t.reasons.length ? `<div class="hint">${t.reasons.map(esc).join('<br>')}</div>` : ''}
         ${t.notes.length ? `<div class="hint" style="color:var(--warn)">${t.notes.map(esc).join('<br>')}</div>` : ''}</div></label>`;
   }).join('');
@@ -496,11 +502,17 @@ async function refreshQueue() {
     return `<span class="chip info">${left == null ? 'hands-off: when the plate checks empty' : left > 0 ? `hands-off: sending in ${Math.ceil(left / 60)} min` : 'hands-off: sending now'}</span>
       <button class="btn" data-qhold="1" data-job="${esc(j.rid)}/${esc(j.id)}">Hold</button>`;
   };
+  const supply = (j) => {  // whether its printer's trays last the job, after what that printer prints first
+    const f = j.filament || [], warn = f.filter(x => x.status !== 'enough' && x.status !== 'unknown'), unknown = f.filter(x => x.status === 'unknown');
+    if (!f.length) return '';
+    if (!warn.length && !unknown.length) return '<div class="hint"><span class="chip ok">filament: enough</span></div>';
+    return `<div class="hint">${warn.map(x => `<span style="color:var(--warn)">${esc(x.text)}</span>`).concat(unknown.map(x => esc(x.text))).join('<br>')}</div>`;
+  };
   $('#queueOut').innerHTML = runs.length ? runs.map(run => `<div style="padding:8px 0;border-top:1px solid var(--line)">
       <div class="spread"><b>${esc(run.plate)}</b><span><span class="hint">${run.parts} parts</span> <button class="linkbtn" data-qremove="${esc(run.id)}">Remove</button></span></div>
       ${run.jobs.map(j => ({...j, rid: run.id})).map(j => `<div class="spread" style="margin-top:4px"><span>${esc(j.printer)} · ${j.loops} loop${j.loops > 1 ? 's' : ''} ${label(j)} ${auto(j)}</span>
         <span class="row">${again(j) && sendOn ? `<button class="btn" data-qsend="${esc(run.id)}/${esc(j.id)}" data-printer="${esc(j.printer)}">Send and start</button>` : ''}
-        ${again(j) ? `<button class="btn" data-qget="${esc(run.id)}/${esc(j.id)}">Download</button>` : ''}</span></div>`).join('')}
+        ${again(j) ? `<button class="btn" data-qget="${esc(run.id)}/${esc(j.id)}">Download</button>` : ''}</span></div>${supply(j)}`).join('')}
     </div>`).join('') : '<p class="hint">Nothing queued. Under <a href="#" data-goto="make">Make a loop file</a>, plan a run and spread it over your printers.</p>';
 }
 $('#queueOut').addEventListener('click', async (e) => {

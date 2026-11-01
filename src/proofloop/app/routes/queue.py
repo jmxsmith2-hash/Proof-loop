@@ -16,9 +16,20 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
     def spread_run(token: str, body: dict):
         return plan_for(app, app.uploads.get(token), body.get("parts"), body.get("settings") or {})
 
+    plates: dict[str, tuple[list, dict]] = {}  # run id -> (filament slots, grams per slot), read from its plate once
+
+    def plate_of(rid: str) -> tuple[list, dict]:
+        if rid not in plates:
+            data, name = app.queue.plate(rid)
+            info = threemf.loads(data, name=name).info  # a damaged plate is a ValueError: no forecast for it
+            plates[rid] = (info.filament_slots, info.slot_grams)
+        return plates[rid]
+
     @api.get("/api/queue", dependencies=guard)
     def queue():
-        return app.queue.runs()
+        runs = app.queue.runs()
+        app.tracker.queue_supply(runs, plate_of)  # will each job's trays last it?
+        return runs
 
     @api.post("/api/queue", dependencies=guard)
     def queue_add(body: dict):

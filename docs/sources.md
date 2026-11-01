@@ -136,6 +136,7 @@ part-way usage needs the file's own density, or it isn't estimated.
 | A part-way loop is charged only its finished layers | The layer in progress when it stopped is not counted; the count is a lower bound, never an overestimate |
 | A new spool starts full only if you tick "new, unopened" | Otherwise what's left is unknown until you weigh it or type it |
 | The next loop is held only when the count is known to be short | Unknown amounts never block a run. Linked spools in other AMS trays with the same type and colour count too, because the AMS switches to them |
+| A tray with no linked spool count uses the AMS's estimate only with a Bambu RFID tag's spool weight | `remain_pct` × `weight_g`, shown as "about" and never stopping a send; without the weight it stays unknown. ProofLoop doesn't read the printer's AMS filament backup setting, so a matching tray is offered "if it's on" |
 | Several matching spools at the same price per kg price a plate without picking one | Whichever feeds it, the price is the same |
 
 ## Maintenance

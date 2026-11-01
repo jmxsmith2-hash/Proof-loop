@@ -25,6 +25,7 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         d["job_loops"] = job["loops"] if job else None
         cfg = next((p for p in app.settings.printers if p.name == w.name), None)
         d["hands_off"] = bool(cfg and cfg.hands_off)
+        d["spool_swap"] = app.tracker.swap_due(w, w.link.state)  # while a run prints: a tray it will empty
         linked = {
             sp.tray: sp
             for sp in app.inventory.all(archived=False)
