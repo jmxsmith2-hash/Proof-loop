@@ -54,19 +54,32 @@ def test_every_line_is_your_price_times_the_files_quantities():
     assert r.totals["complete"] and not r.missing and not r.checks
 
 
-def test_printer_wear_and_maintenance_count_print_hours_not_cooldown():
-    r = cost(full(maintenance_per_hour=0.1), SLOTS, GRAMS, 4, Times(3600, 300, 7200, "measured"))
-    assert line(r, "maintenance") == pytest.approx(0.1) and line(r, "machine") == pytest.approx(0.2)
-    assert "1.00 print h" in next(ln.how for ln in r.lines if ln.key == "maintenance")
+def test_printer_wear_counts_print_hours_not_cooldown():
+    r = cost(full(), SLOTS, GRAMS, 4, Times(3600, 300, 7200, "measured"))
+    assert line(r, "machine") == pytest.approx(0.2)
+
+
+def test_maintenance_is_your_time_at_your_rate():
+    t = Times(7200, 300, 900, "measured")  # 2 print hours, 2.33 h a loop
+    r = cost(full(maintenance_min=30, maintenance_every=100), SLOTS, GRAMS, 4, t)  # 30 min at $30/h = $15
+    assert line(r, "maintenance") == pytest.approx(15 * 2 / 100)
+    assert "30 min at $30/h ($15.00) every 100 print hours" in next(ln.how for ln in r.lines if ln.key == "maintenance")
+    r = cost(full(maintenance_min=30, maintenance_every=50, maintenance_unit="loops"), SLOTS, GRAMS, 4, t)
+    assert line(r, "maintenance") == pytest.approx(15 / 50)
+    r = cost(full(maintenance_min=30, maintenance_every=7, maintenance_unit="days"), SLOTS, GRAMS, 4, t)
+    assert line(r, "maintenance") == pytest.approx(15 * (8400 / 3600) / (7 * 600 / 30), abs=1e-4)  # 140 h a week
+    r = cost(full(maintenance_min=30, maintenance_every=100, labor_rate=None), SLOTS, GRAMS, 4, t)
+    assert line(r, "maintenance") is None and any("how often you do maintenance" in m for m in r.missing)
+    assert not any(ln.key == "maintenance" for ln in cost(full(), SLOTS, GRAMS, 4, t).lines)  # not used: no line
 
 
 def test_rates_far_from_the_usual_are_used_but_pointed_out():
-    c = full(maintenance_per_hour=2, printer_life_hours=100000, plate_life_loops=10000, labor_min_per_run=15,
-             labor_rate=20)
+    c = full(printer_life_hours=100000, plate_life_loops=10000, labor_min_per_run=15, labor_rate=20,
+             electricity_per_kwh=4)
     r = cost(c, SLOTS, GRAMS, 4, T, loops=1)
-    assert line(r, "maintenance") == pytest.approx(2.0)  # still what you entered
+    assert line(r, "plate") == pytest.approx(30 / 10000)  # still what you entered
     said = " ".join(r.checks)
-    assert "maintenance per print hour is $2, well above what" in said and "printer life is 100,000" in said
+    assert "electricity price is $4, well above what" in said and "printer life is 100,000" in said
     assert "loops per plate is 10,000" in said and "setup is" in said  # $5 setup on a 1-loop run
     assert r.as_dict()["checks"] == r.checks
     assert not any("setup is" in m for m in cost(c, SLOTS, GRAMS, 4, T, loops=20).checks)  # spread over 20 loops

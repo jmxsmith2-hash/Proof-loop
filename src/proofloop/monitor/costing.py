@@ -12,8 +12,10 @@ Model, per loop (one plate printed, cooled, ejected):
 
 * material   = sum over slots of grams x (spool price / spool weight)
 * energy     = (print hours x printing W + cooldown/eject hours x idle W) / 1000 x price per kWh
-* machine    = print hours x (printer price / expected life in print hours + maintenance per print hour)
+* machine    = print hours x printer price / expected life in print hours
   (a printer cooling down or ejecting hardly wears, so waits and cooldown aren't charged)
+* maintenance = your maintenance minutes / 60 x hourly rate, spread over how often you do it
+  (every so many print hours or loops, or every so many days of the printer's running hours)
 * plate wear = plate price / loops per plate
 * kit wear   = FarmLoop kit price / loops the kit lasts
 * labour     = minutes per loop / 60 x hourly rate
@@ -29,8 +31,8 @@ Every report also carries a quote, whether or not you've set a price: the
 break-even price per part and the price that earns your target margin, worked
 back through the same tax and fees. It is "at least" while costs are missing.
 
-A rate far outside what printers like these usually see (maintenance of
-dollars an hour, a printer lasting 100,000 hours) is still used as entered,
+A rate far outside what printers like these usually see (a printer lasting
+100,000 hours, a plate lasting 10,000 loops) is still used as entered,
 but the report says so in ``checks``: a typo there can make every quote wrong.
 """
 
@@ -38,6 +40,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -72,7 +75,9 @@ class CostSettings(_M):
     watts_idle: float | None = Field(None, ge=0)  # cooling and ejecting, bed off
     printer_price: float | None = Field(None, ge=0)
     printer_life_hours: float | None = Field(None, gt=0)
-    maintenance_per_hour: float | None = Field(None, ge=0)  # nozzles, rods, belts... spread per hour
+    maintenance_min: float | None = Field(None, ge=0)  # your time cleaning, oiling, changing nozzles...
+    maintenance_every: float | None = Field(None, gt=0)  # ...once every this many
+    maintenance_unit: Literal["hours", "loops", "days"] = "hours"  # print hours, loops, or days
     plate_price: float | None = Field(None, ge=0)
     plate_life_loops: float | None = Field(None, gt=0)
     kit_price: float | None = Field(None, ge=0)
@@ -294,13 +299,7 @@ def cost(
     else:
         per_h = c.printer_price / c.printer_life_hours
         add("machine", "Printer wear", print_h * per_h, f"{print_h:.2f} print h x {cur}{per_h:.4g}/h")
-    if c.maintenance_per_hour is not None:
-        add(
-            "maintenance",
-            "Maintenance",
-            print_h * c.maintenance_per_hour,
-            f"{print_h:.2f} print h x {cur}{c.maintenance_per_hour:g}/h",
-        )
+    _maintenance(c, add, print_h, hours)
     if c.plate_price is not None and c.plate_life_loops is not None:
         add(
             "plate",
@@ -389,10 +388,31 @@ def cost(
     return rep
 
 
+def _maintenance(c: CostSettings, add, print_h: float, hours: float) -> None:
+    """Your maintenance time at your hourly rate, this loop's share of it."""
+    if not c.maintenance_min:
+        return
+    session = c.maintenance_min / 60 * c.labor_rate if c.labor_rate is not None else None
+    if c.maintenance_every is None or session is None:
+        add("maintenance", "Maintenance", None, "your maintenance time x your hourly rate",
+            "set how often you do maintenance and your labour rate")
+        return
+    every, cur = c.maintenance_every, c.currency
+    what = f"{c.maintenance_min:g} min at {cur}{c.labor_rate:g}/h ({cur}{session:.2f})"
+    if c.maintenance_unit == "loops":
+        add("maintenance", "Maintenance", session / every, f"{what} every {every:g} loops")
+    elif c.maintenance_unit == "days":
+        # the printer's hours in those days: the hours you run it a month, or all day every day
+        run_h = every * (c.printer_hours_per_month / 30 if c.printer_hours_per_month else c.hours_per_day)
+        add("maintenance", "Maintenance", session * hours / run_h,
+            f"{what} every {every:g} days, about {run_h:g} printer hours; this loop is {hours:.2f} h of them")
+    else:
+        add("maintenance", "Maintenance", session * print_h / every,
+            f"{what} every {every:g} print hours; this loop prints {print_h:.2f} h")
+
+
 # What a desktop FDM printer (Bambu, Prusa class) usually sees. Outside these a rate is likely a typo.
 USUAL = {
-    "maintenance_per_hour": (0, 0.5, "maintenance per print hour", "a few cents to about 0.30 (nozzles, belts, "
-                                                                    "PTFE tube, lubricant)"),
     "printer_life_hours": (1000, 30000, "printer life", "5,000 to 20,000 print hours"),
     "plate_life_loops": (20, 3000, "loops per plate", "a few hundred to about 2,000 for a textured PEI plate"),
     "watts_printing": (30, 1000, "printing power", "100 to 350 W averaged over a print"),

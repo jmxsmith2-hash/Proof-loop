@@ -110,6 +110,10 @@ and the window shows them under *More › What's new*.
 - **A Windows installer** (no Python needed) and a package ready for PyPI, built by the release.
 
 ### Changed
+- **Maintenance is your time**, not a rate per hour you had to work out: enter how many minutes it
+  takes and how often (every so many print hours, loops or days), and it's priced at your labour
+  rate and shared over the loops. A maintenance rate per hour you entered before is no longer used;
+  enter your minutes instead.
 - `settings.json`, the queue and orders carry a format version. A file written by a newer ProofLoop
   is never overwritten, an older one is upgraded (with a one-time `.v0.bak` copy), and a backup from a
   newer ProofLoop is refused before anything is replaced. Files are written whole or not at all.
@@ -138,11 +142,10 @@ and the window shows them under *More › What's new*.
   run the printer reported under its safe name ("Plate_1"), so its loops, parts and filament went
   uncounted. Files are now recorded under the name the printer gives them, and older ones are
   renamed once.
-- Printer wear and maintenance were charged on the whole loop, cooldown and ejecting included; they
-  now count print hours only, and the fields say "per print hour". The cost breakdown and quote
-  point out a rate far outside what desktop printers usually see (maintenance of dollars an hour, a
-  printer lasting 100,000 hours, a plate lasting 10,000 loops) and a setup that is most of a short
-  run's cost. The rates are still used as you entered them, and the form shows the usual ranges.
+- Printer wear was charged on the whole loop, cooldown and ejecting included; it now counts print
+  hours only. The cost breakdown and quote point out a rate far outside what desktop printers usually
+  see (a printer lasting 100,000 hours, a plate lasting 10,000 loops) and a setup that is most of a
+  short run's cost. The rates are still used as you entered them, and the form shows the usual ranges.
 - Saving the notification form wiped a saved access token.
 - Taking an order when `orders.json` came from a newer ProofLoop left an unfollowed run in the queue.
 - The print-ready check crashed when the slicer itself reported a problem, and its report when a fix

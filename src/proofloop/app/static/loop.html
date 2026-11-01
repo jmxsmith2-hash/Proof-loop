@@ -480,10 +480,9 @@ input[type=number]{max-width:140px}
           <label class="field"><span>Cooling and ejecting, W</span><input type="number" data-c="watts_idle" step="1" min="0"></label>
           <label class="field"><span>Printer price</span><input type="number" data-c="printer_price" step="1" min="0"></label>
           <label class="field"><span>Expected life, print hours</span><input type="number" data-c="printer_life_hours" step="100" min="1"></label>
-          <label class="field"><span>Maintenance, per print hour</span><input type="number" data-c="maintenance_per_hour" step="0.01" min="0"></label>
         </div>
         <p class="hint">Measure the watts with a smart plug: average them over a whole print, then over a cooldown with the bed off.
-          Usual for a desktop printer: 100 to 350 W printing, a life of 5,000 to 20,000 print hours, and maintenance of a few cents to about 0.30 a print hour (nozzles, belts, PTFE tube, lubricant). Wear and maintenance count print hours only, not cooldown.</p>
+          Usual for a desktop printer: 100 to 350 W printing and a life of 5,000 to 20,000 print hours. Wear counts print hours only, not cooldown.</p>
       </details>
       <details class="cost-section"><summary>Build plates and FarmLoop kit</summary>
         <div class="cost-grid">
@@ -499,11 +498,15 @@ input[type=number]{max-width:140px}
           <label class="field"><span>Labour, per hour</span><input type="number" data-c="labor_rate" step="0.5" min="0"></label>
           <label class="field"><span>Hands-on minutes per loop</span><input type="number" data-c="labor_min_per_loop" step="0.5" min="0"></label>
           <label class="field"><span>Setup minutes per run</span><input type="number" data-c="labor_min_per_run" step="1" min="0"></label>
+          <label class="field"><span>Maintenance, minutes</span><input type="number" data-c="maintenance_min" step="5" min="0"></label>
+          <label class="field"><span>…once every</span><span class="row" style="gap:4px;flex-wrap:nowrap"><input type="number" data-c="maintenance_every" step="1" min="1" style="min-width:0" aria-label="How often">
+            <select data-c="maintenance_unit" data-kind="text" aria-label="Unit"><option value="hours">print hours</option><option value="loops">loops</option><option value="days">days</option></select></span></label>
           <label class="field"><span>Overhead per month</span><input type="number" data-c="overhead_per_month" step="1" min="0"></label>
           <label class="field"><span>Printer hours per month</span><input type="number" data-c="printer_hours_per_month" step="10" min="1"></label>
           <label class="field"><span>Failed loops, %</span><input type="number" data-c="failure_rate_pct" data-kind="zero" step="0.5" min="0" max="90"></label>
         </div>
-        <p class="hint">Overhead is rent, software, insurance and so on, spread over the hours your printers run. A failed loop costs the same as a good one and makes nothing. Setup is paid once per run, so a one-loop run carries all of it.</p>
+        <p class="hint">Overhead is rent, software, insurance and so on, spread over the hours your printers run. A failed loop costs the same as a good one and makes nothing. Setup is paid once per run, so a one-loop run carries all of it.
+          Maintenance is your own time (cleaning, oiling rods, swapping a nozzle) at your labour rate, shared out over how often you do it: 30 minutes every 7 days, say. Your tasks and how often they're due are in the <a href="#" data-goto="maintenance">Maintenance</a> tab.</p>
       </details>
       <details class="cost-section"><summary>Packaging and extras</summary>
         <h3 style="margin-top:4px">Per part <span class="muted" style="font-weight:400">(bags, magnets, inserts…)</span></h3>
