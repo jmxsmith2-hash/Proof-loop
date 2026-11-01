@@ -85,11 +85,24 @@ def match_trays(slots: list[tuple[str, str, str]], trays: list[dict]) -> tuple[l
 def plan(name: str, state, model_id: str, file_model_id: str, slots: list[tuple[str, str, str]],
          danger: list[str], plate: int = 1) -> Plan:
     """Everything that must be true before a file goes to ``name``. Raises SendError with all reasons."""
+    result, reasons = check(name, state, model_id, file_model_id, slots, danger, plate)
+    if reasons:
+        raise SendError("; ".join(reasons))
+    return result
+
+
+def check(name: str, state, model_id: str, file_model_id: str, slots: list[tuple[str, str, str]],
+          danger: list[str], plate: int = 1) -> tuple[Plan, list[str]]:
+    """The plan and every reason it can't be sent yet (none: ready). Shown before you press Send."""
     reasons = []
     if not state.online:
         reasons.append(f"{name} isn't connected")
+    elif not getattr(state, "reports", 1) and not state.gcode_state:
+        reasons.append(f"{name} hasn't reported its state yet: check its serial number")
     elif state.gcode_state.upper() in BUSY:
         reasons.append(f"{name} is busy ({state.gcode_state.lower()})")
+    if getattr(state, "commands_rejected", False):
+        reasons.append(f"{name} rejects commands from ProofLoop: turn on Developer Mode (LAN-only mode) on it")
     if file_model_id and model_id != file_model_id:
         reasons.append(f"the file was sliced for another printer model ({file_model_id}, {name} is {model_id})")
     reasons += [f"the loop-file checks found: {d}" for d in danger]
@@ -103,9 +116,7 @@ def plan(name: str, state, model_id: str, file_model_id: str, slots: list[tuple[
     else:
         result = Plan(name, "", plate, False)
         reasons.append(f"{name} has no AMS, and the file uses {len(slots)} filaments")
-    if reasons:
-        raise SendError("; ".join(reasons))
-    return result
+    return result, reasons
 
 
 def start_command(p: Plan) -> dict:

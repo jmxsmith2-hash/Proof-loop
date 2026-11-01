@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from proofloop.core.proc import NO_WINDOW
+
 
 def app_browser() -> str | None:
     """Chrome or Edge, which can show a page as its own window (--app) without tabs or an address bar."""
@@ -37,7 +39,7 @@ def open_window(url: str, profile_dir: Path) -> bool:
         try:
             subprocess.Popen([exe, f"--app={url}", "--window-size=1120,880", f"--user-data-dir={profile_dir}",
                               "--no-first-run", "--no-default-browser-check"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
             return True
         except OSError:
             pass

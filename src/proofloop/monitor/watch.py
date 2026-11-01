@@ -45,9 +45,10 @@ PHASE = {
     5: "door closing",
 }
 
-SAFETY_PAUSE = 6.0
-WATCH_AT = (0.5, 0.8)  # the failure watch looks at the plate halfway through a loop, and again at 80%  # routines.SAFETY_PAUSE_SIGNAL: the first-sweep safety pause comes next
+SAFETY_PAUSE = 6.0  # routines.SAFETY_PAUSE_SIGNAL: the first-sweep safety pause comes next
+WATCH_AT = (0.5, 0.8)  # the failure watch looks at the plate halfway through a loop, and again at 80%
 BAD_LOOKS = 2  # looks in a row that must find the print gone wrong before it is an alert
+NO_REPORTS_S = 20  # connected this long with no report at all: the serial is probably wrong
 
 
 def look_marks(every_pct: int) -> tuple[float, ...]:
@@ -585,11 +586,18 @@ class PrinterWatch:
             self.waiting_for_you = False
             return ok
 
+    def _status(self) -> str:
+        s = self.link.state
+        connected_at = getattr(s, "connected_at", 0.0)
+        if s.online and not getattr(s, "reports", 1) and connected_at and time.time() - connected_at > NO_REPORTS_S:
+            return "connected, but the printer sends nothing: check its serial number in Printers › Monitor"
+        return self.status
+
     def as_dict(self) -> dict:
         with self.lock:
             return {
                 "name": self.name,
-                "status": self.status,
+                "status": self._status(),
                 "waiting_for_you": self.waiting_for_you,
                 "references": len(self.verifier.references),
                 "last_check": self.last_check.as_dict() if self.last_check else None,

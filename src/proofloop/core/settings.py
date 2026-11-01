@@ -70,6 +70,18 @@ class PrinterConfig(_Model):
             raise ValueError("give the printer a short name without '/'")
         return v
 
+    @field_validator("serial")
+    @classmethod
+    def _serial(cls, v: str) -> str:
+        # The printer reports on device/<serial>/report with its serial in capitals, and MQTT topics are
+        # case-sensitive: typed in lower case, the printer connects but ProofLoop never hears from it.
+        return re.sub(r"\s+", "", v).upper()
+
+    @field_validator("host")
+    @classmethod
+    def _host(cls, v: str) -> str:
+        return v.strip()
+
 
 class Notifier(_Model):
     """One place notices go. ntfy, Discord and webhooks use ``url``; email uses the ``smtp_*`` and ``mail_*``

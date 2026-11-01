@@ -158,6 +158,37 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         app.tracker.link(printer, tray, sid)
         return {"ok": True}
 
+    @api.post("/api/filament/ams-spools", dependencies=guard)
+    def spools_from_ams(body: dict):
+        """A spool for every loaded AMS tray that has none yet, filled in from what the AMS reports, and linked.
+
+        A Bambu spool's RFID tag gives its weight when new, and with the AMS's percentage what is left;
+        for other spools those stay unknown, to weigh or type in.
+        """
+        only = str((body or {}).get("printer") or "")
+        if only and only not in app.watches:
+            raise HTTPException(404, f"no printer {only!r}")
+        spools = inv.all()
+        tags = {s.tag for s in spools if s.tag}
+        made = []
+        for w in app.watches.values():
+            if only and w.name != only:
+                continue
+            for t in w.link.state.ams.trays():
+                linked = any(s.printer == w.name and s.tray == t["tray"] for s in spools)
+                if t["empty"] or not t["type"] or linked or (t["tag"] and t["tag"] in tags):
+                    continue
+                net, pct = t.get("weight_g"), t.get("remain_pct")
+                sp = inv.save(Spool(
+                    material=t["type"], color=t["color"], name=t["sub_brand"] or t["type"],
+                    brand="Bambu Lab" if t["tag"] else "", filament_id=t["filament_id"], tag=t["tag"],
+                    drying_temp=t["drying_temp"], drying_hours=t["drying_hours"], net_g=net,
+                    remaining_g=round(net * pct / 100, 1) if net and pct is not None else None,
+                ))
+                app.tracker.link(w.name, t["tray"], sp.id)
+                made.append(spool_out(app, inv.get(sp.id)))
+        return {"added": len(made), "spools": made}
+
     @api.put("/api/filament/assign", dependencies=guard)
     def assign(body: dict):
         key = str(body.get("key") or "")

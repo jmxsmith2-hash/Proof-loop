@@ -40,6 +40,12 @@ and the window shows them under *More › What's new*.
   plate is used, not just the first: *Make a loop file* shows a button per plate and *Add all to the
   batch*, and *Check* checks each plate as its own job. Each plate is kept as its own file
   (`name-plate2.gcode.3mf`), so sending it starts that plate.
+- **Send to a printer, smoother.** *Make a loop file* lists every printer as ready, or says why
+  not (busy, wrong filament, not connected), with the AMS tray that will feed each filament. It
+  picks a ready printer for you, and sending can be turned on right there.
+- **Every AMS tray as a spool in one click.** *Filament › In your printers* adds a spool for each
+  loaded tray, linked to it. Bambu spools come with their weight and what's left from the RFID tag.
+
 - **A Windows installer** (no Python needed) and a package ready for PyPI, built by the release.
 
 ### Changed
@@ -61,6 +67,11 @@ and the window shows them under *More › What's new*.
   changed only filament settings.
 - Sensor logs without a time zone gave a busiest hour that depended on your computer's time zone.
 - A camera snapshot for an unknown printer said "camera error" instead of "no such printer".
+- A printer whose serial number was typed in lower case connected but never showed its state or
+  AMS. Serials are now saved in capitals, and a printer that connects but sends nothing says to
+  check the serial.
+- On Windows, the camera (and the slicer and other tools) no longer open a console window each
+  time ProofLoop starts them.
 
 ## 0.4.0 · 2026-10-30
 

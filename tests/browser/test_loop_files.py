@@ -66,3 +66,24 @@ def test_a_file_with_two_sliced_plates_offers_both_and_adds_them_to_the_batch(wi
     expect(page.locator("#batchOut")).to_contain_text("of printing plus cooldowns")
     expect(page.locator("#batchOut .ic.danger")).to_have_count(0)  # the two plates go together in one file
     expect(pick.get_by_role("button", name="✓ All in the batch")).to_be_disabled()
+
+
+def test_the_send_panel_shows_which_printer_is_ready_and_turns_sending_on_in_place(window):
+    page = window.tab("loopfiles", "make")
+    page.locator("#makeFile").set_input_files(EXAMPLES / "bracket_plate.gcode.3mf")
+    expect(page.locator("#makeResult")).to_be_visible()
+    box = page.locator("#sendBox")
+    expect(box).to_be_visible()
+    targets = box.locator(".send-target")
+    expect(targets).to_have_count(3)  # the three pretend printers, each ready or saying why not
+    expect(box.locator("#sendOff")).to_be_visible()
+    expect(box.locator("#sendBtn")).to_be_disabled()
+    box.get_by_role("button", name="Turn on sending to printers").click()
+    expect(box.locator("#sendOff")).to_be_hidden()
+    first = targets.first  # the pretend printers are all printing: each says so, and none can be picked
+    expect(first).to_contain_text("is busy (running)")
+    expect(first).to_contain_text("PLA → A1")  # the AMS tray that would feed the plate's filament
+    expect(first.locator("input")).to_be_disabled()
+    expect(box.locator("#sendBtn")).to_be_disabled()
+    page.locator("#sendToggle").evaluate("el => { el.checked = false; el.dispatchEvent(new Event('change')); }")
+    expect(box.locator("#sendOff")).to_be_visible()  # left off, as the farm started

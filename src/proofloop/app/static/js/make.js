@@ -19,7 +19,7 @@ function showOpened(res) {
   if (res.no_profile) { showNoProfile(res); $('#makeResult').classList.add('hidden'); return; }
   const kept = PLATE && BATCH.find(x => x.token === PLATE.token);
   if (kept) kept.part_push = {...partPush};  // the plate leaving the screen keeps its own heights
-  partPush = {}; PLATE = res; renderPlate(res); renderPlatePick();
+  partPush = {}; PLATE = res; renderPlate(res); renderPlatePick(); refreshTargets(true);
 }
 
 // ---------- a file with several sliced plates ('Export all sliced file') ----------
@@ -227,28 +227,59 @@ function renderSend() {
   $('#sendCard').classList.toggle('hidden', !(STATE && STATE.can_send));
   $('#restoreBtn').classList.toggle('hidden', !(STATE && STATE.can_send));  // a phone can't restore
   $('#sendToggle').checked = on;
-  $('#sendBox').classList.toggle('hidden', !on || !mons.length);
+  $('#sendBox').classList.toggle('hidden', !(STATE && STATE.can_send) || !mons.length);
+  $('#sendOff').classList.toggle('hidden', on);
   $('#spreadBtn').classList.toggle('hidden', !mons.length);
-  const keep = $('#sendPrinter').value;
-  $('#sendPrinter').innerHTML = mons.map(m => {
-    const st = (m.printer.gcode_state || '').toLowerCase(), online = m.printer.online;
-    return `<option value="${esc(m.name)}">${esc(m.name)} · ${online ? (st || 'connected') : 'not connected'}</option>`;
+  refreshTargets();
+}
+// Which printers the plate on screen could go to now, asked again with each plate and every few seconds.
+let TARGETS = null, TARGETS_AT = 0, TARGETS_FOR = '';
+async function refreshTargets(force) {
+  if (!PLATE || !PLATE.token || $('#sendBox').classList.contains('hidden')) return;
+  if (!force && TARGETS_FOR === PLATE.token && Date.now() - TARGETS_AT < 5000) return;
+  TARGETS_AT = Date.now(); TARGETS_FOR = PLATE.token;
+  try { TARGETS = (await send(`/api/plates/${encodeURIComponent(PLATE.token)}/printers`, {})).printers; }
+  catch (e) { TARGETS = null; $('#sendTargets').innerHTML = `<p class="hint" style="color:var(--bad)">${esc(e.message)}</p>`; return; }
+  renderTargets();
+}
+function renderTargets() {
+  const box = $('#sendTargets'), keep = (box.querySelector('input:checked') || {}).value;
+  const pick = (TARGETS.find(t => t.printer === keep && t.ready) || TARGETS.find(t => t.ready) || {}).printer;
+  box.innerHTML = TARGETS.map(t => {
+    const state = !t.online ? 'not connected' : (t.state || 'connected');
+    const slots = t.slots.map(sl => `<span class="chip${sl.tray == null ? ' bad' : ''}">${swatch(sl.color)} ${esc(sl.type)} → ${sl.tray_label ? esc(sl.tray_label) : (t.use_ams ? 'not loaded' : 'external spool')}</span>`).join('');
+    return `<label class="send-target${t.ready ? '' : ' off'}"><input type="radio" name="sendTo" value="${esc(t.printer)}" ${t.ready ? '' : 'disabled'} ${t.printer === pick ? 'checked' : ''}>
+      <div><div class="spread"><b>${esc(t.printer)}</b>${t.ready ? '<span class="chip ok">ready</span>' : `<span class="chip">${esc(state)}</span>`}</div>
+        ${slots ? `<div class="slots">${slots}</div>` : ''}
+        ${t.reasons.length ? `<div class="hint">${t.reasons.map(esc).join('<br>')}</div>` : ''}</div></label>`;
   }).join('');
-  if (keep) $('#sendPrinter').value = keep;
+  updateSendBtn();
+}
+function updateSendBtn() {
+  const on = !!(STATE && STATE.send_to_printer), to = ($('#sendTargets').querySelector('input:checked') || {}).value;
+  $('#sendBtn').disabled = !on || !to;
+  $('#sendBtn').textContent = to ? `Send and start on ${to}` : 'Send and start';
+}
+$('#sendTargets').addEventListener('change', updateSendBtn);
+$('#sendRefresh').onclick = () => refreshTargets(true);
+async function setSending(on) {
+  const r = await send('/api/send-to-printer', {on}, 'PUT'); STATE.send_to_printer = r.send_to_printer; renderSend(); updateSendBtn();
+  toast(r.send_to_printer ? 'ProofLoop can send loop files to your printers now' : 'Sending to printers is off');
 }
 $('#sendToggle').onchange = async () => {
-  try { const r = await send('/api/send-to-printer', {on: $('#sendToggle').checked}, 'PUT'); STATE.send_to_printer = r.send_to_printer; renderSend();
-    toast(r.send_to_printer ? 'ProofLoop can send loop files to your printers now' : 'Sending to printers is off'); }
+  try { await setSending($('#sendToggle').checked); }
   catch (e) { $('#sendToggle').checked = !$('#sendToggle').checked; toast(e.message); }
 };
+$('#sendTurnOn').onclick = async () => { try { await setSending(true); } catch (e) { toast(e.message); } };
 $('#sendBtn').onclick = async () => {
-  const printer = $('#sendPrinter').value, s = currentSettings();
+  const printer = ($('#sendTargets').querySelector('input:checked') || {}).value, s = currentSettings();
   if (!PLATE || !printer) return;
-  if (!confirm(`Start ${PLATE.file} (${s.loops} loop${s.loops > 1 ? 's' : ''}) on ${printer}?\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
-  $('#sendBtn').disabled = true;
+  const t = (TARGETS || []).find(x => x.printer === printer), feed = t ? t.slots.filter(sl => sl.tray_label).map(sl => `${sl.type} ${sl.color} from ${sl.tray_label}`).join(', ') : '';
+  if (!confirm(`Start ${PLATE.file} (${s.loops} loop${s.loops > 1 ? 's' : ''}) on ${printer}?${feed ? '\n\nFilament: ' + feed + '.' : ''}\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
+  $('#sendBtn').disabled = true; $('#sendBtn').textContent = `Sending to ${printer}…`;
   try { const r = await send(`/api/plates/${PLATE.token}/send`, {...s, printer, confirm: printer}); toast(`Started ${r.file} on ${r.printer}`); }
   catch (e) { toast(e.message); }
-  $('#sendBtn').disabled = false;
+  refreshTargets(true);
 };
 
 $('#saveDefaults').onclick = async () => { try { STATE.defaults = await send('/api/defaults', currentSettings(), 'PUT'); toast('Saved as your defaults'); } catch (e) { toast(e.message); } };

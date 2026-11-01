@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from proofloop.core.config import ConfigError
+from proofloop.core.proc import NO_WINDOW
 
 EXECUTABLES = {
     "bambu": ["bambu-studio", "BambuStudio", "bambu-studio.exe"],
@@ -262,7 +263,7 @@ def slice_model(slicer: Slicer, model: Path, presets: Presets, out_dir: Path, *,
         cmd = [sys.executable, *cmd]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, encoding="utf-8",
-                              errors="replace")
+                              errors="replace", creationflags=NO_WINDOW)
     except subprocess.TimeoutExpired as exc:
         raise ConfigError(f"{slicer.label} took longer than {timeout // 60} minutes") from exc
     log = (proc.stdout or "") + (proc.stderr or "")

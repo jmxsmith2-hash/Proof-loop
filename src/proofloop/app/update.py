@@ -12,13 +12,14 @@ import sys
 from pathlib import Path
 
 from proofloop.app.autostart import repo_root
+from proofloop.core.proc import NO_WINDOW
 
 EXTRAS = "[all]"
 
 
 def _git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=check,
-                          encoding="utf-8", errors="replace")
+                          encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
 
 
 def behind(root: Path) -> tuple[int, str]:
@@ -88,7 +89,7 @@ def update(check_only: bool = False, say=print) -> int:
     args = [sys.executable, "-m", "pip", "install", "--quiet", "-e", f"{root}{EXTRAS}"]
     if (root / "constraints.txt").is_file():  # the versions this ProofLoop was tested with
         args += ["-c", str(root / "constraints.txt")]
-    r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace")
+    r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
     if r.returncode:
         say("Installing the update failed:\n" + (r.stderr or r.stdout)[-2000:])
         return 2

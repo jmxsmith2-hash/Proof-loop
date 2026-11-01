@@ -55,8 +55,11 @@ class PrinterState:
     hms: list[HmsEvent] = field(default_factory=list)
     firmware: str = ""
     ams: AmsState = field(default_factory=AmsState)
+    connected_at: float = 0.0  # when the MQTT connection last came up
+    reports: int = 0  # reports merged since then; none means a wrong serial (or a printer that won't say)
 
     def merge(self, report: dict) -> None:
+        self.reports += 1
         p = report.get("print")
         if isinstance(p, dict):
             self.gcode_state = str(p.get("gcode_state", self.gcode_state))

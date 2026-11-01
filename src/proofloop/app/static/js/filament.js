@@ -59,8 +59,11 @@ function renderAms() {
         ${sp ? `<div style="margin-top:4px"><b>${esc(sp.label)}</b> <span class="num">${G(sp.remaining_g)}</span></div>` : ''}
         <select data-link="${esc(p.name)}" data-tray="${t.tray}" aria-label="Spool in ${esc(t.label)}">${spoolOptions(t.type, sp?.id, sp ? '— unlink —' : 'Link a spool…')}</select>
         ${!sp ? `<button class="linkbtn" data-addtray="${esc(p.name)}|${t.tray}">+ add as a new spool${t.tag && !known.has(t.tag) ? ' (RFID)' : ''}</button>` : ''}</div>`;
-    }).join('') : '<p class="hint">No AMS data yet. It arrives with the printer\'s next status report.</p>';
-    return `<div class="ams-printer"><div class="spread"><h3 style="margin:6px 0">${esc(p.name)}</h3><span>${p.online ? '' : '<span class="chip">offline</span>'} ${units}</span></div><div class="trays">${trays}</div></div>`;
+    }).join('') : `<p class="hint">${p.online ? 'No AMS data yet. It arrives with the printer\'s next status report; if it never does, check the serial number in <a href="#" data-goto="monitor">Monitor</a>.' : 'Not connected to this printer.'}</p>`;
+    const unlinked = p.trays.filter(t => !t.empty && t.type && !FIL.spools.some(s => s.printer === p.name && s.tray === t.tray) && !(t.tag && known.has(t.tag))).length;
+    const addAll = unlinked ? `<div class="row" style="margin-top:8px"><button class="btn" data-addall="${esc(p.name)}" title="One spool per tray, filled in from the AMS and linked to its tray">+ Add ${unlinked === 1 ? 'this tray' : `all ${unlinked} trays`} as spools</button>
+      <span class="hint">Then add what each spool cost, and weigh the ones without an RFID tag.</span></div>` : '';
+    return `<div class="ams-printer"><div class="spread"><h3 style="margin:6px 0">${esc(p.name)}</h3><span>${p.online ? '' : '<span class="chip">offline</span>'} ${units}</span></div><div class="trays">${trays}</div>${addAll}</div>`;
   }).join('');
 }
 
@@ -168,7 +171,14 @@ $('#edPrefill').addEventListener('click', (e) => {
   if (!f.name.value) f.name.value = (p.preset || '').split('@')[0].trim();
   toast(p.slicer_cost_per_kg ? `Filled from your slicer preset. Your slicer prices it at ${p.slicer_cost_per_kg}/kg; enter what you paid.` : 'Filled from your slicer preset.');
 });
-$('#amsOut').addEventListener('click', (e) => {
+$('#amsOut').addEventListener('click', async (e) => {
+  const all = e.target.closest('[data-addall]');
+  if (all) {
+    all.disabled = true;
+    try { const r = await send('/api/filament/ams-spools', {printer: all.dataset.addall}); await loadFil(); toast(`Added ${r.added} spool${r.added === 1 ? '' : 's'} from the AMS, each linked to its tray`); }
+    catch (err) { all.disabled = false; toast(err.message); }
+    return;
+  }
   const b = e.target.closest('[data-addtray]'); if (!b) return;
   const [pn, tid] = b.dataset.addtray.split('|'), p = FIL.printers.find(x => x.name === pn), t = p.trays.find(x => x.tray === +tid);
   editSpool({material: t.type, color: t.color, name: t.sub_brand || '', filament_id: t.filament_id, tag: t.tag, drying_temp: t.drying_temp, drying_hours: t.drying_hours}, true);

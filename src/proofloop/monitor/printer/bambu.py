@@ -27,10 +27,12 @@ import ssl
 import struct
 import subprocess
 import threading
+import time
 import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from proofloop.core.proc import NO_WINDOW
 from proofloop.monitor.printer.state import PrinterState
 
 log = logging.getLogger(__name__)
@@ -98,7 +100,7 @@ class BambuPrinter:
             )
             return
         client.subscribe(f"device/{self.serial}/report")
-        self.state.online = True
+        self.state.online, self.state.connected_at, self.state.reports = True, time.time(), 0
         self._publish({"pushing": {"command": "pushall"}})
         self._publish({"info": {"command": "get_version", "sequence_id": "0"}})
         self._notify()
@@ -277,7 +279,7 @@ def rtsps_frame(host: str, access_code: str, timeout: float = 20.0, port: int = 
         "-",
     ]
     try:
-        out = subprocess.run(cmd, capture_output=True, timeout=timeout, check=False)
+        out = subprocess.run(cmd, capture_output=True, timeout=timeout, check=False, creationflags=NO_WINDOW)
     except subprocess.TimeoutExpired as e:
         raise RuntimeError(f"camera did not deliver a frame within {timeout:.0f} s") from e
     finally:

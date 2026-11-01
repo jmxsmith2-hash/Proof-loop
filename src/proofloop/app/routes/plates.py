@@ -96,6 +96,13 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         # Recorded before the printer starts, so filament counting and the monitor recognise it.
         return send_made(app, allow_send, name, confirm, made_file(app, app.uploads.get(token), body))
 
+    @api.post("/api/plates/{token}/printers", dependencies=guard)
+    def send_targets(token: str):
+        """Which printers this plate could be sent to right now, and why not for the others."""
+        if not allow_send:
+            raise HTTPException(403, "files can't be sent to printers from here")
+        return {"send_to_printer": app.settings.send_to_printer, "printers": app.send_readiness(app.uploads.get(token))}
+
     @api.put("/api/send-to-printer", dependencies=guard)
     def put_send(body: dict):
         if not allow_send:

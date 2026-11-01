@@ -42,6 +42,12 @@ input[type=number]{max-width:140px}
 .anim-bar select{width:auto}
 .batch-row{display:grid;grid-template-columns:minmax(0,1fr) 120px auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
 .batch-row:first-child{border-top:0}
+.send-targets{display:grid;gap:6px;margin:8px 0 10px}
+.send-target{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.send-target.off{cursor:default;opacity:.8}
+.send-target:has(input:checked){border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.send-target input{margin-top:3px}
+.send-target .slots{display:flex;flex-wrap:wrap;gap:6px;margin-top:3px}
 .plate-pick{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 12px}
 .plate-pick button.btn{padding:4px 11px;font-size:13px}
 .plate-pick .hint{margin:0 4px 0 0}
@@ -313,8 +319,11 @@ input[type=number]{max-width:140px}
         <button class="btn primary big" id="download" style="width:100%;justify-content:center">Download loop file</button>
         <p class="hint" id="downloadHint" style="margin-top:10px">Send it with Bambu Studio (open the file, then <em>Print plate</em>), Bambu Handy or Bambuddy. Keep the <span class="mono">FL_S2_</span> name: FarmBoard kits look for it.</p>
         <div id="sendBox" class="hidden" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
-          <label class="field" style="margin-bottom:8px"><span>Or send it to a printer and start it</span>
-            <div class="row"><select id="sendPrinter" style="flex:1;width:auto"></select><button type="button" class="btn" id="sendBtn">Send and start</button></div></label>
+          <div class="spread"><b>Or send it to a printer and start it</b><button type="button" class="linkbtn" id="sendRefresh">Check again</button></div>
+          <div id="sendOff" class="hidden"><p class="hint">Sending is off. Turn it on once and ProofLoop can copy loop files to your printers and start them, always after you confirm.</p>
+            <button type="button" class="btn" id="sendTurnOn">Turn on sending to printers</button></div>
+          <div id="sendTargets" class="send-targets" role="radiogroup" aria-label="Printer to send to"></div>
+          <button type="button" class="btn primary" id="sendBtn" style="width:100%;justify-content:center" disabled>Send and start</button>
           <p class="hint">Only to a connected, idle printer of the model the plate was sliced for, with the right filament loaded, and only if the loop-file checks pass. You confirm each time.</p>
         </div>
       </div>

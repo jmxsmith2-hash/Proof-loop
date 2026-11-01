@@ -30,6 +30,7 @@ from proofloop import __version__
 from proofloop.app.config import DEFAULT_PORT
 from proofloop.core.logging import get_logger
 from proofloop.core.output import dumps
+from proofloop.core.proc import NO_WINDOW
 
 log = get_logger(__name__)
 
@@ -235,7 +236,7 @@ class Server:
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         try:
             r = subprocess.run([self.python, "-m", "proofloop", *args, "--json"], capture_output=True, timeout=timeout,
-                               env=env, stdin=subprocess.DEVNULL)
+                               env=env, stdin=subprocess.DEVNULL, creationflags=NO_WINDOW)
         except subprocess.TimeoutExpired as e:
             raise ToolError(f"ProofLoop took longer than {timeout / 60:.0f} minutes") from e
         out = r.stdout.decode("utf-8", "replace").strip()
