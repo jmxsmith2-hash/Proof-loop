@@ -48,6 +48,10 @@ PHASE = {
 SAFETY_PAUSE = 6.0  # routines.SAFETY_PAUSE_SIGNAL: the first-sweep safety pause comes next
 WATCH_AT = (0.5, 0.8)  # the failure watch looks at the plate halfway through a loop, and again at 80%
 BAD_LOOKS = 2  # looks in a row that must find the print gone wrong before it is an alert
+# Looking by time (every half minute or so) instead of by layers:
+FIRST_LAYERS = 2  # no look before these are printed: until then there is next to nothing to compare with
+BAD_FOR_S = 60  # the print must also have looked wrong for this long: someone's hand in view for one look isn't
+GOOD_EVERY_S = 300  # the last good look moves on at most this often, so a failure that grows a little at each look adds up
 NO_REPORTS_S = 20  # connected this long with no report at all: the serial is probably wrong
 
 
@@ -100,6 +104,8 @@ class PrinterWatch:
         failure_watch: Callable[[], str] | None = None,
         look_every: Callable[[], int] | None = None,
         timelapse=None,
+        look_every_s: Callable[[], int] | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self.name = name
         # "off", "alert" or "pause": what to do when the plate still looks empty part-way through a print
@@ -108,12 +114,20 @@ class PrinterWatch:
         # Percent of the layers between looks for a print gone wrong; a watch made without one only
         # looks halfway and at 80%, for an empty plate
         self.look_every = look_every or (lambda: 0)
+        # Seconds between those looks instead (0: by the layers, as above); the halfway and 80% looks stay
+        self.look_every_s = look_every_s or (lambda: 0)
+        self.clock = clock
         self._watched: set[float] = set()
         self._watch_empty = 0
         self._good_look: PrintLook | None = None  # the last look at this print that was fine
+        self._good_at = 0.0
         self._failure_paused = False  # ProofLoop paused this print because it looked wrong
         self._bad_looks = 0
+        self._bad_since = 0.0  # when this run of bad looks began
         self._wrong_told = False
+        self._looking = False  # a failure look is under way (one at a time)
+        self._looked_at: float | None = None  # when the last one began
+        self._print_no = 0  # counts prints, so a look that ends after its print has ended is dropped
         # Timelapse (monitor/timelapse.py): an object with frame / end, or None
         self.timelapse = timelapse
         self.link = link
@@ -312,27 +326,49 @@ class PrinterWatch:
         self._watched, self._watch_empty = set(), 0
         self._good_look, self._bad_looks, self._wrong_told = None, 0, False
         self._failure_paused = False
+        self._looked_at = None
+        self._print_no += 1
 
     # ---- the failure watch ---------------------------------------------------------------
     def _look_for_failure(self, s: PrinterState) -> None:
         """Part-way through a print, look at the plate now and then. Two things are wrong: the plate still
         looks empty at both of the first two looks (the part has most likely come loose or the nozzle is
         clogged, printing into the air), or the picture has changed all over, raggedly, since the last good
-        look, twice in a row (spaghetti, or a part dragged loose)."""
-        if self.failure_watch() == "off" or s.gcode_state != "RUNNING" or not s.layer_num:
+        look, twice in a row (spaghetti, or a part dragged loose). The second is looked for every few
+        percent of the layers, or every half minute or so (``look_every_s``) to catch it sooner; looking by
+        time, the bad looks in a row must also span a minute, and the first layers are left alone.
+
+        Called on each printer update and on each tick. A look runs on its own thread, one at a time:
+        the camera can take seconds to give a picture."""
+        if self.failure_watch() == "off" or s.gcode_state != "RUNNING" or not s.layer_num or self._looking:
             return
         total = self._call("loop_layers", s) or s.total_layers
         if not total or total < 10 or not self.verifier.references:
             return
-        due = [m for m in look_marks(self.look_every()) if s.layer_num >= m * total and m not in self._watched]
+        every_s, now = self.look_every_s(), self.clock()
+        marks = look_marks(0 if every_s else self.look_every())
+        due = [m for m in marks if s.layer_num >= m * total and m not in self._watched]
         if due:
             # One look now. Spaghetti marks passed together (after a restart) count as one; the empty-plate
             # marks (50% and 80%) each need a picture of their own, so a second one waits for the next update.
             empty = [m for m in due if m in WATCH_AT]
             self._watched.update([m for m in due if m not in WATCH_AT] + empty[:1])
-            self.run_async(partial(self._failure_check, s.layer_num, total, empty[0] if empty else due[-1]))
+            mark = empty[0] if empty else due[-1]
+        elif every_s and s.layer_num > FIRST_LAYERS and (self._looked_at is None or now - self._looked_at >= every_s):
+            mark = 0.0  # a look by time: for spaghetti only
+        else:
+            return
+        self._looking, self._looked_at = True, now
+        self.run_async(partial(self._failure_check, s.layer_num, total, mark, now, self._print_no))
 
-    def _failure_check(self, layer: int, total: int, mark: float = 0.0) -> None:
+    def _failure_check(self, layer: int, total: int, mark: float = 0.0, at: float = 0.0, print_no: int = 0) -> None:
+        try:
+            self._failure_look(layer, total, mark, at, print_no)
+        finally:
+            with self.lock:
+                self._looking = False
+
+    def _failure_look(self, layer: int, total: int, mark: float, at: float, print_no: int) -> None:
         try:
             jpeg = self.link.snapshot()
         except CAMERA_ERRORS as e:  # no picture: never an alert on a guess
@@ -344,14 +380,16 @@ class PrinterWatch:
         except CAMERA_ERRORS as e:
             log.debug("%s: empty-plate look skipped: %s", self.name, e)
         try:  # a picture the spaghetti look can't use doesn't cost the empty-plate look its answer
-            printed = self.verifier.look(jpeg) if self.look_every() else None
+            printed = self.verifier.look(jpeg) if self.look_every_s() or self.look_every() else None
         except CAMERA_ERRORS as e:
             log.debug("%s: spaghetti look skipped: %s", self.name, e)
         with self.lock:
+            if print_no != self._print_no:  # that print has ended: this picture says nothing about the next
+                return
             if check is not None:
                 self._empty_look(check, layer, total, jpeg)
             if printed is not None:
-                self._wrong_look(printed, layer, total, jpeg)
+                self._wrong_look(printed, layer, total, jpeg, at)
 
     def _empty_look(self, check: BedCheck, layer: int, total: int, jpeg: bytes) -> None:
         if not check.clear:  # something is on the plate, as there should be
@@ -364,15 +402,25 @@ class PrinterWatch:
                    "come loose, or the nozzle may be clogged")
         self._alert(message, check.as_dict(), jpeg)
 
-    def _wrong_look(self, printed: PrintLook, layer: int, total: int, jpeg: bytes) -> None:
+    def _wrong_look(self, printed: PrintLook, layer: int, total: int, jpeg: bytes, at: float = 0.0) -> None:
         tangle = judge_look(printed, self._good_look)
         if tangle.state == "unclear":  # a lamp, a bumped camera or a torn frame: neither good nor bad
             return
+        by_time = bool(self.look_every_s())
         if tangle.state == "ok":
-            self._good_look, self._bad_looks = printed, 0
+            self._bad_looks = 0
+            # By time the looks are close together: a tangle growing a little at each one would always pass
+            # for fine next to the look before, so the look to compare with only moves on every few minutes.
+            base = self._good_look
+            if not by_time or base is None or base.mask.shape != printed.mask.shape or at - self._good_at >= GOOD_EVERY_S:
+                self._good_look, self._good_at = printed, at
             return
+        if not self._bad_looks:
+            self._bad_since = at
         self._bad_looks += 1  # the last good look stays what the next looks are compared with
-        if self._bad_looks < BAD_LOOKS or self._wrong_told or self.link.state.gcode_state != "RUNNING":
+        if self._bad_looks < BAD_LOOKS or (by_time and at - self._bad_since < BAD_FOR_S):
+            return
+        if self._wrong_told or self.link.state.gcode_state != "RUNNING":
             return
         self._wrong_told = True  # once for each print
         message = f"the print looks like it has come loose or turned to spaghetti at layer {layer} of {total}"
@@ -572,8 +620,10 @@ class PrinterWatch:
         self._start_check(reason, settle=0.0)
 
     def tick(self) -> None:
-        """Called every few seconds: start the held loop once quiet hours are over (after a fresh check)."""
+        """Called every few seconds: start the held loop once quiet hours are over (after a fresh check), and
+        keep the failure watch's looks by time going when the printer sends few updates."""
         with self.lock:
+            self._look_for_failure(self.link.state)
             if self.pending_resume and not self.quiet_until() and self.link.state.gcode_state == "PAUSE":
                 self.pending_resume = False
                 self.check_again()

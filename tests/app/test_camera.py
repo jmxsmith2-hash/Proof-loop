@@ -10,7 +10,7 @@ from PIL import Image
 
 from proofloop.app.loop_server import create_app
 from proofloop.app.routes.camera import Frames
-from proofloop.core.settings import PrinterConfig
+from proofloop.core.settings import CameraSettings, PrinterConfig
 from proofloop.monitor.service import App
 from tests.app.test_loop_server import FakeLink
 from tests.monitor.test_timelapse import picture
@@ -92,25 +92,48 @@ def test_the_camera_needs_the_access_token(tmp_path):
 def test_the_camera_settings_start_off_and_are_kept(tmp_path):
     c, app = client(tmp_path)
     s = c.get("/api/camera-settings").json()
-    assert s == {"look_every_pct": 10, "timelapse": False, "timelapse_every_layers": 5, "timelapse_keep": 5}
+    assert s == {"look_every_s": 30, "look_every_pct": 10, "timelapse": False, "timelapse_every_layers": 5,
+                 "timelapse_keep": 5}
     assert c.get("/api/state").json()["camera"] == s
     r = c.put("/api/camera-settings", json={"timelapse": True, "timelapse_every_layers": 3})
     assert r.status_code == 200 and r.json()["timelapse"] is True and r.json()["look_every_pct"] == 10
+    assert r.json()["look_every_s"] == 30
     assert App(tmp_path, connect=False, link_factory=CameraLink).settings.camera.timelapse_every_layers == 3
 
 
 @pytest.mark.parametrize("bad", [{"look_every_pct": 3}, {"look_every_pct": 40}, {"timelapse_keep": 0},
-                                 {"timelapse_every_layers": 0}, {"timelapse_keep": 500}])
+                                 {"timelapse_every_layers": 0}, {"timelapse_keep": 500}, {"look_every_s": 5},
+                                 {"look_every_s": 3600}])
 def test_settings_out_of_range_are_refused(tmp_path, bad):
     c, app = client(tmp_path)
     assert c.put("/api/camera-settings", json=bad).status_code == 422
     assert app.settings.camera.look_every_pct == 10 and app.settings.camera.timelapse_keep == 5
+    assert app.settings.camera.look_every_s == 30
 
 
 def test_zero_means_only_the_empty_plate_looks(tmp_path):
     c, app = client(tmp_path)
-    assert c.put("/api/camera-settings", json={"look_every_pct": 0}).json()["look_every_pct"] == 0
-    assert app.watches["Left"].look_every() == 0  # the running watch follows the setting
+    r = c.put("/api/camera-settings", json={"look_every_s": 0, "look_every_pct": 0}).json()
+    assert r["look_every_s"] == 0 and r["look_every_pct"] == 0
+    w = app.watches["Left"]
+    assert w.look_every() == 0 and w.look_every_s() == 0  # the running watch follows the setting
+
+
+def test_looking_by_layers_instead_of_by_time(tmp_path):
+    c, app = client(tmp_path)
+    assert c.put("/api/camera-settings", json={"look_every_s": 0, "look_every_pct": 5}).status_code == 200
+    w = app.watches["Left"]
+    assert w.look_every_s() == 0 and w.look_every() == 5
+    assert c.put("/api/camera-settings", json={"look_every_s": 60}).json()["look_every_s"] == 60
+    assert w.look_every_s() == 60
+
+
+def test_settings_from_before_looks_by_time_keep_your_choice():
+    assert CameraSettings.model_validate({"look_every_pct": 10}).look_every_s == 30  # the old default
+    assert CameraSettings.model_validate({}).look_every_s == 30
+    assert CameraSettings.model_validate({"look_every_pct": 0}).look_every_s == 0  # you had turned it off
+    assert CameraSettings.model_validate({"look_every_pct": 5}).look_every_s == 0  # you had chosen 5%
+    assert CameraSettings.model_validate({"look_every_pct": 5, "look_every_s": 60}).look_every_s == 60
 
 
 def test_timelapses_are_listed_and_served(tmp_path):

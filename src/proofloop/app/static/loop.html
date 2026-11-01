@@ -652,7 +652,7 @@ input[type=number]{max-width:140px}
       </div>
       <div class="card" id="failureWatchCard">
         <h2>Failure watch</h2>
-        <p class="hint">ProofLoop looks at the plate while a print runs. If it still looks empty halfway and at 80%, the part has most likely come loose or the nozzle is clogged. It also compares each look with the last good one: if the picture changes all over, raggedly, twice in a row, the print has most likely turned to spaghetti or come loose. This is a guess from the picture, so it can be wrong either way.</p>
+        <p class="hint">ProofLoop looks at the plate while a print runs. If it still looks empty halfway and at 80%, the part has most likely come loose or the nozzle is clogged. It also compares each look with the last good one: if the picture changes all over, raggedly, twice in a row (and for at least a minute, when it looks by time), the print has most likely turned to spaghetti or come loose. This is a guess from the picture, so it can be wrong either way.</p>
         <label class="field" style="margin:0"><span>When that happens</span>
           <select id="failureWatch" style="max-width:320px"><option value="alert">Tell me</option><option value="pause">Pause the printer and tell me</option><option value="off">Don't look</option></select></label>
         <p class="hint">Needs pictures of the empty plate. Every alert comes with the camera picture.</p>
@@ -661,7 +661,8 @@ input[type=number]{max-width:140px}
         <h2>Camera</h2>
         <form id="cameraForm">
           <label class="field"><span>The failure watch looks</span>
-            <select name="look_every_pct" style="max-width:320px"><option value="5">Every 5% of the layers</option><option value="10">Every 10% of the layers</option><option value="15">Every 15% of the layers</option><option value="20">Every 20% of the layers</option><option value="25">Every 25% of the layers</option><option value="0">Only halfway and at 80% (no spaghetti look)</option></select></label>
+            <select name="look_every" style="max-width:320px"><option value="20s">Every 20 seconds</option><option value="30s">Every 30 seconds</option><option value="60s">Every minute</option><option value="120s">Every 2 minutes</option><option value="300s">Every 5 minutes</option><option value="5">Every 5% of the layers</option><option value="10">Every 10% of the layers</option><option value="15">Every 15% of the layers</option><option value="20">Every 20% of the layers</option><option value="25">Every 25% of the layers</option><option value="0">Only halfway and at 80% (no spaghetti look)</option></select>
+            <div class="hint">By time catches spaghetti sooner. Each look is one camera picture.</div></label>
           <label class="toggle"><input type="checkbox" name="timelapse"><span><b>Make a timelapse of each print</b><span class="hint">Off unless you turn it on. A picture every few layers, made into a small animation when the print ends. Each printer's last few are on its card.</span></span></label>
           <div class="row"><label class="field" style="margin:0"><span>A picture every (layers)</span><input type="number" name="timelapse_every_layers" min="1" max="500" style="max-width:100px"></label>
           <label class="field" style="margin:0"><span>Keep per printer</span><input type="number" name="timelapse_keep" min="1" max="50" style="max-width:100px"></label>

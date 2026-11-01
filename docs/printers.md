@@ -107,19 +107,23 @@ send to each printer. A paired phone can never send, or change this setting.
   pauses the printer too; nothing else it does ever pauses, resumes or starts a print.
   - *The plate still looks empty* halfway and again at 80%: the part has most likely come loose or the
     nozzle is clogged, and the printer is printing into the air.
-  - *The print has gone wrong* (spaghetti, or a part knocked loose and dragged): every 10% of the
-    layers (*Monitor › Camera* sets this from 5% to 25%, or off) the picture is compared with the
-    empty-plate pictures and with the last look that was fine. A part that is growing changes the
-    picture in one compact piece next to where it was. Spaghetti shows as a large area of new change
-    away from there, spread over much of the plate, ragged and full of edges. It is an alert only after
-    two looks in a row find that, the message says "the print looks like it has come loose or turned to
-    spaghetti at layer 70 of 100", and it is told once for each print. A look the camera can't give,
-    a blank or too dark picture, or a change over the whole plate (a lamp, a bumped camera) counts as
-    neither good nor bad.
+  - *The print has gone wrong* (spaghetti, or a part knocked loose and dragged): every 30 seconds
+    (*Monitor › Camera* sets 20 seconds to 5 minutes, or every 5% to 25% of the layers, or off) the
+    picture is compared with the empty-plate pictures and with an earlier look that was fine. A part
+    that is growing changes the picture in one compact piece next to where it was. Spaghetti shows as a
+    large area of new change away from there, spread over much of the plate, ragged and full of edges.
+    It is an alert only after two looks in a row find that (looking by time: and for at least a minute,
+    so a hand in view for one look isn't an alert), the message says "the print looks like it has come
+    loose or turned to spaghetti at layer 70 of 100", and it is told once for each print. Looking by
+    time starts after the first two layers, and the look it compares with moves on only every 5
+    minutes, so a tangle that grows a little at each look still adds up. Each look is one camera
+    picture: the live view's latest frame while it is open, otherwise one picture on its own. A look
+    the camera can't give, a blank or too dark picture, or a change over the whole plate (a lamp, a
+    bumped camera) counts as neither good nor bad.
 
   This is a heuristic on pictures, with no model and no cloud, and it was tuned on made-up pictures,
   not on footage of real failures. Expect it to miss some failures and to be wrong now and then:
-  - It misses a failure that grows slowly (each look is only compared with the last good one), one
+  - It misses a failure that grows slowly (each look is only compared with an earlier good one), one
     that starts before the first look, a single part knocked off in one piece (it looks like the
     toolhead moving), and spaghetti the camera can't see (behind the part, or a dark filament on a dark
     plate).

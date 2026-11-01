@@ -244,10 +244,26 @@ class Business(_Model):
 class CameraSettings(_Model):
     """What ProofLoop does with the printers' cameras while a print runs."""
 
-    look_every_pct: int = 10  # the failure watch looks at the print every this many % of its layers (0: only at 50% and 80%)
+    look_every_s: int = 30  # the failure watch looks at the print every this many seconds (0: by its layers)
+    look_every_pct: int = 10  # by layers: every this many % of its layers (0: only at 50% and 80%)
     timelapse: bool = False  # keep a picture every few layers and make an animation when the print ends
     timelapse_every_layers: int = Field(5, ge=1, le=500)
     timelapse_keep: int = Field(5, ge=1, le=50)  # timelapses kept for each printer
+
+    @model_validator(mode="before")
+    @classmethod
+    def _by_layers_before(cls, data):
+        # Settings from before looks by time: if you had chosen how often by layers, keep looking that way.
+        if isinstance(data, dict) and "look_every_s" not in data and data.get("look_every_pct", 10) != 10:
+            data = {**data, "look_every_s": 0}
+        return data
+
+    @field_validator("look_every_s")
+    @classmethod
+    def _seconds(cls, v: int) -> int:
+        if v != 0 and not 20 <= v <= 600:
+            raise ValueError("look every 20 to 600 seconds, or 0 to look by the layers")
+        return v
 
     @field_validator("look_every_pct")
     @classmethod
