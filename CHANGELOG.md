@@ -12,6 +12,10 @@ and the window shows them under *More › What's new*.
   **Fill the plate** with as many as fit; parts are kept out of the strip the pusher comes down in.
   A project keeps its own settings and only takes the printer's nozzle flow, so a plate sliced for
   the wrong nozzle is fixed by dropping its project. Needs Bambu Studio (or OrcaSlicer) installed.
+- **Run dashboard** on the Overview: each printer's parts per hour over the last 24 hours and 7
+  days, counted from its finished loops ("not enough data" until there are some), and its pace
+  while looping; each open order's parts made and still to make and when it will be done against
+  its due date; and each printer's next queued job and whether it's hands-off.
 - **Spool swap timing.** Before you send, on queued jobs and while a run prints, ProofLoop adds up
   what every loop takes from each AMS tray and says it's enough, or which loop the tray runs out on
   and after which loop to swap the spool, or which matching tray the AMS can switch to. It uses the
@@ -38,9 +42,9 @@ and the window shows them under *More › What's new*.
   tax and fees you set. *Take an order at this price* opens a new order with the plate and price
   filled in. Until your rates are set it shows the grams and hours the plate uses instead.
 - **Spaghetti watch.** The failure watch also notices a print that has turned to spaghetti or come
-  loose: it compares the camera picture every 10% of the layers with the last good look and alerts
-  (or pauses, if you chose that) after two bad looks in a row. It's a heuristic, and can be set to
-  look only halfway and at 80%.
+  loose: it looks with the camera every 30 seconds (20 seconds to 5 minutes, or by layers, under
+  *Monitor › Camera*) and alerts, or pauses if you chose that, once the print has looked wrong for
+  at least a minute. It's a heuristic, and can be set to look only halfway and at 80%.
 - **Live camera.** Each printer's card shows the camera as live video while it's open: one
   connection that stays up, about 15 frames a second from a P2S (a picture every second or two
   before), with a LIVE badge, the frame rate, and a bigger view on a click. It pauses when you hide

@@ -102,7 +102,7 @@ async function refreshMonitor() {
           <button class="btn ${m.waiting_for_you ? 'primary' : ''}" data-act="check" data-n="${n}">Check plate${m.waiting_for_you ? ' & resume' : ''}</button>
           <button class="btn" data-act="diff" data-n="${n}">Last difference</button>
           <button class="btn" data-act="test" data-n="${n}" title="Log in the way a send does; nothing is printed">Test connection</button>
-          ${WATCH_ONLY() ? '' : `<button class="btn ${m.hands_off ? 'primary' : ''}" data-act="handsoff" data-n="${n}" aria-pressed="${!!m.hands_off}" title="Send this printer its next queued job by itself once the plate checks empty">Hands-off ${m.hands_off ? 'on' : 'off'}</button>`}
+          ${WATCH_ONLY() ? '' : `<button class="btn ${m.hands_off ? 'primary' : ''}" data-act="handsoff" data-n="${n}" aria-pressed="${!!m.hands_off}" title="Send this printer its next queued job by itself once the plate checks empty">Hands-off: ${m.hands_off ? 'on' : 'off'}</button>`}
           ${m.waiting_for_you ? `<button class="btn danger" data-act="resume" data-n="${n}">Resume without check</button>` : ''}
           <button class="btn danger" data-act="remove" data-n="${n}">Remove</button></div></div>`;
     }).join('');
@@ -113,7 +113,7 @@ async function refreshMonitor() {
     const ev = await json('/api/events?limit=40');
     $('#events').innerHTML = '<tr><th>Time</th><th>Printer</th><th>What happened</th></tr>' + (ev.length ? '' : '<tr><td colspan="3" class="muted">Nothing yet. Events appear here as printers connect and loops run.</td></tr>') + ev.map(e => `<tr><td class="num muted">${new Date(e.ts * 1000).toLocaleString()}</td><td>${esc(e.printer || '')}</td><td>${e.level === 'error' ? '<span class="chip bad">!</span> ' : e.level === 'warning' ? '<span class="chip warn">!</span> ' : ''}${esc(e.message)}</td></tr>`).join('');
     const cs = STATE.camera, cf = $('#cameraForm');
-    if (cs && !cf.contains(document.activeElement)) { cf.look_every_pct.value = cs.look_every_pct; cf.timelapse.checked = cs.timelapse; cf.timelapse_every_layers.value = cs.timelapse_every_layers; cf.timelapse_keep.value = cs.timelapse_keep; cf.proof_photos.checked = cs.proof_photos; cf.proof_keep.value = cs.proof_keep; }
+    if (cs && !cf.contains(document.activeElement)) { cf.look_every.value = cs.look_every_s ? cs.look_every_s + 's' : cs.look_every_pct; cf.timelapse.checked = cs.timelapse; cf.timelapse_every_layers.value = cs.timelapse_every_layers; cf.timelapse_keep.value = cs.timelapse_keep; cf.proof_photos.checked = cs.proof_photos; cf.proof_keep.value = cs.proof_keep; }
     cameraStart();
     if (document.activeElement !== $('#failureWatch')) $('#failureWatch').value = STATE.failure_watch || 'alert';
     const q = STATE.quiet_hours, qf = $('#quietForm');
@@ -168,7 +168,8 @@ $('#printerCards').addEventListener('click', async (e) => {
   } catch (err) { toast(err.message); }
 });
 $('#cameraForm').onsubmit = async (e) => { e.preventDefault(); const f = e.target;
-  try { await send('/api/camera-settings', {look_every_pct: +f.look_every_pct.value, timelapse: f.timelapse.checked, timelapse_every_layers: +f.timelapse_every_layers.value || 5, timelapse_keep: +f.timelapse_keep.value || 5, proof_photos: f.proof_photos.checked, proof_keep: +f.proof_keep.value || 500}, 'PUT'); toast('Camera settings saved'); } catch (err) { toast(err.message); } };
+  const look = f.look_every.value, byTime = look.endsWith('s');  // "30s": by time; "10": by layers
+  try { await send('/api/camera-settings', {...(byTime ? {look_every_s: parseInt(look)} : {look_every_s: 0, look_every_pct: +look}), timelapse: f.timelapse.checked, timelapse_every_layers: +f.timelapse_every_layers.value || 5, timelapse_keep: +f.timelapse_keep.value || 5, proof_photos: f.proof_photos.checked, proof_keep: +f.proof_keep.value || 500}, 'PUT'); toast('Camera settings saved'); } catch (err) { toast(err.message); } };
 document.addEventListener('visibilitychange', () => { if (!document.hidden) cameraStart(); });
 $('#addPrinter').onsubmit = async (e) => { e.preventDefault(); const f = e.target;
   try { await send('/api/monitor/printers', {name: f.name.value, model_id: f.model_id.value, host: f.host.value.trim(), serial: f.serial.value.trim(), access_code: f.access_code.value.trim()});

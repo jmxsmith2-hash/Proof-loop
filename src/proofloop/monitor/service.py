@@ -243,6 +243,7 @@ class App:
             journal=self.journal,
             failure_watch=lambda: self.settings.failure_watch,
             look_every=lambda: self.settings.camera.look_every_pct,
+            look_every_s=lambda: self.settings.camera.look_every_s,
             timelapse=Timelapse(self.data_dir / "timelapse", p.name, lambda: self.settings.camera),
             proofs=self.proofs,
         )
