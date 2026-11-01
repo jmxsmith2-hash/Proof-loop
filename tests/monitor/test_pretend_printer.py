@@ -72,11 +72,12 @@ def test_a_queued_job_is_sent_printed_checked_resumed_and_ticked_off(tmp_path, p
         assert r.status_code == 200, r.text
         name = c.get("/api/queue").json()[0]["jobs"][0]["file"]
         assert printer.logins == [("bblp", printer.access_code)]
-        sent = threemf.loads(printer.files[name], name=name)  # what arrived over FTPS is the whole loop file
+        sent = threemf.loads(printer.files[f"cache/{name}"], name=name)  # the whole loop file, in cache/ as a P2S wants
         assert sent.md5_ok and name.startswith("FL_S2_")
         start = printer.command("project_file")
-        assert start["file"] == name and start["url"] == f"file:///sdcard/{name}"
-        assert start["use_ams"] and start["ams_mapping"] == [0]
+        assert start["file"] == name and start["url"] == f"ftp:///cache/{name}"
+        assert start["use_ams"] and start["ams_mapping"] == [0] and start["ams_mapping2"] == [{"ams_id": 0, "slot_id": 0}]
+        assert len(start["md5"]) == 32 and start["task_id"] != "0"
 
         printer.wait_for(lambda: w.link.state.gcode_state == "RUNNING")
         app.tell_queue()

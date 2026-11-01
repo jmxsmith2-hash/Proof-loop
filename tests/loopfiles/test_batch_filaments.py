@@ -84,7 +84,8 @@ def test_a_mixed_batch_is_sent_with_every_filament_mapped_to_its_tray(tmp_path):
         r = c.post("/api/batch/send", json={**body, "printer": "p2s", "confirm": "p2s"})
         assert r.status_code == 200, r.text
         name, _, cmd = app.watches["p2s"].link.sent[0]
-        assert name.startswith("FL_S2_batch-2x-") and cmd["print"]["ams_mapping"] == [0, 1, 2]
+        assert name.startswith("cache/FL_S2_batch-2x-") and cmd["print"]["ams_mapping"] == [0, 1, 2]
+        assert cmd["print"]["ams_mapping2"] == [{"ams_id": 0, "slot_id": i} for i in range(3)]
     finally:
         app.shutdown()
 

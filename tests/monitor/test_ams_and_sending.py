@@ -118,3 +118,26 @@ def test_a_plate_sliced_for_another_nozzle_flow_is_flagged_before_sending(farm):
     assert reasons == ["the file was sliced for a 0.6 mm nozzle, p2s has a 0.4 mm one"]
     s.nozzle_type = "hardened_steel"  # older firmware: no flow in the code, so nothing to compare
     assert check("p2s", s, "N7", "N7", slots, [], nozzle="0.4", nozzle_flow="Standard")[0].notes == []
+
+
+def test_a_p2s_gets_its_file_in_cache_and_the_newer_start_command():
+    """file:///sdcard/<file> fails on a P2S with 0500-4002 (unsupported file path or name)."""
+    from proofloop.monitor.send import Plan, plate_facts, printer_filename, remote_path, start_command
+    from tests.plates import SMALL, make_3mf, plate_gcode
+
+    assert printer_filename("FL_S1_bootv2.3mf") == "FL_S1_bootv2.gcode.3mf"
+    assert printer_filename("FL_S1_boot_crochet_1 Boot (red) - print once.gcode.3mf") == \
+        "FL_S1_boot_crochet_1_Boot_red_-_print_once.gcode.3mf"
+    assert remote_path("N7", "a.gcode.3mf") == "cache/a.gcode.3mf" and remote_path("C12", "a.gcode.3mf") == "a.gcode.3mf"
+    data = make_3mf(plate_gcode(SMALL), SMALL)
+    md5, filaments = plate_facts(data, 1)
+    assert len(md5) == 32 and plate_facts(b"not a zip", 1) == ("", 0)
+    p = Plan("p2s", "a.gcode.3mf", 1, True, [-1, 5])
+    cmd = start_command(p, "N7", md5, max(filaments, 3))["print"]
+    assert cmd["url"] == "ftp:///cache/a.gcode.3mf" and cmd["file"] == "a.gcode.3mf" and cmd["md5"] == md5
+    assert cmd["ams_mapping"] == [-1, 5, -1]
+    assert cmd["ams_mapping2"] == [{"ams_id": 255, "slot_id": 255}, {"ams_id": 1, "slot_id": 1},
+                                   {"ams_id": 255, "slot_id": 255}]
+    assert cmd["task_id"] != "0" and cmd["bed_leveling"] == 1
+    old = start_command(p, "C12")["print"]  # other models keep the form they take
+    assert old["url"] == "file:///sdcard/a.gcode.3mf" and "ams_mapping2" not in old

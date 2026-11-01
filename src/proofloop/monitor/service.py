@@ -329,7 +329,14 @@ class App:
     def send(self, name: str, filename: str, data: bytes, sf, danger: list[str]) -> dict:
         """Send a loop file to printer ``name`` and start it, if everything checks out (monitor/send.py)."""
         from proofloop.monitor.printer.ams import label
-        from proofloop.monitor.send import SendError, plan, start_command
+        from proofloop.monitor.send import (
+            SendError,
+            plan,
+            plate_facts,
+            printer_filename,
+            remote_path,
+            start_command,
+        )
 
         if not self.settings.send_to_printer:
             raise SendError("sending to printers is off: turn it on under Printers › Monitor first")
@@ -338,8 +345,9 @@ class App:
             raise SendError(f"no printer called {name!r}")
         p = plan(name, w.link.state, cfg.model_id, sf.info.printer_model_id or "", sf.info.filament_slots, danger,
                  plate=sf.plate or 1, nozzle=sf.info.nozzle, nozzle_flow=sf.info.nozzle_flow)
-        p.filename = filename
-        w.link.send(filename, data, start_command(p))
+        p.filename = filename = printer_filename(filename)
+        md5, filaments = plate_facts(data, p.plate)
+        w.link.send(remote_path(cfg.model_id, filename), data, start_command(p, cfg.model_id, md5, filaments))
         mapping = ", ".join(f"slot {i + 1} from {label(t)}" for i, t in enumerate(p.ams_mapping) if t >= 0)
         self._emit(self.store.add_event(name, "info", "sent", f"Sent {filename} and started it"
                                         + (f" ({mapping})" if mapping else "")))

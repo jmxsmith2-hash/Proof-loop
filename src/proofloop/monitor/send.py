@@ -11,19 +11,29 @@ Off by default (``send_to_printer`` in settings.json). Before anything is sent, 
 
 The file goes over the printer's own FTPS (implicit TLS on port 990, user ``bblp``, the LAN access
 code) to its storage, then ``project_file`` over MQTT starts it. Both follow Bambuddy and the
-Bambu Studio LAN protocol (see docs/sources.md); this path has not been tried on every model, so
-the first send to a new printer is worth watching.
+Bambu Studio LAN protocol (see docs/sources.md). A P2S takes the file in ``cache/`` and only the
+newer form of the command (``ftp:///cache/<file>``, the plate's MD5, 0/1 flags, non-zero ids and
+``ams_mapping2``): the older ``file:///sdcard/<file>`` form fails there with error 0500-4002,
+"unsupported file path or name". This path has not been tried on every model, so the first send
+to a new printer is worth watching.
 """
 
 from __future__ import annotations
 
 import ftplib
+import hashlib
+import io
+import re
 import socket
 import ssl
+import time
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 BUSY = ("RUNNING", "PREPARE", "PAUSE", "SLICING")
+CACHE_MODELS = {"N7"}  # P2S: files go in cache/ and start with the newer project_file command
+EXTERNAL_SPOOL = 254
 
 
 class SendError(ValueError):
@@ -127,23 +137,73 @@ def check(name: str, state, model_id: str, file_model_id: str, slots: list[tuple
         reasons += problems
         result = Plan(name, "", plate, True, mapping, notes)
     elif len(slots) <= 1:
-        result = Plan(name, "", plate, False, [], ["no AMS: printed from the external spool", *notes])
+        used = {int(s[0]) for s in slots if str(s[0]).isdigit()}
+        spool = [EXTERNAL_SPOOL if i in used else -1 for i in range(1, max(used, default=0) + 1)]
+        result = Plan(name, "", plate, False, spool, ["no AMS: printed from the external spool", *notes])
     else:
         result = Plan(name, "", plate, False, [], notes)
         reasons.append(f"{name} has no AMS, and the file uses {len(slots)} filaments")
     return result, reasons
 
 
-def start_command(p: Plan) -> dict:
+def printer_filename(name: str) -> str:
+    """``name`` as the printer takes it: letters, digits, ``. _ -`` only, always ending in ``.gcode.3mf``."""
+    base = PurePosixPath(name.replace("\\", "/")).name
+    stem = re.sub(r"(\.gcode)?\.3mf$", "", base, flags=re.IGNORECASE)
+    stem = re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9._-]", "_", stem)).strip("._") or "plate"
+    return f"{stem}.gcode.3mf"
+
+
+def remote_path(model_id: str, filename: str) -> str:
+    """Where on the printer's storage the file goes, as FTP sees it."""
+    return f"cache/{filename}" if model_id in CACHE_MODELS else filename
+
+
+def plate_facts(data: bytes, plate: int) -> tuple[str, int]:
+    """The MD5 of the plate's G-code and how many filaments the project lists (0: not said)."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as z:
+            gcode = z.read(f"Metadata/plate_{plate}.gcode")
+    except (zipfile.BadZipFile, KeyError, OSError):
+        return "", 0
+    m = re.search(rb"^; filament_colour = (.*)$", gcode, re.MULTILINE)
+    count = len([c for c in m.group(1).split(b";") if c.strip()]) if m else 0
+    return hashlib.md5(gcode).hexdigest(), count
+
+
+def _mapping2(tray: int) -> dict:
+    if tray < 0:
+        return {"ams_id": 255, "slot_id": 255}
+    if tray >= EXTERNAL_SPOOL:
+        return {"ams_id": tray, "slot_id": tray}
+    if tray >= 128:  # AMS HT: one tray each
+        return {"ams_id": tray, "slot_id": 0}
+    return {"ams_id": tray // 4, "slot_id": tray % 4}
+
+
+def start_command(p: Plan, model_id: str = "", md5: str = "", filaments: int = 0) -> dict:
     """The MQTT ``project_file`` command that prints a .gcode.3mf already on the printer."""
     stem = p.filename[: -len(".gcode.3mf")] if p.filename.lower().endswith(".gcode.3mf") else PurePosixPath(p.filename).stem
+    param = f"Metadata/plate_{p.plate}.gcode"
+    if model_id in CACHE_MODELS:
+        mapping = p.ams_mapping + [-1] * (filaments - len(p.ams_mapping))
+        task = str(int(time.time() * 1000) & 0x7FFFFFFF)  # the printer wants these non-zero
+        return {"print": {
+            "sequence_id": "0", "command": "project_file", "param": param,
+            "url": f"ftp:///{remote_path(model_id, p.filename)}", "file": p.filename, "md5": md5,
+            "bed_type": "auto", "timelapse": 0, "bed_leveling": 1, "auto_bed_leveling": 1, "flow_cali": 0,
+            "vibration_cali": 0, "layer_inspect": 0, "use_ams": p.use_ams, "cfg": "0",
+            "extrude_cali_flag": 0, "extrude_cali_manual_mode": 0, "nozzle_offset_cali": 2,
+            "subtask_name": stem, "profile_id": "0", "project_id": task, "subtask_id": task, "task_id": task,
+            "ams_mapping": mapping, "ams_mapping2": [_mapping2(t) for t in mapping],
+        }}
     return {"print": {
-        "sequence_id": "0", "command": "project_file", "param": f"Metadata/plate_{p.plate}.gcode",
+        "sequence_id": "0", "command": "project_file", "param": param,
         "project_id": "0", "profile_id": "0", "task_id": "0", "subtask_id": "0", "subtask_name": stem,
-        "file": p.filename, "url": f"file:///sdcard/{p.filename}", "md5": "",
-        "timelapse": False, "bed_type": "auto", "bed_levelling": True, "flow_cali": False,
+        "file": p.filename, "url": f"file:///sdcard/{p.filename}", "md5": md5,
+        "timelapse": False, "bed_type": "auto", "bed_leveling": True, "flow_cali": False,
         "vibration_cali": False, "layer_inspect": False,
-        "use_ams": p.use_ams, "ams_mapping": p.ams_mapping,
+        "use_ams": p.use_ams, "ams_mapping": p.ams_mapping if p.use_ams else [],
     }}
 
 
@@ -168,9 +228,7 @@ class _ImplicitFTPS(ftplib.FTP_TLS):
 
 
 def upload(host: str, access_code: str, filename: str, data: bytes, timeout: float = 120, port: int = 990) -> None:
-    """Put ``data`` on the printer's storage as ``filename``."""
-    import io
-
+    """Put ``data`` on the printer's storage as ``filename`` (a path such as ``cache/x.gcode.3mf``)."""
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE  # self-signed; the LAN access code is the credential
@@ -179,6 +237,12 @@ def upload(host: str, access_code: str, filename: str, data: bytes, timeout: flo
         ftp.connect(host, port, timeout)
         ftp.login("bblp", access_code)
         ftp.prot_p()
+        folder = PurePosixPath(filename).parent
+        if str(folder) != ".":
+            try:
+                ftp.mkd(str(folder))
+            except ftplib.error_perm:
+                pass  # already there
         ftp.storbinary(f"STOR {filename}", io.BytesIO(data))
     except (OSError, ftplib.Error) as e:
         raise SendError(f"couldn't copy the file to the printer: {e}") from e

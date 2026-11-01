@@ -80,6 +80,9 @@ and the window shows them under *More › What's new*.
   check the serial.
 - On Windows, the camera (and the slicer and other tools) no longer open a console window each
   time ProofLoop starts them.
+- Sending to a P2S failed on the printer with error 0500-4002 ("unsupported file path or name"):
+  the file now goes in the printer's `cache/` folder and is started the way a P2S expects, and
+  its name is made safe (no spaces or brackets, always `.gcode.3mf`).
 
 ## 0.4.0 · 2026-10-30
 

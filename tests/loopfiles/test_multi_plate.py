@@ -65,6 +65,6 @@ def test_sending_the_second_plate_starts_the_second_plate(tmp_path):
         r = c.post(f"/api/plates/{plates[1]['token']}/send", json={"printer": "p2s", "confirm": "p2s", "loops": 1})
         assert r.status_code == 200, r.text
         name, _, cmd = app.watches["p2s"].link.sent[0]
-        assert name == "FL_S2_pair-plate2.gcode.3mf" and cmd["print"]["param"] == "Metadata/plate_2.gcode"
+        assert name == "cache/FL_S2_pair-plate2.gcode.3mf" and cmd["print"]["param"] == "Metadata/plate_2.gcode"
     finally:
         app.shutdown()
