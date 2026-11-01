@@ -6,9 +6,19 @@ let ORDER_TOKEN = null;
 dropZone($('#orderDrop'), $('#orderFile'), async (file) => {
   $('#orderPlate').textContent = 'Reading ' + file.name + '…';
   try { const fd = new FormData(); fd.append('file', file); const r = await json('/api/plates', {method: 'POST', body: fd});
+    if (r.model) throw new Error(`${file.name} isn't sliced yet: slice it in Make a loop file, then take the order from there`);
     ORDER_TOKEN = r.token; $('#orderPlate').textContent = `${file.name} · ${(r.parts || []).length} parts per plate`; $('#orderAdd').disabled = false;
   } catch (e) { $('#orderPlate').textContent = e.message; ORDER_TOKEN = null; $('#orderAdd').disabled = true; }
 });
+// A plate open in Make a loop file, handed over with its quoted price.
+function orderFromPlate(token, file, parts, price) {
+  ORDER_TOKEN = token; $('#orderAdd').disabled = false;
+  $('#orderPlate').textContent = `${file} · ${parts} parts per plate`;
+  const f = $('#orderForm');
+  if (price != null) f.price_each.value = price.toFixed(2);
+  show('orders');
+  setTimeout(() => f.customer.focus(), 50);  // once the tab is on screen
+}
 $('#orderForm').onsubmit = async (e) => {
   e.preventDefault(); const f = e.target; if (!ORDER_TOKEN) return;
   $('#orderAdd').disabled = true;

@@ -107,6 +107,23 @@ def test_selling_breakeven_and_target_price():
     assert at_be.selling["profit"] == pytest.approx(0, abs=1e-3)
 
 
+def test_every_slice_is_quoted_even_without_a_price():
+    c = full(tax_included_pct=20, marketplace_fee_pct=5, target_margin_pct=30)
+    r = cost(c, SLOTS, GRAMS, 4, T, loops=3)
+    q, cpp = r.quote, r.totals["per_part"]
+    assert r.selling is None and q["complete"] and q["cost_per_part"] == pytest.approx(cpp)
+    share = 1 / 1.2 - 0.05
+    assert q["breakeven_price"] == pytest.approx(cpp / share, abs=0.01)
+    assert q["price"] == pytest.approx(cpp / (share - 0.3), abs=0.01)
+    # charging the quoted price really earns the target margin
+    sold = cost(c.model_copy(update={"price_per_part": q["price"]}), SLOTS, GRAMS, 4, T, loops=3).selling
+    assert sold["margin_pct"] == pytest.approx(30, abs=0.1)
+    # missing rates: still quoted, marked as at least this much
+    assert not cost(CostSettings(), SLOTS, GRAMS, 4, T).quote["complete"]
+    # fees and margin that eat the whole price: no price can work
+    assert cost(full(marketplace_fee_pct=60, target_margin_pct=50), SLOTS, GRAMS, 4, T).quote["price"] is None
+
+
 def test_capacity_uses_the_real_loop_time():
     r = cost(full(price_per_part=5, printers=3, hours_per_day=20, failure_rate_pct=10), SLOTS, GRAMS, 4, T)
     loops_day = 20 * 3600 / 4800 * 3

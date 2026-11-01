@@ -72,11 +72,37 @@ function costRequest() {
 function refreshCost() {
   clearTimeout(costTimer);
   costTimer = setTimeout(async () => {
-    if (!PLATE || !COSTS) { $('#costEmpty').classList.remove('hidden'); ['#costPlate', '#costSelling', '#costCapacity'].forEach(id => $(id).classList.add('hidden')); return; }
+    if (!PLATE || !COSTS) { $('#costEmpty').classList.remove('hidden'); ['#costPlate', '#costSelling', '#costCapacity', '#plateQuote'].forEach(id => $(id).classList.add('hidden')); return; }
     try { COST = await send(`/api/plates/${PLATE.token}/cost`, costRequest()); renderCost(); } catch (e) { toast(e.message); }
   }, 250);
 }
+// The quote on the plate in Make a loop file: what a part costs with your rates and what to charge for it.
+function renderQuote() {
+  const q = COST.quote, el = $('#plateQuote');
+  if (!q) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  if (!q.cost_per_part) {  // nothing priced yet: what the plate uses, and where the rates go
+    const g = COST.materials.reduce((a, m) => a + m.grams, 0);
+    el.innerHTML = `<p class="hint"><b>No price yet.</b> This plate uses ${g.toFixed(1)} g of filament and ${fmtDur(COST.times.print_s)} of printing.
+      Add your spool prices and rates under <a href="#" data-goto="costs">Costs</a> and every slice is quoted here.</p>`;
+    return;
+  }
+  const atLeast = q.complete ? '' : 'at least ';
+  const gaps = COST.missing.filter(m => !m.startsWith('cooldown')).length;
+  el.innerHTML = `<div class="q"><small>Costs you</small><b>${atLeast}${money(q.cost_per_part, 3)}</b></div>
+    <div class="q"><small>Break-even</small><b>${q.breakeven_price == null ? '—' : atLeast + money(q.breakeven_price)}</b></div>
+    <div class="q main"><small>Charge for ${q.target_margin_pct}% margin</small><b>${q.price == null ? '—' : atLeast + money(q.price)}</b></div>
+    <button class="btn" type="button" id="quoteOrder" ${WATCH_ONLY() ? 'disabled' : ''}>Take an order at this price</button>
+    <p class="hint">Per part, over ${COST.loops} loop${COST.loops > 1 ? 's' : ''} of ${COST.parts_per_plate}, after tax and fees.
+      ${gaps ? `${gaps === 1 ? 'One of your rates isn\'t' : gaps + ' of your rates aren\'t'} set, so it's low: <a href="#" data-goto="costs">fill them in under Costs</a>.` : '<a href="#" data-goto="costs">How it adds up</a>.'}</p>`;
+}
+$('#plateQuote').addEventListener('click', (e) => {
+  if (e.target.id !== 'quoteOrder' || !PLATE) return;
+  orderFromPlate(PLATE.token, PLATE.file, PLATE.parts.length, COST?.quote?.price);
+});
+
 function renderCost() {
+  renderQuote();
   const r = COST, t = r.totals, sell = r.selling;
   $('#costEmpty').classList.add('hidden'); $('#costPlate').classList.remove('hidden'); $('#costSelling').classList.remove('hidden'); $('#costCapacity').classList.remove('hidden');
   $('#costTitle').textContent = PLATE.file;

@@ -107,6 +107,13 @@ input[type=number]{max-width:140px}
 .slice-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:4px 16px;align-items:start}
 .slice-grid select,.slice-grid input[type=number]{width:100%}
 #sliceCard.project .sl-mesh{display:none}
+.quote{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin:12px 0 4px;padding:12px 14px;border-radius:var(--radius);background:color-mix(in srgb,var(--accent) 8%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 25%,transparent)}
+.quote .q{display:flex;flex-direction:column}
+.quote .q small{color:var(--muted);font-size:12px}
+.quote .q b{font-size:20px;font-variant-numeric:tabular-nums}
+.quote .q.main b{font-size:24px;color:var(--accent)}
+.quote .hint{flex-basis:100%;margin:0}
+.quote .btn{margin-left:auto}
 .cam-live{position:relative;margin:10px 0 4px;border-radius:var(--radius);overflow:hidden;background:#0b0d10;aspect-ratio:16/9;box-shadow:0 1px 0 var(--line)}
 .cam-live img{display:block;width:100%;height:100%;object-fit:contain;cursor:zoom-in}
 .cam-live img:not([src]){visibility:hidden}
@@ -281,6 +288,7 @@ input[type=number]{max-width:140px}
         <div class="spread"><h2 id="plateTitle">Plate</h2><span id="plateChip"></span></div>
         <div id="platePick" class="plate-pick hidden" role="group" aria-label="Sliced plates in this file"></div>
         <dl class="kv" id="plateFacts"></dl>
+        <div class="quote hidden" id="plateQuote" aria-live="polite"></div>
         <button class="btn hidden" id="toCheck" type="button" title="Layer previews, flow, temperatures and the slicer settings that fix each problem">Full print check</button>
         <h3>Top view <span class="muted" style="font-weight:400">· front of the printer at the bottom</span></h3>
         <div class="anim-bar"><button class="btn" id="playSweep">▶ Play the sweep</button>

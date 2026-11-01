@@ -23,6 +23,10 @@ Model, per loop (one plate printed, cooled, ejected):
 A run adds one-off setup labour. Selling subtracts tax included in the price,
 marketplace and payment fees, and per-order costs (shipping, boxes) spread over
 the parts in an order.
+
+Every report also carries a quote, whether or not you've set a price: the
+break-even price per part and the price that earns your target margin, worked
+back through the same tax and fees. It is "at least" while costs are missing.
 """
 
 from __future__ import annotations
@@ -129,6 +133,7 @@ class CostReport:
     capacity: dict | None = None
     missing: list[str] = field(default_factory=list)
     materials: list[dict] = field(default_factory=list)
+    quote: dict = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {
@@ -143,6 +148,7 @@ class CostReport:
             "capacity": self.capacity,
             "missing": self.missing,
             "materials": self.materials,
+            "quote": self.quote,
         }
 
 
@@ -360,6 +366,9 @@ def cost(
         "complete": not rep.missing,
     }
 
+    breakeven, target = price_points(c, run / parts)
+    rep.quote = {"cost_per_part": round(run / parts, 4), "breakeven_price": _r(breakeven, 2),
+                 "price": _r(target, 2), "target_margin_pct": c.target_margin_pct, "complete": not rep.missing}
     price = c.price_per_part
     rep.selling = _selling(c, run / parts, price) if price is not None else None
     if times.cooldown_s is not None and times.known_s > 0:
@@ -383,15 +392,23 @@ def _net_share(c: CostSettings) -> float:
     return 1 / (1 + c.tax_included_pct / 100) - (c.marketplace_fee_pct + c.payment_fee_pct) / 100
 
 
+def price_points(c: CostSettings, cost_per_part: float) -> tuple[float | None, float | None]:
+    """(break-even price, price for the target margin) per part, after included tax, fees and per-order costs.
+    None when the fees and margin leave nothing of the price (no price can work)."""
+    fixed = _per_order_fixed(c)
+    share = _net_share(c)
+    m = c.target_margin_pct / 100
+    breakeven = (cost_per_part + fixed) / share if share > 0 else None
+    target = (cost_per_part + fixed) / (share - m) if share - m > 0 else None
+    return breakeven, target
+
+
 def _selling(c: CostSettings, cost_per_part: float, price: float) -> dict:
     tax = price - price / (1 + c.tax_included_pct / 100)
     pct_fees = price * (c.marketplace_fee_pct + c.payment_fee_pct) / 100
     fixed = _per_order_fixed(c)
     profit = price - tax - pct_fees - fixed - cost_per_part
-    share = _net_share(c)
-    breakeven = (cost_per_part + fixed) / share if share > 0 else None
-    m = c.target_margin_pct / 100
-    target = (cost_per_part + fixed) / (share - m) if share - m > 0 else None
+    breakeven, target = price_points(c, cost_per_part)
     return {
         "price": round(price, 4),
         "tax": round(tax, 4),
