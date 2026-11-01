@@ -380,6 +380,11 @@ class Store:
                 for r in self._db.execute("SELECT * FROM production WHERE ts>=? ORDER BY id", (since,))
             ]
 
+    def first_loops(self) -> dict[str, float]:
+        """When the first loop ProofLoop counted on each printer ended."""
+        with self._lock:
+            return {r[0]: r[1] for r in self._db.execute("SELECT printer, MIN(ts) FROM production GROUP BY printer")}
+
     # ---- maintenance ----------------------------------------------------------------
     def maintenance(self, printer: str) -> dict[str, dict]:
         with self._lock:
