@@ -33,8 +33,6 @@ class DesignSpec:
     units: str | None = None
     description: str = ""
     features: list[dict[str, Any]] = field(default_factory=list)
-    process: str | None = None        # None = 3D printing; injection | cnc
-    pull: str | None = None           # injection moulding: x | y | z | auto
 
 
 def design_spec(arg: str | None, cad_file: Path) -> DesignSpec:
@@ -45,7 +43,7 @@ def design_spec(arg: str | None, cad_file: Path) -> DesignSpec:
         return DesignSpec(name=raw.get("name") or Path(arg).stem, types=[types] if isinstance(types, str) else types,
                           use=raw.get("use", {}), printer=raw.get("printer"), material=raw.get("material"),
                           units=raw.get("units"), description=raw.get("description", ""),
-                          features=raw.get("features", []), process=raw.get("process"), pull=raw.get("pull"))
+                          features=raw.get("features", []))
     stem = re.sub(r"[_\-\s]*v(?:er(?:sion)?)?\d+$", "", cad_file.stem, flags=re.I)
     return DesignSpec(name=arg or stem.replace("_", " "))
 
@@ -70,23 +68,13 @@ def _finding_dict(f: Any, idx: int) -> dict[str, Any]:
 
 def check_design(settings: Settings, db: Database, cad_file: Path, spec: DesignSpec, personas: list[Persona],
                  out_dir: Path | None = None, printer: str | None = None, material: str | None = None,
-                 units: str | None = None, process: str | None = None, pull: str | None = None) -> dict[str, Any]:
-    process = (process or spec.process or "").lower() or None
+                 units: str | None = None) -> dict[str, Any]:
     model = load_model(cad_file, units or spec.units)
-    if process and process not in ("print", "fdm", "resin"):
-        from proofloop.check.cad.manufacture import load_process, run_process_checks
-
-        printer_p, material_p = load_process(settings.config_dir, process, material or None)
-        learned_data, material_eff = None, material_p
-        ctx = run_process_checks(model, printer_p, material_p, spec.use, pull or spec.pull)
-        process_info = {"kind": process, "label": printer_p["name"], "pull": ctx.metrics.get("pull")}
-    else:
-        printer_p, material_p, slicer = load_profiles(settings.config_dir, printer or spec.printer,
-                                                      material or spec.material)
-        learned_data = learned(db, printer_p["name"], material_p["name"])
-        material_eff = apply_learned(material_p, learned_data)
-        ctx = run_checks(model, printer_p, material_eff, slicer, spec.use)
-        process_info = {"kind": "print", "label": "3D printing", "pull": None}
+    printer_p, material_p, slicer = load_profiles(settings.config_dir, printer or spec.printer,
+                                                  material or spec.material)
+    learned_data = learned(db, printer_p["name"], material_p["name"])
+    material_eff = apply_learned(material_p, learned_data)
+    ctx = run_checks(model, printer_p, material_eff, slicer, spec.use)
     facts = collect_facts(ctx)
     from proofloop.check import feedback
 
@@ -107,8 +95,8 @@ def check_design(settings: Settings, db: Database, cad_file: Path, spec: DesignS
     prev = db.one("SELECT * FROM design_versions WHERE design_id = ? ORDER BY version DESC LIMIT 1", [design["id"]])
     version = (prev["version"] + 1) if prev else 1
     comparison = None
-    if prev and _kind(prev["printer"]) != process_info["kind"]:
-        prev = None                           # a moulding or machining check is not compared with a print check
+    if prev and prev["printer"] in _NOT_PRINTED:
+        prev = None                           # checked for moulding or machining by an older ProofLoop
     if prev:
         comp = compare_versions(prev["findings_json"], findings, float(max(model.size)))
         comparison = {**comp, "previous_version": prev["version"], "same_file": prev["file_hash"] == model.file_hash,
@@ -140,7 +128,6 @@ def check_design(settings: Settings, db: Database, cad_file: Path, spec: DesignS
         "return_reasons": reasons, "checklist": checklist(types), "comparison": comparison,
         "prints": prints, "features": spec.features, "images": images, "label": LABEL,
         "disclaimer": SYNTHETIC_DISCLAIMER, "generated": utcnow(), "description": spec.description,
-        "process": process_info,
     }
     from proofloop.check.cad.report import write_design_report
 
@@ -156,11 +143,8 @@ def check_design(settings: Settings, db: Database, cad_file: Path, spec: DesignS
     return result
 
 
-def _kind(stored_printer: str | None) -> str:
-    """How an earlier version was checked, from the name stored with it."""
-    from proofloop.check.cad.manufacture import PROCESSES
-
-    return next((k for k, label in PROCESSES.items() if label == stored_printer), "print")
+# What ProofLoop 0.4 stored as the "printer" of a version it checked for moulding or machining.
+_NOT_PRINTED = ("Injection moulding", "CNC machining (3-axis)")
 
 
 def _facts_json(facts: dict[str, Any]) -> dict[str, Any]:

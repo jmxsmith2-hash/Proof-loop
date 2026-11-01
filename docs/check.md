@@ -8,7 +8,6 @@ right check for the file, and `proofloop check COMMAND` gives every option.
 - [From CAD to a print-ready verdict](#from-cad-to-a-print-ready-verdict)
 - [G-code](#g-code-the-sliced-file)
 - [Learning from your printers, and from you](#learning-from-your-printers-and-from-you)
-- [Moulded and machined products](#moulded-and-machined-products)
 - [Product predictions](#product-predictions-prediction-not-a-test)
 
 A checked Bambu plate (`.gcode.3mf`) gets a **Loop file** row: **Make it now** makes the loop file
@@ -236,43 +235,6 @@ was right*. A check marked a false alarm at least twice for a printer and materi
 it was confirmed, counts one level lower there from then on (four times: only a note), and says so.
 The loop-file safety checks are never lowered. Your verdicts are kept in
 `~/.proofloop/feedback.json`.
-
-## Moulded and machined products
-
-The same CAD check works for parts that will be injection moulded or CNC machined:
-
-```bash
-proofloop check design housing.stl --process injection --material PP     # mould opens along the best axis
-proofloop check design housing.stl --process injection --pull z
-proofloop check design bracket.step --process cnc --material aluminium_6061
-```
-
-(or set `process:` and `pull:` in the design YAML, or pick "How it is made" on the CAD card).
-
-**Injection moulding** (two-part mould, straight pull):
-
-* undercuts: space with part material above and below it along the pull, which neither mould half
-  can form. It says which side a slider could come from, or that nothing can (a sealed space);
-* draft on side walls (1° by default, 3° for textured surfaces);
-* wall thickness from a distance map: too thin to fill (short shot), thick sections that sink or
-  void, and walls uneven enough to warp;
-* sharp inside corners;
-* shot weight, clamp force from the projected area, cooling and cycle time, and the shrinkage to
-  allow for.
-
-**CNC machining** (3-axis, re-clamped as needed):
-
-* material no straight tool can reach from any side;
-* the fewest set-ups that reach the rest;
-* inside corners sharper than the tool's radius, and slots narrower than the smallest tool (gaps
-  between separate bodies don't count);
-* pockets deeper than 4x their width, thin walls, deep or tiny holes;
-* stock size, how much is cut away, and a rough machining time.
-
-Grip, weight, sharp edges, clearances between parts and tipping are checked as for printed parts,
-and personas react the same way. Material and process figures live in `processes.yaml` (ABS, PP,
-PC, PA66, POM, HDPE and TPE for moulding; aluminium, steel, stainless, brass and plastics for
-machining). They are typical design-guide values; a moulder's or machinist's quote wins.
 
 ## Product predictions (prediction, not a test)
 

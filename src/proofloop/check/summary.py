@@ -54,7 +54,6 @@ def _verdict(findings: list[dict]) -> dict[str, Any]:
 
 def design(r: dict[str, Any]) -> dict[str, Any]:
     folder = Path(r["report"]).parent
-    made = r["process"]
     printer = (r["printer"].get("names") or [r["printer"].get("label") or r["printer"].get("name")])[0]
     c = r.get("comparison") or None
     return {
@@ -64,11 +63,10 @@ def design(r: dict[str, Any]) -> dict[str, Any]:
         "version": r["version"],
         "file": str(r["file"]),
         **_verdict(r["findings"]),
-        "process": made["kind"],
-        "printer": printer if made["kind"] == "print" else made.get("label"),
+        "printer": printer,
         "material": r["material"]["name"],
         "size_mm": r["metrics"].get("size_mm"),
-        "estimates": {k: v for k, v in r["metrics"].get("estimates", {}).items() if k != "process_stats"},
+        "estimates": r["metrics"].get("estimates", {}),
         "findings": [finding(f, folder) for f in r["findings"]],
         "since_last_version": {
             "version": c["previous_version"],

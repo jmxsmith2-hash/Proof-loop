@@ -41,12 +41,12 @@ parts match the window's tabs:
 | Package | Job |
 |---|---|
 | `core/` | `paths.py` (`~/.proofloop`, `PROOFLOOP_HOME`), `config.py` (built-in YAML in `data/` with yours in `config/` over it), `settings.py` (`settings.json`: printers, notifications, loop-file defaults, costs, filament), `db.py` + `migrations/` (`results.db`), `llm.py` + `cost.py` (optional model engine for personas and predictions), `notify.py` (ntfy, Discord, webhooks), `printers.py` (Bambu model ids), `theme.py`, `commands.py` (shared by the `check` commands). |
-| `check/` | `cad/` (mesh loading incl. 3MF, voxel/print checks, fine detail, auto-eject, moulding and CNC, renders, ergonomics, personas, print iteration), `gcode/` (parser for plain and Bambu `.gcode.3mf`, checks, layer previews, slicer-setting fixes), `slicer.py` + `prepare.py` (headless slicing and the print-ready verdict), `learn.py` (from the print journal), `feedback.py` (false alarms), product predictions (`inputs.py`, `reviews.py`, `evaluate.py`, `sensors.py`, `guardrails.py`), `templates/` (reports). |
+| `check/` | `cad/` (mesh loading incl. 3MF, voxel/print checks, fine detail, auto-eject, renders, ergonomics, personas, print iteration), `gcode/` (parser for plain and Bambu `.gcode.3mf`, checks, layer previews, slicer-setting fixes), `slicer.py` + `prepare.py` (headless slicing and the print-ready verdict), `learn.py` (from the print journal), `feedback.py` (false alarms), product predictions (`inputs.py`, `reviews.py`, `evaluate.py`, `sensors.py`, `guardrails.py`), `templates/` (reports). |
 | `loopfiles/` | See below. |
 | `monitor/` | See below. |
 | `personas/` | people who differ in hand size, grip, body size, motor control and eyesight: traits, deliberate design, generation, diversity (used by the design check and product predictions). |
 | `app/` | the window's server (`shell.py`) with Check (`checks.py`) and Loop files & Printers (`loop_server.py` and one module per feature in `routes/`) on it; the first-run guide (`guide.py`); backup and restore (`backup.py`); assistants over MCP (`mcp.py`); the pretend farm (`pretend_farm.py`); background service, tray, start at login, phone access, setup check, updates; the pages (`static/`, `templates/`). |
-| `data/` | built-in YAML (settings, models, printers, processes) and reference data (body sizes, product checklists). |
+| `data/` | built-in YAML (settings, models, printers) and reference data (body sizes, product checklists). |
 
 ## The Loop files & Printers API
 

@@ -187,7 +187,7 @@ Everything is in one folder, `~/.proofloop` (`PROOFLOOP_HOME` moves it):
 
 ## More
 
-- [Check](docs/check.md): CAD, the print-ready verdict, G-code, moulding and machining, product predictions
+- [Check](docs/check.md): CAD, the print-ready verdict, G-code, product predictions
 - [Loop files](docs/loop-files.md): what goes in a loop file, checking, costs, calibration, hardware profiles
 - [Printers](docs/printers.md): the plate check, print history, filament, notifications, Docker
 - [Printer setup](docs/bambu-setup.md), [where every printer and kit value comes from](docs/sources.md)

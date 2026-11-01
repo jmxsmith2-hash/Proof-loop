@@ -114,6 +114,12 @@ and the window shows them under *More › What's new*.
   logged instead of swallowed.
 - CI lints the page scripts, drives the window in a real browser, and pins its actions to commits.
 
+### Removed
+- **Moulding and CNC checks.** *Check* is for 3D printing only: the "How it is made" choice,
+  `--process` and `--pull`, and `processes.yaml` are gone (they're in the history of 0.4.0 if you
+  need them). A design checked for moulding or machining before isn't compared with its next print
+  check.
+
 ### Fixed
 - Saving the notification form wiped a saved access token.
 - Taking an order when `orders.json` came from a newer ProofLoop left an unfollowed run in the queue.

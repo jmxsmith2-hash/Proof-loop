@@ -180,12 +180,10 @@ class Checks:
                     for k, v in (data.get("printers") or {}).items()]
         farm = farm_printers(data)  # the printers you added under Printers: one list for everything
         materials = list((data.get("materials") or {}).keys())
-        procs = load_yaml_file(config_file(self.settings.config_dir, "processes.yaml")) or {}
-        process_materials = {"print": materials, **{k: list((v or {}).get("materials", {})) for k, v in procs.items()}}
         slicer = self._slicer()
         return self.env.get_template("check_app.html.j2").render(
             printers=printers, materials=materials, default_printer=data.get("default_printer"),
-            process_materials=process_materials, slicer=slicer, default_material=data.get("default_material"),
+            slicer=slicer, default_material=data.get("default_material"),
             prefix=PREFIX, farm=farm, default_farm=farm[0]["id"] if farm else None,
             no_slicer=NO_SLICER, slice_again_note=SLICE_AGAIN_NOTE)
 
@@ -307,24 +305,16 @@ class Checks:
         if opt.get("auto_eject") in ("1", "true", "on"):
             spec.use["auto_eject"] = True
         people = asyncio.run(PersonaGenerator(seed=11).generate(5, include_accessibility=True))
-        process = opt.get("process") if opt.get("process") in ("injection", "cnc") else None
-        if not process and opt.get("slice") in ("1", "true", "on"):
+        if opt.get("slice") in ("1", "true", "on"):
             return self._prepare_work(job, path, opt)
-        if process:
-            job.stage = {"injection": "checking it for injection moulding", "cnc": "checking it for CNC machining"}[process]
         result = check_design(self.settings, self.db, path, spec, people, path.parent / "report",
-                              opt.get("printer") or None, opt.get("material") or None, opt.get("units") or None,
-                              process=process, pull=opt.get("pull") or None)
+                              opt.get("printer") or None, opt.get("material") or None, opt.get("units") or None)
         job.report = result["report"]
         job.title = f"{result['design']} v{result['version']}"
         self._summarise(job, result["findings"], result["printer"]["name"], result["material"]["name"])
         est = result["metrics"]["estimates"]
-        if result["process"]["kind"] == "print":
-            printer = (result["printer"].get("names") or [result["printer"]["name"]])[0]
-            job.summary.append(f"about {est['printed_grams']} g, {est['print_hours']} h on {printer}")
-        else:
-            job.summary.append(f"{result['process']['label']} in {result['material']['name']}: " +
-                               "; ".join(f"{label} {value}" for value, label in est.get("process_stats", [])[:3]))
+        printer = (result["printer"].get("names") or [result["printer"]["name"]])[0]
+        job.summary.append(f"about {est['printed_grams']} g, {est['print_hours']} h on {printer}")
 
     def _prepare_work(self, job: Job, path: Path, opt: dict[str, str]) -> None:
         from proofloop.check.learn import history_for
