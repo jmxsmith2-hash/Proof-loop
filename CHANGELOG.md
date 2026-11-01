@@ -12,6 +12,10 @@ and the window shows them under *More › What's new*.
   **Fill the plate** with as many as fit; parts are kept out of the strip the pusher comes down in.
   A project keeps its own settings and only takes the printer's nozzle flow, so a plate sliced for
   the wrong nozzle is fixed by dropping its project. Needs Bambu Studio (or OrcaSlicer) installed.
+- **Spool swap timing.** Before you send, on queued jobs and while a run prints, ProofLoop adds up
+  what every loop takes from each AMS tray and says it's enough, or which loop the tray runs out on
+  and after which loop to swap the spool, or which matching tray the AMS can switch to. It uses the
+  linked spool's count, or the AMS's estimate for Bambu spools, and says when the amount isn't known.
 - **Proof photos.** ProofLoop saves a picture of each loop's finished plate before the sweep, so
   every order in *Orders* has a gallery of what was made, and each printer's card shows its latest
   few. On by default; turn it off or choose how many to keep in *Monitor › Camera*.
