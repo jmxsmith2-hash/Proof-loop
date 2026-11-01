@@ -104,6 +104,19 @@ input[type=number]{max-width:140px}
 .run{padding:12px 0;border-top:1px solid var(--line)}
 .run:first-child{border-top:0}
 .thumb{width:100%;border-radius:8px;border:1px solid var(--line);background:var(--soft);aspect-ratio:4/3;object-fit:cover}
+.cam-live{position:relative;margin:10px 0 4px;border-radius:var(--radius);overflow:hidden;background:#0b0d10;aspect-ratio:16/9;box-shadow:0 1px 0 var(--line)}
+.cam-live img{display:block;width:100%;height:100%;object-fit:contain;cursor:zoom-in}
+.cam-live img:not([src]){visibility:hidden}
+.cam-badge{position:absolute;top:10px;left:10px;padding:3px 9px;border-radius:999px;background:rgba(0,0,0,.6);color:#fff;font:600 11px/1.4 system-ui,sans-serif;letter-spacing:.04em}
+.cam-badge.on::before{content:"";display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:#e5484d;vertical-align:1px;animation:cam-pulse 1.6s var(--ease) infinite}
+@keyframes cam-pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.cam-badge.on::before{animation:none}}
+.cam-big{position:absolute;top:8px;right:8px;width:32px;height:32px;border:0;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;font-size:17px;cursor:pointer}
+.cam-big:hover,.cam-big:focus-visible{background:rgba(0,0,0,.8)}
+.cam-note{position:absolute;left:10px;right:10px;bottom:10px;margin:0;padding:6px 10px;border-radius:8px;background:rgba(0,0,0,.65);color:#fff;font-size:12px}
+.cam-live.expanded{position:fixed;inset:16px;z-index:1000;margin:0;aspect-ratio:auto;box-shadow:0 0 0 100vmax rgba(0,0,0,.7)}
+.cam-live.expanded img{cursor:zoom-out}
+.cam-live:fullscreen{border-radius:0}
 .num{font-variant-numeric:tabular-nums}
 </style>
 </head>
@@ -293,6 +306,7 @@ input[type=number]{max-width:140px}
         <label class="field" id="fanRow"><span>Fan while cooling</span><select id="sFan"><option value="profile">Kit default (as FarmLoop does it)</option><option value="exhaust">Exhaust fan: vents the chamber (P2S)</option><option value="off">Off</option></select></label>
         <label class="field"><span>Printer sounds</span><select id="sSounds"><option value="every">Every loop (as sliced)</option><option value="last">Only when the whole run ends</option><option value="off">Off</option></select><div class="hint">The tunes the printer plays when each loop starts and finishes.</div></label>
         <label class="toggle"><input type="checkbox" id="sLoadLine"><span><b>Draw the nozzle load line on every loop</b><span class="hint">Off: only loop 1 draws the line on the front edge. Later loops prime the nozzle with a small dab at its start instead.</span></span></label>
+        <label class="toggle"><input type="checkbox" id="sLevelOnce"><span><b>Level and calibrate on the first loop only</b><span class="hint">Later loops skip bed leveling, the vibration sweep and flow calibration, and use loop 1's results: a few minutes saved on every loop. Homing and the nozzle wipe still run. Leave it off if the plate can shift between loops.</span></span></label>
         <label class="toggle"><input type="checkbox" id="sMonitor"><span><b>Wait for the plate check between loops</b><span class="hint">The printer pauses after each sweep until the camera confirms the plate is empty. If anything is left, or the monitor isn't running, it keeps waiting until you press Resume.</span></span></label>
         <label class="toggle"><input type="checkbox" id="sFirstPause"><span><b>Safety pause before the first sweep</b><span class="hint" id="firstPauseHint">Loop 1 stops after cooling, before the pusher moves, so you can check the push heights against your parts. Press Resume on the printer to carry on. Later loops don't stop.</span></span></label>
         <div class="row"><button class="btn" id="saveDefaults">Save as my defaults</button></div>

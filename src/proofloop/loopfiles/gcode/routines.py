@@ -20,6 +20,11 @@ Placement follows what is known to run on Bambu printers:
   its nozzle load line (the line drawn on the front edge) is drawn on the first loop only. Later
   loops prime the nozzle with a small dab where the line starts instead, so the first layer
   doesn't start short of the filament the start G-code pulled back.
+* With *level once per run*, later loops also skip the start G-code's calibrations: the
+  vibration sweep (``M970.2``/``M970.3``/``M974``), bed leveling (``G29 A…`` and its ``M500``)
+  and flow dynamics calibration (``M983.3``). The printer keeps loop 1's results, as when auto
+  bed leveling is turned off in Bambu Studio. Homing, plate detection and the nozzle wipe still
+  run on every loop.
 
 Every block is wrapped in ``; >>> PROOFLOOP <name>`` / ``; <<< PROOFLOOP <name>``.
 """
@@ -38,6 +43,16 @@ LOAD_LINE_START = re.compile(r"^;=+ *no+z+le load line *=+\s*$", re.I)
 LOAD_LINE_END = re.compile(r"^;=+ *no+z+le load line end *=+\s*$", re.I)
 RETRACT_RE = re.compile(r"^\s*G1\s+E-(\d*\.?\d+)\s")
 LOAD_LINE_XY = re.compile(r"^\s*G130\b.*?\bX(-?\d*\.?\d+).*?\bY(-?\d*\.?\d+)")
+# The calibrations in Bambu's start G-code, by the section markers it puts round each, and the
+# commands in them that calibrate (everything else in a section still runs).
+CALIBRATIONS = [
+    ("vibration sweep", re.compile(r"^;=+ *mech mode sweep start *=+", re.I), re.compile(r"^;=+ *mech mode sweep end", re.I),
+     re.compile(r"^\s*(M970\.[23]|M974)\b")),
+    ("bed leveling", re.compile(r"^;=+ *bed leveling *=+\s*$", re.I), re.compile(r"^;=+ *bed leveling end", re.I),
+     re.compile(r"^\s*(G29\s+A\d|M500)\b")),
+    ("flow calibration", re.compile(r"^;=+ *auto extrude cali start", re.I), re.compile(r"^;=+ *auto extrude cali end", re.I),
+     re.compile(r"^\s*M983\.3\b")),
+]
 BLOCK_RE = re.compile(r"; >>> PROOFLOOP (\w+)\n.*?; <<< PROOFLOOP \1\n", re.S)
 FAN_OFF_RE = re.compile(r"^\s*M106\b(?:\s+P\d+)?\s+S0\b")
 STEPPER_RE = re.compile(r"^\s*(M17|M18|M84)\b")
@@ -65,6 +80,7 @@ class LoopSettings:
     pause_first_sweep: bool = False  # pause before loop 1's sweep so you can check the pusher height
     sounds: str = "every"  # the printer's tunes: "every" loop (as sliced), "last" (only when the run ends) or "off"
     load_line_every_loop: bool = False  # draw Bambu's nozzle load line on every loop, not just the first
+    level_once: bool = False  # bed leveling, vibration sweep and flow calibration on loop 1 only
     sweep: SweepSettings = field(default_factory=SweepSettings)
 
 
@@ -86,6 +102,24 @@ def silence(lines: list[str], lo: int, hi: int) -> int:
             lines[i] = "; (silenced by ProofLoop) " + lines[i].lstrip()
             n += 1
     return n
+
+
+def skip_calibrations(lines: list[str], lo: int, hi: int) -> list[str]:
+    """Comment out the calibrating commands of each calibration section in ``lines[lo:hi]``.
+
+    Returns the names of the calibrations skipped. A section whose markers aren't there (another
+    printer, another start G-code) is left alone.
+    """
+    skipped = []
+    for name, start_re, end_re, cmd_re in CALIBRATIONS:
+        start = next((i for i in range(lo, hi) if start_re.match(lines[i])), -1)
+        end = next((i for i in range(start + 1, hi) if end_re.match(lines[i])), -1) if start >= 0 else -1
+        hits = [i for i in range(start + 1, end) if cmd_re.match(lines[i])] if end > 0 else []
+        for i in hits:
+            lines[i] = f"; ({name} done on the first loop only) " + lines[i].lstrip()
+        if hits:
+            skipped.append(name)
+    return skipped
 
 
 def skip_load_line(lines: list[str], lo: int, hi: int) -> bool:

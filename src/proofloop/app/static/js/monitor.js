@@ -2,35 +2,66 @@
 // Part of loop.html; the files load in order and share their top-level names.
 
 // ---------- monitor ----------
-// The camera view: printer name -> the latest picture's URL ('' before the first), while its view is open.
-// One loop asks each open camera for a picture every 1.5 s, and only while the page is on screen.
+// The camera view: live video while it is open and on screen. Printer name -> its view, which is kept
+// across the cards being redrawn (so the picture never blinks), with the stream that feeds it.
 const cameraOn = {};
-let cameraTimer = null;
 const cameraShown = () => !document.hidden && document.body.getClientRects().length > 0 && !$('[data-panel=monitor]').classList.contains('hidden');
-function cameraStart() { if (!cameraTimer && Object.keys(cameraOn).length) cameraTimer = setTimeout(cameraLoop, 0); }
-async function cameraLoop() {
-  cameraTimer = null;
-  if (!Object.keys(cameraOn).length) return;
-  if (cameraShown()) {
-    for (const name of Object.keys(cameraOn)) {
-      const n = encodeURIComponent(name);
-      try {
-        const old = cameraOn[name];
-        const url = URL.createObjectURL(await (await api(`/api/monitor/${n}/camera`)).blob());
-        if (!(name in cameraOn)) { URL.revokeObjectURL(url); continue; }  // closed while the picture came
-        cameraOn[name] = url; if (old) URL.revokeObjectURL(old);
-        $$(`[data-cam="${n}"]`).forEach(img => { img.src = url; img.classList.remove('hidden'); });
-        $$(`[data-camnote="${n}"]`).forEach(p => p.classList.add('hidden'));
-      } catch (e) {
-        $$(`[data-camnote="${n}"]`).forEach(p => { p.textContent = e.message; p.classList.remove('hidden'); });
-      }
-    }
-  }
-  if (Object.keys(cameraOn).length) cameraTimer = setTimeout(cameraLoop, cameraShown() ? 1500 : 3000);  // hidden: only wait
+function cameraView(name) {
+  const el = document.createElement('div');
+  el.className = 'cam-live';
+  el.innerHTML = `<img alt="Live camera: ${esc(name)}"><span class="cam-badge">connecting…</span>
+    <button class="cam-big" type="button" title="Bigger (Esc to close)" aria-label="Show the camera bigger">⤢</button><p class="cam-note hidden"></p>`;
+  el.querySelector('.cam-big').onclick = el.querySelector('img').onclick = () => el.classList.toggle('expanded');
+  return {el, img: el.querySelector('img'), badge: el.querySelector('.cam-badge'), note: el.querySelector('.cam-note'), url: '', ctl: null, times: []};
 }
 function cameraToggle(name) {
-  if (name in cameraOn) { if (cameraOn[name]) URL.revokeObjectURL(cameraOn[name]); delete cameraOn[name]; } else { cameraOn[name] = ''; cameraStart(); }
+  const v = cameraOn[name];
+  if (v) { v.ctl?.abort(); if (v.url) URL.revokeObjectURL(v.url); delete cameraOn[name]; } else { cameraOn[name] = cameraView(name); cameraStart(); }
 }
+// One part of the multipart stream from the front of buf: {type, body, rest}, or null until it has all come.
+const CRLF2 = [13, 10, 13, 10];
+function takePart(buf) {
+  let h = -1;
+  for (let i = 0; i + 3 < buf.length; i++) if (buf[i] === 13 && buf[i + 1] === 10 && buf[i + 2] === 13 && buf[i + 3] === 10) { h = i; break; }
+  if (h < 0) return null;
+  const head = new TextDecoder().decode(buf.subarray(0, h));
+  const len = +(/content-length:\s*(\d+)/i.exec(head) || [])[1], type = (/content-type:\s*([^\r\n]+)/i.exec(head) || [])[1] || '';
+  if (!(len >= 0) || buf.length < h + CRLF2.length + len) return null;
+  const start = h + CRLF2.length;
+  return {type, body: buf.slice(start, start + len), rest: buf.slice(start + len + 2)};
+}
+function cameraFrame(v, part) {
+  if (!part.type.startsWith('image/')) { v.note.textContent = new TextDecoder().decode(part.body); v.note.classList.remove('hidden'); v.badge.textContent = 'reconnecting…'; v.badge.classList.remove('on'); return; }
+  const url = URL.createObjectURL(new Blob([part.body], {type: part.type}));
+  v.img.onload = () => { if (v.old) URL.revokeObjectURL(v.old); v.old = null; };
+  v.old = v.url; v.url = url; v.img.src = url;
+  const now = performance.now(); v.times = v.times.filter(t => now - t < 2000).concat(now);
+  v.badge.textContent = `LIVE · ${Math.round(v.times.length / 2)} fps`; v.badge.classList.add('on'); v.note.classList.add('hidden');
+}
+async function cameraStream(name) {
+  const v = cameraOn[name]; if (!v || v.ctl) return;
+  const ctl = v.ctl = new AbortController();
+  try {
+    const r = await api(`/api/monitor/${encodeURIComponent(name)}/live`, {signal: ctl.signal});
+    const reader = r.body.getReader();
+    let buf = new Uint8Array(0);
+    for (;;) {
+      const {value, done} = await reader.read(); if (done) break;
+      const more = new Uint8Array(buf.length + value.length); more.set(buf); more.set(value, buf.length); buf = more;
+      for (let p; (p = takePart(buf));) { buf = p.rest; cameraFrame(v, p); }
+    }
+  } catch (e) {
+    if (e.name !== 'AbortError') { v.note.textContent = e.message; v.note.classList.remove('hidden'); }
+  } finally { if (v.ctl === ctl) v.ctl = null; }
+}
+// Every open view streams while the Monitor is on screen, and stops (the camera closes soon after) while it isn't.
+function cameraStart() {
+  for (const [name, v] of Object.entries(cameraOn)) {
+    if (cameraShown()) { if (!v.ctl) cameraStream(name); } else if (v.ctl) { v.ctl.abort(); v.ctl = null; v.badge.textContent = 'paused'; v.badge.classList.remove('on'); }
+  }
+}
+setInterval(cameraStart, 2000);  // also restarts a stream that dropped
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $$('.cam-live.expanded').forEach(el => el.classList.remove('expanded')); });
 // What's in each AMS, as the printer reports it: colour, type, how full, which tray is feeding.
 function amsStrip(p) {
   const a = p.ams || {units: [], trays: []};
@@ -60,11 +91,10 @@ async function refreshMonitor() {
         ${m.pending_resume ? '<p><span class="chip info">holding for quiet hours</span></p>' : ''}
         ${p.hms.length ? `<p class="hint" style="color:var(--bad)">HMS: ${p.hms.map(h => esc(h.code + ' (' + h.level + ')')).join(', ')}</p>` : ''}
         <img class="thumb hidden" alt="Camera picture" data-img="${n}">
-        <img class="thumb ${cam ? '' : 'hidden'}" alt="Camera view" data-cam="${n}" ${cam ? `src="${cam}"` : ''} style="aspect-ratio:16/9;object-fit:contain">
-        <p class="hint hidden" data-camnote="${n}"></p>
+        ${cam ? `<div data-livecam="${n}"></div>` : ''}
         ${lapses ? `<div class="hint" style="margin-top:10px">Timelapses</div><ul class="list">${lapses}</ul>` : ''}
         <div class="row" style="margin-top:10px">
-          <button class="btn ${cam !== undefined ? 'primary' : ''}" data-act="cam" data-n="${n}" title="A live-ish view, a new picture every second or two while it is open">${cam !== undefined ? 'Hide camera' : 'Camera'}</button>
+          <button class="btn ${cam ? 'primary' : ''}" data-act="cam" data-n="${n}" title="Live video from the printer's camera while it is open">${cam ? 'Hide camera' : 'Live camera'}</button>
           <button class="btn" data-act="snap" data-n="${n}">Snapshot</button>
           <button class="btn" data-act="ref" data-n="${n}" title="Take this with the plate empty">Save empty-plate picture</button>
           <button class="btn ${m.waiting_for_you ? 'primary' : ''}" data-act="check" data-n="${n}">Check plate${m.waiting_for_you ? ' & resume' : ''}</button>
@@ -73,6 +103,7 @@ async function refreshMonitor() {
           ${m.waiting_for_you ? `<button class="btn danger" data-act="resume" data-n="${n}">Resume without check</button>` : ''}
           <button class="btn danger" data-act="remove" data-n="${n}">Remove</button></div></div>`;
     }).join('');
+    for (const [name, v] of Object.entries(cameraOn)) $(`[data-livecam="${encodeURIComponent(name)}"]`)?.replaceWith(v.el);
     const oc = await json('/api/outcomes?limit=25');
     const how = {finished: '<span class="chip ok">finished</span>', failed: '<span class="chip bad">failed</span>', cancelled: '<span class="chip">cancelled</span>', unknown: '<span class="chip">?</span>'};
     $('#outcomes').innerHTML = '<tr><th>Ended</th><th>Printer</th><th>File</th><th>Result</th></tr>' + (oc.length ? '' : '<tr><td colspan="4" class="muted">Nothing yet. Every print the Monitor sees is recorded here.</td></tr>') + oc.map(o => `<tr><td class="num muted">${new Date(o.ts * 1000).toLocaleString()}</td><td>${esc(o.printer)}</td><td>${esc(o.job || '')}${o.loop_file ? ' <span class="muted">loop ' + o.loop_no + '</span>' : ''}</td><td>${how[o.outcome] || esc(o.outcome)}${o.outcome !== 'finished' && o.layer ? ' <span class="muted">at layer ' + o.layer + (o.total_layers ? '/' + o.total_layers : '') + '</span>' : ''}${o.hms && o.hms.length ? ' <span class="muted">HMS ' + o.hms.map(h => esc(h.code)).join(', ') + '</span>' : ''}${o.eject === 'parts_left' ? ' <span class="chip warn">parts left</span>' : ''}${o.has_picture ? ` <button class="btn" data-act="outpic" data-id="${o.id}">Picture</button>` : ''}</td></tr>`).join('');
@@ -97,7 +128,7 @@ $('#outcomes').addEventListener('click', async (e) => {
 $('#printerCards').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-act]'); if (!b) return; const n = b.dataset.n, card = b.closest('.card');
   try {
-    if (b.dataset.act === 'cam') { cameraToggle(decodeURIComponent(n)); }
+    if (b.dataset.act === 'cam') { cameraToggle(decodeURIComponent(n)); refreshMonitor(); return; }
     if (b.dataset.act === 'lapse' || b.dataset.act === 'lapsesave') {
       const r = await api(`/api/monitor/${n}/timelapses/${encodeURIComponent(b.dataset.id)}`);
       if (b.dataset.act === 'lapse') window.open(URL.createObjectURL(await r.blob()), '_blank');

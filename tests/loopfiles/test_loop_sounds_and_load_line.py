@@ -84,3 +84,46 @@ def test_the_settings_come_from_your_defaults():
     assert s.sounds == "off" and s.load_line_every_loop
     d = loop_settings({})
     assert d.sounds == "every" and not d.load_line_every_loop
+
+
+CALIBRATING = """;===== mech mode sweep start =====
+  M1002 gcode_claim_action : 3
+  G1 X128 Y128 F20000
+  M970.3 Q1 A10 K0 O1
+  M970.2 Q1 K1 W74 Z0.01
+  M974 Q1 S2 P0
+  M975 S1
+;===== mech mode sweep end =====
+;===== bed leveling ==================================
+  M1002 judge_flag g29_before_print_flag
+  M622 J1
+      G29 A1 X102.33 Y88.4035 I47.3489 J79.2437
+    M500 ; save cali data
+  M623
+  M622 J0
+    G28
+  M623
+  G29.2 S1
+;===== bed leveling end ================================
+"""
+
+
+def calibrating_plate() -> threemf.SlicedFile:
+    gcode = plate_gcode(SMALL).replace("; purge line, not an object\n", CALIBRATING + LOAD_LINE.format(tune=""), 1)
+    return threemf.loads(make_3mf(gcode, SMALL), name="cal.gcode.3mf")
+
+
+def calibrations(body: str) -> int:
+    return len(re.findall(r"^\s*(M970\.[23]|M974|G29 A\d|M500)\b", body, re.MULTILINE))
+
+
+def test_level_once_skips_the_calibrations_after_the_first_loop_and_keeps_the_rest():
+    every = loops(process(calibrating_plate(), P, LoopSettings(loops=3)).gcode)
+    assert [calibrations(b) for b in every] == [5, 5, 5]  # as sliced unless you turn it on
+    once = loops(process(calibrating_plate(), P, LoopSettings(loops=3, level_once=True)).gcode)
+    assert [calibrations(b) for b in once] == [5, 0, 0]
+    later = once[1]
+    assert "; (bed leveling done on the first loop only) G29 A1" in later
+    assert "; (vibration sweep done on the first loop only) M970.3" in later
+    for kept in ("  M975 S1", "  G29.2 S1", "    G28", "  M1002 judge_flag g29_before_print_flag"):
+        assert kept in later  # input shaping, bed-mesh compensation and the rest still run

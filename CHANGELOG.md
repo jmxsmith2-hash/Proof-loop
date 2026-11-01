@@ -10,8 +10,11 @@ and the window shows them under *More › What's new*.
   loose: it compares the camera picture every 10% of the layers with the last good look and alerts
   (or pauses, if you chose that) after two bad looks in a row. It's a heuristic, and can be set to
   look only halfway and at 80%.
-- **Camera view.** Each printer's card shows a new picture every second or two while it's open, and
-  stops when you hide it or switch away.
+- **Live camera.** Each printer's card shows the camera as live video while it's open: one
+  connection that stays up, about 15 frames a second from a P2S (a picture every second or two
+  before), with a LIVE badge, the frame rate, and a bigger view on a click. It pauses when you hide
+  it or switch away and closes the camera soon after; while it's open, plate checks and the failure
+  watch use its frames instead of connecting again.
 - **Timelapse** (off unless you turn it on): a picture every few layers while a print runs, made
   into a small animation when it ends; each printer's last few are on its card to view or save.
 - **Maintenance.** *Printers › Maintenance* counts print hours, prints and loops per printer since
@@ -56,6 +59,9 @@ and the window shows them under *More › What's new*.
   on the front edge before printing) is drawn on the first loop only; later loops prime the nozzle
   with a small dab where it starts, so the first layer still starts full. Tick *Draw the nozzle load
   line on every loop* to keep it as sliced.
+- **Level once per run** (off unless you turn it on). Loops after the first skip bed leveling, the
+  vibration sweep and flow calibration and use loop 1's results, saving a few minutes per loop.
+  Homing, plate detection and the nozzle wipe still run on every loop.
 - **Every AMS tray as a spool in one click.** *Filament › In your printers* adds a spool for each
   loaded tray, linked to it. Bambu spools come with their weight and what's left from the RFID tag.
 

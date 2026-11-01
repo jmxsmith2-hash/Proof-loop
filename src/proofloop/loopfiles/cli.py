@@ -52,6 +52,8 @@ def _defaults(a) -> Defaults:
         d["pause_first_sweep"] = a.first_pause
     if getattr(a, "load_line_every_loop", False):
         d["load_line_every_loop"] = True
+    if getattr(a, "level_once", False):
+        d["level_once"] = True
     return Defaults.model_validate(d)
 
 
@@ -278,6 +280,11 @@ def _loop_args(p: argparse.ArgumentParser) -> None:
         "--load-line-every-loop",
         action="store_true",
         help="draw the nozzle load line on every loop (normally the first loop only)",
+    )
+    p.add_argument(
+        "--level-once",
+        action="store_true",
+        help="bed leveling, vibration sweep and flow calibration on the first loop only",
     )
     p.add_argument(
         "--first-pause",

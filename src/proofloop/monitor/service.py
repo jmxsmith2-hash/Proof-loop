@@ -53,6 +53,7 @@ def loop_settings(
         wait_for_monitor=d.wait_for_monitor,
         sounds=d.sounds,
         load_line_every_loop=d.load_line_every_loop,
+        level_once=d.level_once,
         sweep=SweepSettings(push_offset=d.push_offset, floor_z=d.floor_z, part_push_z=dict(part_push or {})),
     )
 

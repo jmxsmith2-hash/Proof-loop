@@ -39,6 +39,7 @@ REVIEWED_GETS = {
     "/api/monitor/{name}/snapshot",  # reads the printer's camera; changes nothing
     "/api/monitor/{name}/diff",
     "/api/monitor/{name}/camera",  # the shared latest picture; changes nothing
+    "/api/monitor/{name}/live",  # the camera as video; opens the camera while watched, changes nothing
     "/api/monitor/{name}/timelapses", "/api/monitor/{name}/timelapses/{id}",
     "/api/camera-settings",
     "/api/home-assistant",  # a phone gets "on or off" and the status, not the broker or its password

@@ -15,6 +15,7 @@ from proofloop.loopfiles.gcode.routines import (
     end_block,
     find_start_anchor,
     silence,
+    skip_calibrations,
     skip_load_line,
     strip_blocks,
 )
@@ -305,6 +306,8 @@ def _loop_text(
         silence(out, lay.exec_start, lay.end_gcode_start)  # the finish tune at the very end stays
     if loop_no > 1 and not settings.load_line_every_loop:
         skip_load_line(out, lay.exec_start, lay.start_gcode_end)
+    if loop_no > 1 and settings.level_once:
+        skip_calibrations(out, lay.exec_start, lay.start_gcode_end)
     out.insert(lay.exec_end, end_block(profile, settings, plan, end_region, is_p2s, last, loop_no))
     if profile.start_block:
         i = find_start_anchor(lines, lay.exec_start, lay.start_gcode_end, profile.start_anchor or "^$")

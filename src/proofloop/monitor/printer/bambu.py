@@ -29,10 +29,11 @@ import subprocess
 import threading
 import time
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from proofloop.core.proc import NO_WINDOW
+from proofloop.monitor.camera_live import LiveCamera, jpeg_frames, polled
 from proofloop.monitor.printer.state import PrinterState
 
 log = logging.getLogger(__name__)
@@ -67,6 +68,14 @@ class BambuPrinter:
         # can all want a picture at once, and the A1/P1 camera may refuse a second connection.
         self._camera = threading.Lock()
         self._client: Any = None
+        self.live = LiveCamera(self._live_frames)  # the camera as video while a view is open
+
+    def _live_frames(self) -> Iterator[bytes]:
+        if self.snapshot_url:
+            return polled(self._snapshot_now)
+        if self.model_id in CHAMBER_IMAGE_MODELS:
+            return chamber_image_frames(self.host, self.access_code)
+        return rtsps_frames(self.host, self.access_code)
 
     def add_listener(self, fn: Callable[[PrinterState], None]) -> None:
         self._listeners.append(fn)
@@ -148,6 +157,12 @@ class BambuPrinter:
             raise SendError("the file is on the printer, but ProofLoop couldn't tell it to start: not connected")
 
     def snapshot(self, timeout: float = 20.0) -> bytes:
+        """A picture now. While the camera view is open, its latest frame: no second connection."""
+        if (frame := self.live.fresh()) is not None:
+            return frame
+        return self._snapshot_now(timeout)
+
+    def _snapshot_now(self, timeout: float = 20.0) -> bytes:
         with self._camera:
             if self.snapshot_url:
                 with urllib.request.urlopen(self.snapshot_url, timeout=timeout) as r:
@@ -155,6 +170,43 @@ class BambuPrinter:
             if self.model_id in CHAMBER_IMAGE_MODELS:
                 return chamber_image_frame(self.host, self.access_code, timeout)
             return rtsps_frame(self.host, self.access_code, timeout)
+
+
+def chamber_image_frames(host: str, access_code: str, timeout: float = 15.0, port: int = 6000) -> Iterator[bytes]:
+    """The A1/P1 camera's JPEGs as it sends them, over one connection (16-byte header + JPEG each)."""
+    auth = struct.pack("<IIII", 0x40, 0x3000, 0, 0)
+    auth += b"bblp".ljust(32, b"\0") + access_code.encode().ljust(32, b"\0")
+    raw = socket.create_connection((host, port), timeout=timeout)
+    with _insecure_context().wrap_socket(raw, server_hostname=host) as s:
+        s.sendall(auth)
+        while True:
+            size = struct.unpack("<I", _recv_exact(s, 16)[:4])[0]
+            if not 0 < size < 10_000_000:
+                raise RuntimeError(f"unexpected camera frame size {size}")
+            yield _recv_exact(s, size)
+
+
+def rtsps_frames(host: str, access_code: str, port: int = 322, fps: int = 15) -> Iterator[bytes]:
+    """The RTSPS camera (X1, H2, P2S) as JPEG frames, from one ffmpeg that stays connected."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError("ffmpeg is needed for this printer's camera; install ffmpeg")
+    proxy = _TlsProxy(host, port)
+    url = f"rtsp://bblp:{access_code}@127.0.0.1:{proxy.local_port}/streaming/live/1"
+    cmd = [ffmpeg, "-loglevel", "error", "-rtsp_transport", "tcp", "-rtsp_flags", "prefer_tcp", "-i", url,
+           "-an", "-vf", f"fps={fps}", "-f", "image2pipe", "-vcodec", "mjpeg", "-q:v", "5", "-"]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
+    try:
+        assert proc.stdout is not None
+        yield from jpeg_frames(proc.stdout)
+        raise RuntimeError(f"the camera stream ended (ffmpeg exit code {proc.poll()})")
+    finally:
+        proc.kill()
+        try:
+            proc.wait(5)
+        except subprocess.TimeoutExpired:
+            pass
+        proxy.close()
 
 
 def chamber_image_frame(host: str, access_code: str, timeout: float = 15.0, port: int = 6000) -> bytes:
