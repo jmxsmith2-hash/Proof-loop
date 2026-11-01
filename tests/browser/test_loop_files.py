@@ -76,6 +76,11 @@ def test_the_send_panel_shows_which_printer_is_ready_and_turns_sending_on_in_pla
     expect(box).to_be_visible()
     targets = box.locator(".send-target")
     expect(targets).to_have_count(3)  # the three pretend printers, each ready or saying why not
+    toggle = page.locator("#sendToggle")
+    was_on = toggle.is_checked()  # the pretend farm starts with sending on
+    set_sending = "(el, on) => { el.checked = on; el.dispatchEvent(new Event('change')); }"
+    if was_on:
+        toggle.evaluate(set_sending, False)
     expect(box.locator("#sendOff")).to_be_visible()
     expect(box.locator("#sendBtn")).to_be_disabled()
     box.get_by_role("button", name="Turn on sending to printers").click()
@@ -85,5 +90,8 @@ def test_the_send_panel_shows_which_printer_is_ready_and_turns_sending_on_in_pla
     expect(first).to_contain_text("PLA → A1")  # the AMS tray that would feed the plate's filament
     expect(first.locator("input")).to_be_disabled()
     expect(box.locator("#sendBtn")).to_be_disabled()
-    page.locator("#sendToggle").evaluate("el => { el.checked = false; el.dispatchEvent(new Event('change')); }")
-    expect(box.locator("#sendOff")).to_be_visible()  # left off, as the farm started
+    toggle.evaluate(set_sending, was_on)  # as the farm had it
+    if was_on:
+        expect(box.locator("#sendOff")).to_be_hidden()
+    else:
+        expect(box.locator("#sendOff")).to_be_visible()

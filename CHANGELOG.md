@@ -43,6 +43,10 @@ and the window shows them under *More › What's new*.
 - **Send to a printer, smoother.** *Make a loop file* lists every printer as ready, or says why
   not (busy, wrong filament, not connected), with the AMS tray that will feed each filament. It
   picks a ready printer for you, and sending can be turned on right there.
+- **Nozzle check.** *Make a loop file* shows the nozzle a plate was sliced for (size and flow), and
+  before sending warns when it differs from the printer's: a plate sliced for a Standard nozzle on a
+  printer with a High Flow one, for example. A different nozzle size stops the send. ProofLoop never
+  changes the file's nozzle settings; slice again in Bambu Studio with the right nozzle flow.
 - **Every AMS tray as a spool in one click.** *Filament › In your printers* adds a spool for each
   loaded tray, linked to it. Bambu spools come with their weight and what's left from the RFID tag.
 

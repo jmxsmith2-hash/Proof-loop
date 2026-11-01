@@ -129,6 +129,7 @@ function renderPlate(a, keepSettings) {
   $('#plateChip').innerHTML = a.ok ? '<span class="chip ok">ready</span>' : '<span class="chip bad">needs attention</span>';
   $('#plateFacts').innerHTML = [
     ['Printer', a.printer], ['Filament', (a.filaments || []).join(', ') || '—'], ['Plate', a.bed_type || '—'],
+    ['Nozzle', a.nozzle ? `${a.nozzle} mm${a.nozzle_flow ? ', ' + a.nozzle_flow : ''}` : (a.nozzle_flow || '—')],
     ['Print time', fmtDur(a.print_seconds)], ['Parts', a.parts.length], ['Sliced with', a.slicer || '—'],
   ].map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
   if (!keepSettings) fillSettings(a.settings, a); else fillSettings(currentSettings(), a);
@@ -251,7 +252,8 @@ function renderTargets() {
     return `<label class="send-target${t.ready ? '' : ' off'}"><input type="radio" name="sendTo" value="${esc(t.printer)}" ${t.ready ? '' : 'disabled'} ${t.printer === pick ? 'checked' : ''}>
       <div><div class="spread"><b>${esc(t.printer)}</b>${t.ready ? '<span class="chip ok">ready</span>' : `<span class="chip">${esc(state)}</span>`}</div>
         ${slots ? `<div class="slots">${slots}</div>` : ''}
-        ${t.reasons.length ? `<div class="hint">${t.reasons.map(esc).join('<br>')}</div>` : ''}</div></label>`;
+        ${t.reasons.length ? `<div class="hint">${t.reasons.map(esc).join('<br>')}</div>` : ''}
+        ${t.notes.length ? `<div class="hint" style="color:var(--warn)">${t.notes.map(esc).join('<br>')}</div>` : ''}</div></label>`;
   }).join('');
   updateSendBtn();
 }
@@ -275,7 +277,7 @@ $('#sendBtn').onclick = async () => {
   const printer = ($('#sendTargets').querySelector('input:checked') || {}).value, s = currentSettings();
   if (!PLATE || !printer) return;
   const t = (TARGETS || []).find(x => x.printer === printer), feed = t ? t.slots.filter(sl => sl.tray_label).map(sl => `${sl.type} ${sl.color} from ${sl.tray_label}`).join(', ') : '';
-  if (!confirm(`Start ${PLATE.file} (${s.loops} loop${s.loops > 1 ? 's' : ''}) on ${printer}?${feed ? '\n\nFilament: ' + feed + '.' : ''}\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
+  if (!confirm(`Start ${PLATE.file} (${s.loops} loop${s.loops > 1 ? 's' : ''}) on ${printer}?${feed ? '\n\nFilament: ' + feed + '.' : ''}${t && t.notes.length ? '\n\nNote: ' + t.notes.join('\nNote: ') : ''}\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
   $('#sendBtn').disabled = true; $('#sendBtn').textContent = `Sending to ${printer}…`;
   try { const r = await send(`/api/plates/${PLATE.token}/send`, {...s, printer, confirm: printer}); toast(`Started ${r.file} on ${r.printer}`); }
   catch (e) { toast(e.message); }

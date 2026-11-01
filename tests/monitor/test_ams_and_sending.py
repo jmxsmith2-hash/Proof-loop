@@ -96,3 +96,25 @@ def test_no_program_proofloop_starts_opens_a_console_window():
                         isinstance(k.value, ast.Name) and k.arg is None for k in node.keywords)):
                 missing.append(f"{f.relative_to(SRC)}:{node.lineno}")
     assert not missing, f"start these with creationflags=NO_WINDOW: {missing}"
+
+
+def test_a_plate_sliced_for_another_nozzle_flow_is_flagged_before_sending(farm):
+    from proofloop.loopfiles import threemf
+    from proofloop.monitor.send import check
+    from tests.plates import SMALL, make_3mf, plate_gcode
+
+    gcode = plate_gcode(SMALL).replace("; printable_height", "; nozzle_volume_type = Standard\n; printable_height", 1)
+    sf = threemf.loads(make_3mf(gcode, SMALL))
+    assert sf.info.nozzle_flow == "Standard"
+    s = state("IDLE")
+    s.merge({"print": {"nozzle_type": "HH01", "nozzle_diameter": "0.4"}})  # what a P2S with a high-flow nozzle says
+    assert (s.nozzle_flow, s.nozzle_diameter, s.as_dict()["nozzle"]["flow"]) == ("High Flow", 0.4, "High Flow")
+    slots = [("1", "PLA", "#F2F2F2")]
+    p, reasons = check("p2s", s, "N7", "N7", slots, [], nozzle="0.4", nozzle_flow="Standard")
+    assert not reasons and p.notes == ["sliced for a Standard nozzle, but p2s has a High Flow one: slice it again in "
+                                       "Bambu Studio with the nozzle flow set to High Flow"]
+    assert check("p2s", s, "N7", "N7", slots, [], nozzle="0.4", nozzle_flow="High Flow")[0].notes == []
+    _, reasons = check("p2s", s, "N7", "N7", slots, [], nozzle="0.6", nozzle_flow="High Flow")
+    assert reasons == ["the file was sliced for a 0.6 mm nozzle, p2s has a 0.4 mm one"]
+    s.nozzle_type = "hardened_steel"  # older firmware: no flow in the code, so nothing to compare
+    assert check("p2s", s, "N7", "N7", slots, [], nozzle="0.4", nozzle_flow="Standard")[0].notes == []

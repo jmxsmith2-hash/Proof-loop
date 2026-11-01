@@ -337,7 +337,7 @@ class App:
         if w is None:
             raise SendError(f"no printer called {name!r}")
         p = plan(name, w.link.state, cfg.model_id, sf.info.printer_model_id or "", sf.info.filament_slots, danger,
-                 plate=sf.plate or 1)
+                 plate=sf.plate or 1, nozzle=sf.info.nozzle, nozzle_flow=sf.info.nozzle_flow)
         p.filename = filename
         w.link.send(filename, data, start_command(p))
         mapping = ", ".join(f"slot {i + 1} from {label(t)}" for i, t in enumerate(p.ams_mapping) if t >= 0)
@@ -359,7 +359,8 @@ class App:
             if w is None:
                 continue
             p, reasons = check(cfg.name, w.link.state, cfg.model_id, sf.info.printer_model_id or "",
-                               sf.info.filament_slots, [], plate=sf.plate or 1)
+                               sf.info.filament_slots, [], plate=sf.plate or 1, nozzle=sf.info.nozzle,
+                               nozzle_flow=sf.info.nozzle_flow)
             slots = []
             for sid, ftype, colour in sf.info.filament_slots:
                 i = int(sid) - 1 if str(sid).isdigit() else -1

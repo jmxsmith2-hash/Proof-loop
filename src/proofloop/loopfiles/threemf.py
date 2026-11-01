@@ -63,6 +63,7 @@ class PlateInfo:
     # slot id -> the slicer's filament preset for that slot (name, vendor, density, drying...), from CONFIG_BLOCK
     presets: dict[str, dict] = field(default_factory=dict)
     nozzle: str = ""
+    nozzle_flow: str = ""  # "Standard" or "High Flow": the nozzle flow the plate was sliced for
 
     def as_dict(self) -> dict:
         return dict(self.__dict__)
@@ -246,6 +247,9 @@ def read_info(gcode: str, entries: dict[str, bytes], plate: int) -> PlateInfo:
             info.bed_type = str(json.loads(plate_json).get("bed_type", ""))
         except ValueError:
             pass
+    # Bambu Studio 2: each extruder's flow ("Standard", "High Flow"); one extruder on a P2S
+    flow = [f.strip().strip('"') for f in re.split(r"[;,]", config.get("nozzle_volume_type", "")) if f.strip()]
+    info.nozzle_flow = flow[0] if flow else ""
     info.filaments = sorted(set(used or cfg_filaments))
     info.presets = _presets(config, info.filament_slots, idx_by_slot)
     if not info.printer_model_id and info.printer_model:

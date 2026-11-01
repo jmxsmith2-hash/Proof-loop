@@ -62,6 +62,8 @@ class Analysis:
             "bed": [info.bed_x, info.bed_y],
             "printable_height": info.printable_height,
             "bed_type": info.bed_type,
+            "nozzle": info.nozzle,
+            "nozzle_flow": info.nozzle_flow,
             "filaments": info.filaments,
             "filament_slots": [list(x) for x in info.filament_slots],
             "presets": info.presets,

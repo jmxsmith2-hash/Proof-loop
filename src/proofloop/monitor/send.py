@@ -83,18 +83,33 @@ def match_trays(slots: list[tuple[str, str, str]], trays: list[dict]) -> tuple[l
 
 
 def plan(name: str, state, model_id: str, file_model_id: str, slots: list[tuple[str, str, str]],
-         danger: list[str], plate: int = 1) -> Plan:
+         danger: list[str], plate: int = 1, nozzle: str = "", nozzle_flow: str = "") -> Plan:
     """Everything that must be true before a file goes to ``name``. Raises SendError with all reasons."""
-    result, reasons = check(name, state, model_id, file_model_id, slots, danger, plate)
+    result, reasons = check(name, state, model_id, file_model_id, slots, danger, plate, nozzle, nozzle_flow)
     if reasons:
         raise SendError("; ".join(reasons))
     return result
 
 
 def check(name: str, state, model_id: str, file_model_id: str, slots: list[tuple[str, str, str]],
-          danger: list[str], plate: int = 1) -> tuple[Plan, list[str]]:
-    """The plan and every reason it can't be sent yet (none: ready). Shown before you press Send."""
-    reasons = []
+          danger: list[str], plate: int = 1, nozzle: str = "", nozzle_flow: str = "") -> tuple[Plan, list[str]]:
+    """The plan and every reason it can't be sent yet (none: ready). Shown before you press Send.
+
+    ``nozzle`` and ``nozzle_flow`` are what the file was sliced for. A different nozzle size stops it;
+    a different flow (Standard on a High Flow nozzle) is a note, as Bambu Studio warns and lets you go on.
+    """
+    reasons, notes = [], []
+    fitted = float(getattr(state, "nozzle_diameter", 0.0) or 0.0)
+    try:
+        want = float(str(nozzle).split(",")[0] or 0)
+    except ValueError:
+        want = 0.0
+    if fitted and want and abs(fitted - want) > 1e-3:
+        reasons.append(f"the file was sliced for a {want:g} mm nozzle, {name} has a {fitted:g} mm one")
+    has_flow = getattr(state, "nozzle_flow", "")
+    if has_flow and nozzle_flow and has_flow != nozzle_flow:
+        notes.append(f"sliced for a {nozzle_flow} nozzle, but {name} has a {has_flow} one: slice it again in "
+                     f"Bambu Studio with the nozzle flow set to {has_flow}")
     if not state.online:
         reasons.append(f"{name} isn't connected")
     elif not getattr(state, "reports", 1) and not state.gcode_state:
@@ -110,11 +125,11 @@ def check(name: str, state, model_id: str, file_model_id: str, slots: list[tuple
     if any(not t.get("empty") for t in trays):
         mapping, problems = match_trays(slots, trays)
         reasons += problems
-        result = Plan(name, "", plate, True, mapping)
+        result = Plan(name, "", plate, True, mapping, notes)
     elif len(slots) <= 1:
-        result = Plan(name, "", plate, False, [], ["no AMS: printed from the external spool"])
+        result = Plan(name, "", plate, False, [], ["no AMS: printed from the external spool", *notes])
     else:
-        result = Plan(name, "", plate, False)
+        result = Plan(name, "", plate, False, [], notes)
         reasons.append(f"{name} has no AMS, and the file uses {len(slots)} filaments")
     return result, reasons
 
