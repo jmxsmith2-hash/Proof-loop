@@ -12,6 +12,9 @@ and the window shows them under *More › What's new*.
   **Fill the plate** with as many as fit; parts are kept out of the strip the pusher comes down in.
   A project keeps its own settings and only takes the printer's nozzle flow, so a plate sliced for
   the wrong nozzle is fixed by dropping its project. Needs Bambu Studio (or OrcaSlicer) installed.
+- **Proof photos.** ProofLoop saves a picture of each loop's finished plate before the sweep, so
+  every order in *Orders* has a gallery of what was made, and each printer's card shows its latest
+  few. On by default; turn it off or choose how many to keep in *Monitor › Camera*.
 - **Hands-off queue** (per printer, off unless you turn it on on its card under *Monitor*). When
   the printer is free and the camera says its plate is empty after the last print, its next queued
   job is sent by itself; ProofLoop takes the picture itself when it needs a fresh one. With *ask
