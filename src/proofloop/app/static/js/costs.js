@@ -43,7 +43,7 @@ function saveCostsSoon() {
   clearTimeout(costSaveTimer); $('#costSaved').textContent = '';
   costSaveTimer = setTimeout(async () => {
     try { const clean = {...COSTS, spools: [], slot_spool: {}, extras_per_part: COSTS.extras_per_part.filter(x => x.name), extras_per_order: COSTS.extras_per_order.filter(x => x.name)};
-      await send('/api/costs', clean, 'PUT'); $('#costSaved').textContent = '✓ saved'; refreshCost(); }
+      await send('/api/costs', clean, 'PUT'); $('#costSaved').textContent = '✓ saved'; refreshCost(); quoteRefresh(); }
     catch (e) { $('#costSaved').textContent = ''; toast(e.message); }
   }, 600);
 }
@@ -101,6 +101,69 @@ $('#plateQuote').addEventListener('click', (e) => {
   if (e.target.id !== 'quoteOrder' || !PLATE) return;
   orderFromPlate(PLATE.token, PLATE.file, PLATE.parts.length, COST?.quote?.price);
 });
+
+// ---------- quote from a file ----------
+// Drop a model or a sliced plate: a model is sliced for the printer picked in Make a loop file, as many loops as the
+// copies need (the way an order is sliced); a sliced plate is read as it is. Priced with your rates. Nothing is made or sent.
+let QUOTE = null, quoteTimer = null, quoteRun = 0;  // QUOTE: {name, model (token) or null, plate (opened plate), sliced (copies it is sliced for), cost}
+const quoteCopies = () => Math.max(1, Math.min(100000, Math.floor(+$('#quoteCopies').value) || 1));
+const quoteShow = (html) => { $('#quoteOut').innerHTML = html; $('#quoteOut').classList.remove('hidden'); };
+dropZone($('#quoteDrop'), $('#quoteFile'), (file) => quoteFile(file));
+$('#quoteCopies').addEventListener('input', () => { clearTimeout(quoteTimer); quoteTimer = setTimeout(quoteRefresh, 400); });
+
+async function quoteFile(file) {
+  const run = ++quoteRun;
+  $('#quoteDrop strong').textContent = 'Reading ' + file.name + '…';
+  try {
+    const fd = new FormData(); fd.append('file', file);
+    const res = await json('/api/plates', {method: 'POST', body: fd});
+    if (run !== quoteRun) return;
+    QUOTE = res.model ? {name: res.model.name, model: res.model.token, plate: null, sliced: 0, cost: null}
+      : {name: file.name, model: null, plate: res, sliced: 0, cost: null};
+    await quoteRefresh();
+  } catch (e) { if (run === quoteRun) { quoteShow(`<p class="hint"><span class="ic danger">✖</span> ${esc(e.message)}</p>`); } }
+  $('#quoteDrop strong').textContent = 'Drop another model or plate to quote';
+}
+// Slice (when the copies changed) and price the quote. Each step checks that no newer quote has started.
+async function quoteRefresh() {
+  if (!QUOTE) return;
+  const run = ++quoteRun, copies = quoteCopies(), q = QUOTE;
+  try {
+    if (q.model && (!q.plate || q.sliced !== copies)) {
+      quoteShow(`<p class="hint">Slicing ${esc(q.name)} for ${copies} ${copies === 1 ? 'part' : 'parts'}…</p>`);
+      const p = await send(`/api/models/${encodeURIComponent(q.model)}/slice-for-order`, {quantity: copies, printer: $('#fPrinter').value || ''});
+      if (run !== quoteRun) return;
+      q.plate = p; q.sliced = copies;
+    }
+    if (q.plate.no_profile) throw new Error(`No hardware profile for the ${q.plate.printer} yet`);
+    const ppp = q.plate.parts.length || 1, loops = Math.ceil(copies / ppp);
+    const r = await send(`/api/plates/${encodeURIComponent(q.plate.token)}/cost`, {...costRequest(), loops});
+    if (run !== quoteRun) return;
+    q.cost = r; renderQuoteFile(copies);
+  } catch (e) { if (run === quoteRun) quoteShow(`<p class="hint"><span class="ic danger">✖</span> ${esc(e.message)}</p>`); }
+  if (run === quoteRun) $('#quoteDrop strong').textContent = 'Drop another model or plate to quote';
+}
+function renderQuoteFile(copies) {
+  const r = QUOTE.cost, q = r.quote, loops = r.loops, ppp = r.parts_per_plate;
+  const grams = r.materials.reduce((a, m) => a + m.grams, 0) * loops;
+  const atLeast = q.complete ? '' : 'at least ';
+  const gaps = r.missing.filter(m => !m.startsWith('cooldown')).length;
+  const sellAll = q.markup_price == null ? null : q.markup_price * copies;
+  quoteShow(`<div class="spread"><b>${esc(QUOTE.name)}</b><span class="chip">${copies} ${copies === 1 ? 'part' : 'parts'}</span></div>
+    <div class="kpis">
+      <div class="kpi"><small>Print time</small><b>${fmtDur(r.times.print_s * loops)}</b></div>
+      <div class="kpi"><small>Filament</small><b>${grams.toFixed(1)} g</b></div>
+      <div class="kpi"><small>Cost per part</small><b>${q.cost_per_part == null ? '—' : atLeast + money(q.cost_per_part, 3)}</b></div>
+      <div class="kpi main"><small>Price per part (+${q.markup_pct ?? 0}% markup)</small><b>${q.markup_price == null ? '—' : atLeast + money(q.markup_price)}</b></div>
+    </div>
+    <div class="tw"><table>
+      <tr><td>${copies} ${copies === 1 ? 'part' : 'parts'} cost</td><td class="num">${q.cost_per_part == null ? '—' : atLeast + money(q.cost_per_part * copies)}</td></tr>
+      <tr><td>${copies} ${copies === 1 ? 'part' : 'parts'} sell for</td><td class="num">${sellAll == null ? '—' : atLeast + money(sellAll)}</td></tr>
+    </table></div>
+    <p class="hint">${loops} loop${loops > 1 ? 's' : ''} of ${ppp} parts, print time from the slicer. Per part, after your rates; the price is cost x (1 + markup), before tax and fees.
+      ${gaps ? `${gaps === 1 ? 'One of your rates isn\'t' : gaps + ' of your rates aren\'t'} set, so it's a minimum: set ${gaps === 1 ? 'it' : 'them'} under Your prices below.` : ''}
+      ${(r.checks || []).length ? ' Some rates look unusual: check them under Your prices.' : ''}</p>`);
+}
 
 function renderCost() {
   renderQuote();

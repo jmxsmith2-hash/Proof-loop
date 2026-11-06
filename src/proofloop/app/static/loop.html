@@ -443,6 +443,12 @@ input[type=number]{max-width:140px}
   <p class="sub">What each part really costs and earns. ProofLoop never invents prices: rates are yours to enter, grams and times come from the file, and the cooldown comes from your printer. Anything you haven't set is listed below instead of guessed.</p></div></div>
   <div class="grid two">
     <div class="grid" style="align-content:start">
+      <div class="card" id="quoteCard">
+        <h2>Quote from a file</h2>
+        <label class="drop" id="quoteDrop"><input type="file" accept=".stl,.obj,.step,.stp,.3mf" hidden id="quoteFile"><strong>Drop a model or a sliced plate to quote</strong><small>A model is sliced for the printer picked in Make a loop file; nothing is made or sent.</small></label>
+        <label class="field" style="max-width:160px;margin:10px 0 0"><span>Copies</span><input type="number" id="quoteCopies" min="1" max="100000" step="1" value="1"></label>
+        <div id="quoteOut" class="hidden" style="margin-top:12px"></div>
+      </div>
       <div class="card" id="costEmpty"><h2>No plate yet</h2><p>Drop a plate in <a href="#" data-goto="make">Make a loop file</a>, then come back here to see its costs.</p></div>
       <div class="card hidden" id="costPlate">
         <div class="spread"><h2 id="costTitle">This plate</h2><span id="costChip"></span></div>
@@ -551,8 +557,9 @@ input[type=number]{max-width:140px}
           <label class="field"><span>Shipping cost per order</span><input type="number" data-c="shipping_cost_per_order" data-kind="zero" step="0.01" min="0"></label>
           <label class="field"><span>Shipping charged per order</span><input type="number" data-c="shipping_charged_per_order" data-kind="zero" step="0.01" min="0"></label>
           <label class="field"><span>Target margin, %</span><input type="number" data-c="target_margin_pct" data-kind="zero" step="1" min="0" max="95"></label>
+          <label class="field"><span>Markup on cost, %</span><input type="number" data-c="markup_pct" data-kind="zero" step="5" min="0"></label>
         </div>
-        <p class="hint">Use your own marketplace's and payment provider's current fees.</p>
+        <p class="hint">Use your own marketplace's and payment provider's current fees. The markup sets the price a quote from a file suggests: cost x (1 + markup).</p>
       </details>
     </div>
   </div>

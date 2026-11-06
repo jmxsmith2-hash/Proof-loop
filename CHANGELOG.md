@@ -20,6 +20,11 @@ and the window shows them under *More › What's new*.
   name, printer, time, grams, cost, outcome) with this month's totals by filament type; the same data is at
   `/api/history`. Files ProofLoop didn't make have no known weight, so they show *unknown* and are left out
   of the totals instead of guessed.
+- **Quote from a file.** On the *Costs* tab, drop an STL, OBJ, STEP or a sliced `.gcode.3mf` and get
+  its print time, grams, cost per part and a suggested price, for as many copies as you enter. A model
+  is sliced for the printer picked in *Make a loop file*, nothing is made or sent, and a sliced file is
+  read as it is. The suggested price is cost plus a **Markup on cost** you set (100% by default, so
+  twice the cost).
 
 ### Changed
 - **Loop files are silent.** The printer no longer plays its start and finish tunes when it runs a loop

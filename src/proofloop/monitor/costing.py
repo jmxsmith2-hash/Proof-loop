@@ -92,6 +92,7 @@ class CostSettings(_M):
     extras_per_order: list[Extra] = Field(default_factory=list)
     # selling
     price_per_part: float | None = Field(None, ge=0)
+    markup_pct: float | None = Field(100, ge=0)  # quoted price = cost x (1 + this / 100)
     parts_per_order: float = Field(1, gt=0)
     tax_included_pct: float = Field(0, ge=0, lt=100)  # VAT / sales tax included in your price
     marketplace_fee_pct: float = Field(0, ge=0, lt=100)
@@ -379,8 +380,10 @@ def cost(
     }
 
     breakeven, target = price_points(c, run / parts)
+    markup = None if c.markup_pct is None else run / parts * (1 + c.markup_pct / 100)
     rep.quote = {"cost_per_part": round(run / parts, 4), "breakeven_price": _r(breakeven, 2),
-                 "price": _r(target, 2), "target_margin_pct": c.target_margin_pct, "complete": not rep.missing}
+                 "price": _r(target, 2), "target_margin_pct": c.target_margin_pct, "complete": not rep.missing,
+                 "markup_pct": c.markup_pct, "markup_price": _r(markup, 2)}
     price = c.price_per_part
     rep.selling = _selling(c, run / parts, price) if price is not None else None
     if times.cooldown_s is not None and times.known_s > 0:
