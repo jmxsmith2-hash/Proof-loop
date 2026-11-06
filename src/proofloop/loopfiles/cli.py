@@ -274,7 +274,7 @@ def _loop_args(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--sounds",
         choices=["every", "last", "off"],
-        help="the printer's start and finish tunes: on every loop, only when the run ends, or off",
+        help="the printer's start and finish tunes: off (the default), only when the run ends, or on every loop",
     )
     p.add_argument(
         "--load-line-every-loop",

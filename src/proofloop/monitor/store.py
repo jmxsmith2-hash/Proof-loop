@@ -337,7 +337,8 @@ class Store:
             for name, ts in self._db.execute("SELECT name, ts FROM jobs ORDER BY ts").fetchall():
                 new = key(name)
                 if new != name:
-                    self._db.execute("DELETE FROM jobs WHERE name=? AND ts<=?", (new, ts))
+                    # strictly older only: at the same time the one already under the new name was written later
+                    self._db.execute("DELETE FROM jobs WHERE name=? AND ts<?", (new, ts))
                     self._db.execute("UPDATE OR IGNORE jobs SET name=? WHERE name=?", (new, name))
                     self._db.execute("DELETE FROM jobs WHERE name=?", (name,))  # a newer one has the name
                     n += 1

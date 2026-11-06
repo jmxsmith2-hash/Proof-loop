@@ -138,3 +138,14 @@ def test_files_recorded_under_their_old_names_are_renamed_once(tmp_path):
     assert store.rename_jobs(job_key) == 2
     assert store.job("FL_S1_Plate_1") == {"loops": 1} and store.job("FL_S1_x_red") == {"loops": 3}
     assert store.job("FL_S1_Plate 1") is None and store.rename_jobs(job_key) == 0
+
+
+def test_renaming_keeps_the_new_name_when_both_were_written_at_the_same_moment(tmp_path, monkeypatch):
+    from proofloop.monitor import store as store_mod
+    from proofloop.monitor.tracking import job_key
+
+    monkeypatch.setattr(store_mod.time, "time", lambda: 1000.0)  # a fast PC: one clock tick for both
+    store = store_mod.Store(tmp_path / "p.db")
+    store.put_job("FL_S1_x (red)", {"loops": 2})
+    store.put_job("FL_S1_x_red", {"loops": 3})
+    assert store.rename_jobs(job_key) == 1 and store.job("FL_S1_x_red") == {"loops": 3}
