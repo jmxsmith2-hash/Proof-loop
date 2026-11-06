@@ -43,7 +43,7 @@ function show(tab) {
   $$('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== tab));
   try { history.replaceState(null, '', '#' + tab); } catch (e) {}
   if (tab === 'monitor') refreshMonitor();
-  if (tab === 'costs') { coolOptions(); bindCosts(); refreshCost(); }
+  if (tab === 'costs') { coolOptions(); bindCosts(); refreshCost(); refreshHistory(); }
   if (tab === 'filament') loadFil();
   if (tab === 'overview') refreshOverview();
   if (tab === 'orders') refreshOrders();

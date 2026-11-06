@@ -34,7 +34,7 @@ REVIEWED_GETS = {
     "/api/state",  # everything the page draws; notification addresses are cut down for watch-only phones
     "/api/queue", "/api/orders", "/api/summary", "/api/overview", "/api/events",
     "/api/dashboard",  # parts per hour, orders' parts and finish, what's next: counts only, changes nothing
-    "/api/outcomes", "/api/outcomes/{oid}/file", "/api/outcomes/{oid}/picture",
+    "/api/outcomes", "/api/history", "/api/outcomes/{oid}/file", "/api/outcomes/{oid}/picture",
     "/api/filament", "/api/filament/usage", "/api/filament/export.csv", "/api/filament/tray-colors",
     "/api/profiles/{pid}",
     "/api/monitor/{name}/snapshot",  # reads the printer's camera; changes nothing

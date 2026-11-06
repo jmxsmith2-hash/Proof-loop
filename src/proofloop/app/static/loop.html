@@ -482,6 +482,14 @@ input[type=number]{max-width:140px}
           <label class="field" style="margin:0"><span>One row per</span><select id="csvBy"><option value="order">order</option><option value="day">day</option><option value="month">month</option></select></label>
           <a class="btn" id="csvCosts" href="/api/costs/export.csv" download>Download (CSV)</a></div>
       </div>
+      <div class="card" id="printHistory">
+        <div class="spread"><h2>Print history</h2><button class="btn" type="button" id="histRefresh">Refresh</button></div>
+        <p class="hint" style="margin-bottom:10px">Every print the Monitor saw end, loop file or not, with the filament it used and what it cost at your prices. A file ProofLoop didn't make has no known weight: it shows <i>unknown</i> and is left out of the totals.</p>
+        <div class="kpis" id="histKpis"></div>
+        <div class="tw"><table id="histTypes"></table></div>
+        <p class="hint" id="histNote"></p>
+        <div class="tw"><table id="histRows"></table></div>
+      </div>
     </div>
 
     <div class="card" style="align-self:start">

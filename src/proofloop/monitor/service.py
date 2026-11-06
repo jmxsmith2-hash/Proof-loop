@@ -29,6 +29,7 @@ from proofloop.monitor.runout import run_of
 from proofloop.monitor.spoolman import Spoolman
 from proofloop.monitor.store import Store
 from proofloop.monitor.timelapse import Timelapse
+from proofloop.monitor.printcost import price_outcome
 from proofloop.monitor.tracking import FilamentTracker, job_key
 from proofloop.monitor.vision import BedVerifier
 from proofloop.monitor.watch import PrinterWatch
@@ -170,6 +171,7 @@ class App:
         )
         self.tracker = FilamentTracker(self)
         self.journal = PrintJournal(self.store, self.data_dir, {p.name: p.model_id for p in self.settings.printers})
+        self.journal.pricer = lambda rec, trays: price_outcome(self, rec, trays)
         self._migrate_cost_spools()
         self.folder_watch = FolderWatch(self)  # models saved into a folder, sliced (monitor/watchfolder.py)
         self.hands_off = HandsOff(self)  # queued jobs sent by themselves (monitor/handsoff.py)
