@@ -5,6 +5,12 @@ and the window shows them under *More › What's new*.
 
 ## Unreleased
 
+### New
+- **Clear the bed when done.** One ordinary plate can now end with ProofLoop's cooldown and sweep, without
+  thinking in loop files: on *Make a loop file*, a single print has a **Clear the bed when done** tick box
+  (on by default). Untick it to download or send the plate as sliced. Sending still asks you to confirm the
+  printer each time, and never happens from a phone.
+
 ### Changed
 - **Loop files are silent.** The printer no longer plays its start and finish tunes when it runs a loop
   file: *Printer sounds* is now *Off* unless you choose *Only when the whole run ends* or *Every loop*.

@@ -409,6 +409,8 @@ input[type=number]{max-width:140px}
         </div>
       </div>
       <div class="card">
+        <label class="inline" id="ejectRow" style="margin-bottom:10px"><input type="checkbox" id="sEject" checked> <b>Clear the bed when done</b></label>
+        <p class="hint hidden" id="ejectHint" style="margin:-4px 0 10px">After the print, the printer cools the bed and sweeps the parts off, so the bed is clear. Untick it to print the plate as sliced.</p>
         <button class="btn primary big" id="download" style="width:100%;justify-content:center">Download loop file</button>
         <p class="hint" id="downloadHint" style="margin-top:10px">Send it with Bambu Studio (open the file, then <em>Print plate</em>), Bambu Handy or Bambuddy. Keep the <span class="mono">FL_S2_</span> name: FarmBoard kits look for it.</p>
         <div id="sendBox" class="hidden" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">

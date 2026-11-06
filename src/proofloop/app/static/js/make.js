@@ -226,12 +226,14 @@ function currentSettings() {
     floor_z: +$('#sFloor').value, push_offset: +$('#sDepth').value, natural_cooldown_min: +$('#sNatural').value || 0, bender_fitted: $('#sBender').checked,
     cooldown_fan: $('#sFan').value, wait_for_monitor: $('#sMonitor').checked,
     sounds: $('#sSounds').value, load_line_every_loop: $('#sLoadLine').checked, level_once: $('#sLevelOnce').checked, pause_first_sweep: $('#sFirstPause').dataset.mode || 'auto', part_push: partPush,
+    auto_eject: $('#sEject').checked,
   };
 }
 function fillSettings(s, a) {
   const profiles = STATE.profiles.filter(p => p.printer_model_id === a.printer_model_id);
   $('#sProfile').innerHTML = profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${p.builtin ? '' : ' (imported)'}</option>`).join('');
   $('#sProfile').value = s.profile_id;
+  $('#sEject').checked = s.auto_eject !== false;
   $('#sLoops').value = s.loops; $('#sRelease').value = s.release_temp; $('#sFloor').value = s.floor_z; $('#sDepth').value = s.push_offset;
   syncSliders();
   $('#sNatural').value = s.natural_cooldown_min; $('#sBender').checked = s.bender_fitted; $('#sFan').value = s.cooldown_fan; $('#sMonitor').checked = s.wait_for_monitor;
@@ -247,7 +249,7 @@ function fillSettings(s, a) {
   $('#naturalHint').innerHTML = warp.length && !s.natural_cooldown_min ? `<b style="color:var(--warn)">${esc(warp.join(', '))} on this plate:</b> consider a natural cooldown so parts don't warp when the door opens.` : 'Door shut and fans off before the door opens. Helps ASA, ABS and PC keep their shape.';
 }
 const schedule = () => { clearTimeout(pending); pending = setTimeout(reanalyze, 350); };
-['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor', '#sSounds', '#sLoadLine', '#sLevelOnce', '#sFirstPause'].forEach(id => $(id).addEventListener('input', schedule));
+['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor', '#sSounds', '#sLoadLine', '#sLevelOnce', '#sFirstPause', '#sEject'].forEach(id => $(id).addEventListener('input', schedule));
 $('#sFirstPause').addEventListener('input', (e) => { e.target.dataset.mode = e.target.checked ? 'on' : 'off'; $('#firstPauseHint').dataset.auto = ''; });
 // Every slider is paired with its number box; either one can be used.
 function syncSliders() { $$('input[type=range][data-num]').forEach(r => { r.value = $('#' + r.dataset.num).value; }); }
@@ -300,8 +302,12 @@ function renderPlate(a, keepSettings) {
   items.push(['ok', '✓', 'Bed wait uses M190 S, never M190 R (that faults on a P2S).']);
   if (a.profile.stage === 2) items.push(['ok', '✓', 'FarmBoard triggers and switch gestures are copied exactly from FarmLoop\'s own output for this kit.']);
   $('#checks').innerHTML = items.map(([k, i, t]) => `<li><span class="ic ${k}">${i}</span><div>${esc(t)}</div></li>`).join('');
-  $('#download').disabled = !a.ok; $('#sendBtn').disabled = !a.ok;
-  $('#download').textContent = a.ok ? 'Download loop file' : 'Fix the problems above first';
+  // One print: the tick box decides whether it ends with the cooldown and sweep. More loops always do.
+  const single = (+$('#sLoops').value || 1) === 1, eject = $('#sEject').checked;
+  const usable = a.ok || (single && !eject);  // a plate printed as sliced needs no sweep, so sweep problems don't stop it
+  $('#download').disabled = !usable; $('#sendBtn').disabled = !usable;
+  $('#ejectRow').classList.toggle('hidden', !single); $('#ejectHint').classList.toggle('hidden', !single);
+  $('#download').textContent = !usable ? 'Fix the problems above first' : single && !eject ? 'Download plate as sliced' : single ? 'Download plate (clears the bed)' : 'Download loop file';
 }
 
 function heightColor(h, max) { const t = max ? h / max : 0; return `hsl(${215 - t * 30} 75% ${62 - t * 22}%)`; }
