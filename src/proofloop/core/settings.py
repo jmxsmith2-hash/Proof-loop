@@ -38,6 +38,8 @@ class Defaults(_Model):
     load_line_every_loop: bool = False  # Bambu's nozzle load line: first loop only unless this is on
     level_once: bool = False  # bed leveling, vibration sweep and flow calibration on loop 1 only
     loops: int = Field(1, ge=1, le=50)
+    # A single print (1 loop) ends with the cooldown and sweep so the bed is clear; off sends the plate as sliced.
+    auto_eject: bool = True
 
 
 class VerifyConfig(_Model):

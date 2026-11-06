@@ -11,6 +11,10 @@ and the window shows them under *More › What's new*.
   6:40 am"). Then send or download it as one file, with a sweep between prints. If a plate needs a
   filament the chosen printer's AMS doesn't hold, a warning says which. Sending still asks you first
   (unless you turned that off), and never works from a watch-only phone.
+- **Clear the bed when done.** One ordinary plate can now end with ProofLoop's cooldown and sweep, without
+  thinking in loop files: on *Make a loop file*, a single print has a **Clear the bed when done** tick box
+  (on by default). Untick it to download or send the plate as sliced. Sending still asks you to confirm the
+  printer each time, and never happens from a phone.
 
 ### Changed
 - **Loop files are silent.** The printer no longer plays its start and finish tunes when it runs a loop

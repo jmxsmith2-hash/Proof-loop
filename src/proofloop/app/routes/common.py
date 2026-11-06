@@ -10,7 +10,13 @@ from fastapi.responses import Response
 
 from proofloop.core.settings import Defaults
 from proofloop.loopfiles import threemf
-from proofloop.loopfiles.gcode.processor import analyze, dwell_seconds, process
+from proofloop.loopfiles.gcode.processor import (
+    Result,
+    analyze,
+    clean_input,
+    dwell_seconds,
+    process,
+)
 from proofloop.loopfiles.lint import lint
 from proofloop.monitor.costing import Times, cost
 from proofloop.monitor.filament import prices_for
@@ -69,11 +75,26 @@ def file_response(r) -> Response:
     )
 
 
+def plain_file(sf) -> Result:
+    """The plate as sliced, with no cooldown or sweep (ProofLoop's own additions are taken out)."""
+    gcode = clean_input(sf)
+    return Result(sf.to_bytes(gcode), gcode, sf.name, None)  # type: ignore[arg-type]
+
+
 def made_file(app: App, sf, body: dict):
-    """The loop file, recorded (for filament counting and the journal) before it leaves ProofLoop."""
+    """The loop file, recorded (for filament counting and the journal) before it leaves ProofLoop.
+
+    A single print (1 loop) with ``auto_eject`` off is the plate as sliced, nothing added; with it on (the
+    default) it is one loop with the cooldown and sweep, so the bed is clear when it finishes.
+    """
     defaults, st = plate_settings(app, body)
-    r = process(sf, profile_or_404(app, defaults.profile_id), st)
-    register_job(app.store, r.filename, [(sf, st.loops, len(r.analysis.parts))], defaults.profile_id)
+    prof = profile_or_404(app, defaults.profile_id)
+    if st.loops == 1 and not defaults.auto_eject:
+        r = plain_file(sf)
+        register_job(app.store, r.filename, [(sf, 1, len(sf.info.object_names))], defaults.profile_id)
+    else:
+        r = process(sf, prof, st)
+        register_job(app.store, r.filename, [(sf, st.loops, len(r.analysis.parts))], defaults.profile_id)
     app.journal.keep_file(r.filename, r.data)
     return r
 
