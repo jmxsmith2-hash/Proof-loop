@@ -3,6 +3,16 @@
 What changed in each version of ProofLoop. `proofloop update` shows the parts that are new to you,
 and the window shows them under *More › What's new*.
 
+## Unreleased
+
+### Changed
+- **Loop files are silent.** The printer no longer plays its start and finish tunes when it runs a loop
+  file: *Printer sounds* is now *Off* unless you choose *Only when the whole run ends* or *Every loop*.
+
+### Fixed
+- Renaming files recorded under their old names kept the older record when both were written in the
+  same instant.
+
 ## 0.5.0 · 2026-10-31
 
 ### New

@@ -78,7 +78,7 @@ class LoopSettings:
     cooldown_fan: str = "profile"  # "profile" (the kit's own), "exhaust" (P2S only) or "off"
     wait_for_monitor: bool = False  # pause after each loop until ProofLoop's printer monitor confirms an empty plate
     pause_first_sweep: bool = False  # pause before loop 1's sweep so you can check the pusher height
-    sounds: str = "every"  # the printer's tunes: "every" loop (as sliced), "last" (only when the run ends) or "off"
+    sounds: str = "off"  # the printer's tunes: "off" (silent), "every" loop (as sliced) or "last" (only when the run ends)
     load_line_every_loop: bool = False  # draw Bambu's nozzle load line on every loop, not just the first
     level_once: bool = False  # bed leveling, vibration sweep and flow calibration on loop 1 only
     sweep: SweepSettings = field(default_factory=SweepSettings)

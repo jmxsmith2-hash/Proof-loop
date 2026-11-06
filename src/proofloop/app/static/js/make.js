@@ -235,7 +235,7 @@ function fillSettings(s, a) {
   $('#sLoops').value = s.loops; $('#sRelease').value = s.release_temp; $('#sFloor').value = s.floor_z; $('#sDepth').value = s.push_offset;
   syncSliders();
   $('#sNatural').value = s.natural_cooldown_min; $('#sBender').checked = s.bender_fitted; $('#sFan').value = s.cooldown_fan; $('#sMonitor').checked = s.wait_for_monitor;
-  $('#sSounds').value = s.sounds || 'every'; $('#sLoadLine').checked = !!s.load_line_every_loop; $('#sLevelOnce').checked = !!s.level_once;
+  $('#sSounds').value = s.sounds || 'off'; $('#sLoadLine').checked = !!s.load_line_every_loop; $('#sLevelOnce').checked = !!s.level_once;
   const fp = $('#sFirstPause'); fp.dataset.mode = s.pause_first_sweep || 'auto'; fp.checked = !!a.first_pause;
   $('#firstPauseHint').dataset.auto = fp.dataset.mode === 'auto' ? (a.first_pause ? 'on' : 'off') : '';
   const prof = STATE.profiles.find(p => p.id === s.profile_id) || {};

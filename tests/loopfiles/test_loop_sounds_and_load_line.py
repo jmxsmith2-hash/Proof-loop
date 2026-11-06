@@ -2,6 +2,7 @@
 
 import re
 
+from proofloop.core.settings import Defaults
 from proofloop.loopfiles import threemf
 from proofloop.loopfiles.gcode.processor import process
 from proofloop.loopfiles.gcode.routines import LoopSettings
@@ -62,12 +63,20 @@ def test_the_load_line_is_drawn_on_the_first_loop_only_and_later_loops_prime_wit
         block = body[body.index(";===== nozzle load line"):body.index("noozle load line end")]
         # the rest of the block still runs: hot nozzle before the dab, first-layer height after it
         assert block.index("M109 S220") < block.index("G1 E3.5") < block.index("G1 X105") < block.index("G1 Z0.2")
-    assert tunes(first) == tunes(later[-1]) == 2 * 3  # sounds stay as sliced unless you change it
+    assert tunes(text) == 0  # silent unless you turn the sounds on
 
 
 def test_the_load_line_can_be_kept_on_every_loop():
     text = process(bambu_plate(), P, LoopSettings(loops=3, load_line_every_loop=True)).gcode
     assert [draws(b) for b in loops(text)] == [1, 1, 1]
+
+
+def test_a_loop_file_is_silent_unless_you_turn_the_sounds_on():
+    quiet = process(bambu_plate(), P, LoopSettings(loops=3)).gcode
+    assert tunes(quiet) == 0 and quiet.count("; (silenced by ProofLoop) M1006") == 3 * 2 * 3
+    every = loops(process(bambu_plate(), P, LoopSettings(loops=3, sounds="every")).gcode)
+    assert [tunes(b) for b in every] == [2 * 3] * 3  # as sliced: the start and finish tunes on each loop
+    assert Defaults().sounds == "off"
 
 
 def test_the_printer_sounds_can_play_only_at_the_end_or_not_at_all():
@@ -83,7 +92,7 @@ def test_the_settings_come_from_your_defaults():
     s = loop_settings({"sounds": "off", "load_line_every_loop": True})
     assert s.sounds == "off" and s.load_line_every_loop
     d = loop_settings({})
-    assert d.sounds == "every" and not d.load_line_every_loop
+    assert d.sounds == "off" and not d.load_line_every_loop
 
 
 CALIBRATING = """;===== mech mode sweep start =====
