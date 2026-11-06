@@ -5,6 +5,13 @@ and the window shows them under *More › What's new*.
 
 ## Unreleased
 
+### New
+- **Quote from a file.** On the *Costs* tab, drop an STL, OBJ, STEP or a sliced `.gcode.3mf` and get
+  its print time, grams, cost per part and a suggested price, for as many copies as you enter. A model
+  is sliced for the printer picked in *Make a loop file*, nothing is made or sent, and a sliced file is
+  read as it is. The suggested price is cost plus a **Markup on cost** you set (100% by default, so
+  twice the cost).
+
 ### Changed
 - **Loop files are silent.** The printer no longer plays its start and finish tunes when it runs a loop
   file: *Printer sounds* is now *Off* unless you choose *Only when the whole run ends* or *Every loop*.
