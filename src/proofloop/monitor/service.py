@@ -11,7 +11,7 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 
-from proofloop.core.notify import Notifier
+from proofloop.core.notify import Notifier, print_alert
 from proofloop.core.paths import PRINTERS_DB
 from proofloop.core.settings import Defaults, PrinterConfig, Settings, SettingsStore
 from proofloop.loopfiles import threemf
@@ -256,7 +256,12 @@ class App:
         return w
 
     def _emit(self, event: dict, image: bytes | None = None) -> None:
-        self.notifier.send(event, image)
+        wanted = print_alert(event["kind"], self.settings.print_alerts)
+        if wanted is None:
+            self.notifier.send(event, image)
+        elif wanted:  # a print finished or failed: every target hears it, whatever its lowest level
+            self.notifier.send(event, image, every=True)
+        # else: switched off in the settings (the event is still in the list on the page)
 
     def _ticker(self) -> None:
         while not self._stop.wait(15):

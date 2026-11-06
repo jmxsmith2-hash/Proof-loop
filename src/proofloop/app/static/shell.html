@@ -214,6 +214,7 @@ dialog p { margin: 6px 0; }
 const CFG = __PROOFLOOP_CONFIG__;
 const $ = (id) => document.getElementById(id);
 const frames = {check: $("check"), loop: $("loop")};
+const DEFAULT_TAB = "printers";  // the tab the window opens on
 const FRAME = {check: "check", loopfiles: "loop", printers: "loop"};  // tab -> frame
 const tabs = [...document.querySelectorAll("nav [role=tab]")];
 const store = {get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }};
@@ -253,8 +254,7 @@ for (const t of tabs) {
     show(next.dataset.tab); next.focus();
   };
 }
-const saved = store.get("proofloop-tab");
-show(FRAME[saved] ? saved : "check");
+show(DEFAULT_TAB);  // the window opens on the printers' overview
 
 // ---- More: phone access, setup check
 function menu(open) {

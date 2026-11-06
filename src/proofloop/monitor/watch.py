@@ -328,13 +328,15 @@ class PrinterWatch:
                 self._loop_printed(s)
                 self._catch_up(s)
             self._log("printed", s)
+            self.event("info", "print_done", f"finished printing {s.subtask_name}" if s.subtask_name else "the print finished")
             self.status = "finished: checking the plate"
             self._start_check("finished")
         elif st == "FAILED" and prev:
             self.ended_at = time.time()
             self._timelapse_end("failed")
             self.status = "print failed or cancelled"
-            self.event("error", "failed", "the print failed or was cancelled; check the plate")
+            self.event("error", "failed", "the print failed or was cancelled; check the plate"
+                       + (f" ({s.subtask_name})" if s.subtask_name else ""))
             self._log("failed", s)
             if is_loop_job(s) and not self._printed:
                 self._printed = True

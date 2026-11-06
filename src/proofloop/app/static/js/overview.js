@@ -26,7 +26,7 @@ async function refreshOverview() {
   refreshQueue();
   refreshSummary();
   try {
-    const [o, d] = await Promise.all([json('/api/overview'), json('/api/dashboard').catch(() => null)]), cur = STATE.costs?.currency || '';
+    const [o, d] = await Promise.all([json('/api/overview'), json('/api/dashboard').catch(() => null), json('/api/state').then(st => { STATE = st; }).catch(() => {})]), cur = STATE.costs?.currency || '';
     const dp = (name) => d?.printers.find(p => p.printer === name);
     const att = [];
     o.runs.filter(r => r.waiting_for_you).forEach(r => att.push(`<div class="banner bad"><span class="ic danger">!</span><div><b>${esc(r.printer)} is waiting for you.</b> ${esc(r.status)} <a href="#" data-goto="monitor">Open Monitor</a></div></div>`));
@@ -39,9 +39,11 @@ async function refreshOverview() {
       const pct = r.loops ? Math.min(100, (Math.max(0, r.loop_no - 1) / r.loops) * 100) : 0;
       return `<div class="run"><div class="spread"><b>${esc(r.printer)}</b><span class="row" style="gap:6px">${handsOffChips(dp(r.printer))}${r.waiting_for_you ? '<span class="chip bad">waiting for you</span>' : r.online ? '<span class="chip ok">online</span>' : '<span class="chip">offline</span>'}</span></div>
         <div class="hint">${esc(r.status)}${r.phase ? ' · ' + esc(r.phase) : ''}</div>
+        ${printerGlance(r.printer)}
         ${r.loops ? `<div class="meter"><i style="width:${pct.toFixed(1)}%"></i></div><div class="spread"><span>Loop <b>${r.loop_no}</b> of ${r.loops}</span><span class="hint">${r.eta ? 'done around <b>' + new Date(r.eta * 1000).toLocaleString([], {weekday: 'short', hour: '2-digit', minute: '2-digit'}) + '</b> (' + esc(r.eta_basis) + ')' : 'finish time once a loop has been timed'}</span></div>` : r.job ? `<div class="hint">${esc(r.job)}</div>` : ''}${queueLine(dp(r.printer))}</div>`;
     }).join('') : '<p class="hint">No printers yet. Add one in <a href="#" data-goto="monitor">Monitor</a> to see live runs here.</p>';
     if (d) renderDashboard(d);
+    loadSnaps();
     const W = 600, H = 140, bw = W / o.daily.length, max = Math.max(1, ...o.daily.map(d => d.parts));
     $('#ovChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Parts made per day"><line x1="0" x2="${W}" y1="${H - 18}" y2="${H - 18}" stroke="currentColor" opacity=".15"/>` +
       o.daily.map((d, i) => { const h = d.parts / max * (H - 32); return `<rect x="${(i * bw + 2).toFixed(1)}" y="${(H - 18 - h).toFixed(1)}" width="${(bw - 4).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="var(--accent)"><title>${new Date(d.day * 1000).toLocaleDateString()}: ${d.parts} parts, ${d.loops} loops</title></rect>${d.parts ? `<text x="${(i * bw + bw / 2).toFixed(1)}" y="${(H - 22 - h).toFixed(1)}" font-size="10" text-anchor="middle" fill="currentColor">${d.parts}</text>` : ''}`; }).join('') +
@@ -53,6 +55,49 @@ async function refreshOverview() {
   } catch (e) { toast(e.message); }
 }
 setInterval(() => { if (!liveOn && !$('[data-panel=overview]').classList.contains('hidden')) refreshOverview(); }, 10000);  // without live updates
+
+// ---------- each printer at a glance: camera picture, progress, time left, job, AMS ----------
+const SNAP_EVERY_MS = 60000;  // a camera read per printer at most this often while the overview is open
+const ovSnap = {};  // printer name to its last picture
+const PRINTING = ['RUNNING', 'PREPARE', 'PAUSE'];
+const leftText = (min) => min > 0 ? fmtDur(min * 60) + ' left' : '—';
+function printerGlance(name) {
+  const m = (STATE?.monitor || []).find(x => x.name === name);
+  if (!m) return '';
+  const p = m.printer, on = PRINTING.includes(p.gcode_state), n = encodeURIComponent(name), snap = ovSnap[name];
+  return `<div class="glance">
+    <div class="glance-cam">${snap?.url ? `<img src="${snap.url}" alt="Camera picture of ${esc(name)}" data-snapimg="${n}">` : `<span class="hint" data-snapph="${n}">${p.online ? 'Camera picture loading…' : 'Printer offline'}</span>`}
+      ${p.online ? `<button class="linkbtn" data-ovsnap="${n}">Refresh picture</button>` : ''}</div>
+    <div class="glance-info">
+      <div class="glance-job">${on || p.job ? esc(p.job || 'A print') : '<span class="hint">Not printing</span>'}</div>
+      ${on ? `<div class="meter"><i style="width:${Math.max(0, Math.min(100, p.percent))}%"></i></div>
+        <div class="spread"><span><b>${p.percent}%</b>${p.total_layers ? ` · layer ${p.layer}/${p.total_layers}` : ''}</span><span><b>${esc(leftText(p.remaining_min))}</b></span></div>` : ''}
+      ${amsStrip(p)}
+    </div></div>`;
+}
+// A read-only camera picture per online printer, at most one a minute each (or when asked for).
+async function loadSnaps(force) {
+  for (const m of (STATE?.monitor || [])) {
+    if (!m.printer.online) continue;
+    const s = ovSnap[m.name] = ovSnap[m.name] || {url: null, at: 0, busy: false}, key = encodeURIComponent(m.name);
+    if (s.busy || (!force && Date.now() - s.at < SNAP_EVERY_MS)) continue;
+    s.busy = true;
+    try {
+      const r = await api(`/api/monitor/${key}/snapshot`);
+      const old = s.url; s.url = URL.createObjectURL(await r.blob()); s.at = Date.now();
+      if (old) URL.revokeObjectURL(old);
+      const imgs = $$(`img[data-snapimg="${key}"]`);
+      imgs.forEach(i => { i.src = s.url; });
+      $$(`[data-snapph="${key}"]`).forEach(ph => { const i = document.createElement('img'); i.src = s.url; i.alt = 'Camera picture of ' + m.name; i.dataset.snapimg = key; ph.replaceWith(i); });
+    } catch (e) { s.at = Date.now(); $$(`[data-snapph="${key}"]`).forEach(ph => { ph.textContent = 'No camera picture'; }); }
+    finally { s.busy = false; }
+  }
+}
+$('#ovRuns').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ovsnap]'); if (!b) return;
+  const name = decodeURIComponent(b.dataset.ovsnap); if (ovSnap[name]) ovSnap[name].at = 0;
+  loadSnaps(true);
+});
 
 // ---------- run dashboard (monitor/dashboard.py) ----------
 const perHour = (v) => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
