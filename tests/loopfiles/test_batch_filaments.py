@@ -109,3 +109,47 @@ def _raw(sf: threemf.SlicedFile) -> bytes:
         for n in sf._order:
             z.writestr(n, sf._entries[n])
     return buf.getvalue()
+
+
+def _queue(tmp_path, tray_colours):
+    app = App(tmp_path, connect=False, link_factory=FakeLink)
+    app.add_printer(PrinterConfig(name="p2s", host="127.0.0.1", serial="01", access_code="12345678", model_id="N7"))
+    app.settings.send_to_printer = True
+    trays = [{"id": str(i), "tray_type": "PLA", "tray_color": c} for i, c in enumerate(tray_colours)]
+    app.watches["p2s"].link.state = state("FINISH", ams={"ams": {"ams": [{"id": "0", "tray": trays}]}})
+    c = TestClient(create_app(app))
+    tokens = [app.uploads.put(threemf.only_plate(_raw(sf), sf.plate), sf.name) for sf in (
+        plate(BUCKET, {"1": WHITE}, "a.gcode.3mf"), plate(SMALL, {"2": RED}, "b.gcode.3mf"))]
+    return app, c, {"items": [{"token": t, "count": 1} for t in tokens], "settings": {}}
+
+
+def test_the_overnight_queue_shows_total_time_and_when_it_finishes(tmp_path):
+    from datetime import datetime
+
+    app, c, body = _queue(tmp_path, ["F4F4EFFF", "C12E1FFF"])
+    try:
+        pv = c.post("/api/batch/preview", json=body).json()
+        assert pv["ok"] and pv["loops"] == 2  # two different prints, one loop each
+        assert pv["total_seconds"] >= pv["print_seconds"] > 0
+        assert sum(r["loop_seconds"] for r in pv["items"]) == pv["total_seconds"]
+        ends = datetime.fromisoformat(pv["finish_at"])
+        assert ends.tzinfo is not None and ends > datetime.now().astimezone()
+    finally:
+        app.shutdown()
+
+
+def test_the_overnight_queue_warns_about_filament_the_ams_lacks(tmp_path):
+    app, c, body = _queue(tmp_path, ["F4F4EFFF"])  # white only: the second plate's red isn't loaded
+    try:
+        (t,) = c.post("/api/batch/printers", json=body).json()["printers"]
+        assert not t["ready"] and t["missing"] == ["PLA #C8102DFF"]
+    finally:
+        app.shutdown()
+    app, c, body = _queue(tmp_path / "ok", ["F4F4EFFF", "C12E1FFF"])
+    try:
+        (t,) = c.post("/api/batch/printers", json=body).json()["printers"]
+        assert t["ready"] and t["missing"] == []
+        # sending still needs the printer named again as confirmation
+        assert c.post("/api/batch/send", json={**body, "printer": "p2s"}).status_code == 400
+    finally:
+        app.shutdown()

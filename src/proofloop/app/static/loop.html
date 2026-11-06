@@ -397,11 +397,12 @@ input[type=number]{max-width:140px}
         <div id="makeCostOut" class="hint">Enter your prices in the <a href="#" data-goto="costs">Costs</a> tab to see what each part costs and earns.</div>
       </div>
       <div class="card" id="batchCard">
-        <div class="spread"><h2>Batch</h2><button class="btn" id="addToBatch">+ Add this plate</button></div>
-        <p class="hint" id="batchHint">Mix plates in one file, for example 3× plate A then 2× plate B. Drop another plate after adding this one. Plates may use different filaments, as long as a slot number means the same filament on every plate (it does for plates from one Bambu Studio project, and for plates sliced here with filament picked from one printer's AMS trays). Every plate must use the same build plate and nozzle.</p>
+        <div class="spread"><h2>Tonight's queue</h2><button class="btn" id="addToBatch">+ Add this plate</button></div>
+        <p class="hint" id="batchHint"><b>Different prints back to back, one file.</b> Add the plates you want (each runs once by default, with a sweep between), put them in order, then send or download. Mix plates in one file, for example 3× plate A then 2× plate B. Drop another plate after adding this one. Plates may use different filaments, as long as a slot number means the same filament on every plate (it does for plates from one Bambu Studio project, and for plates sliced here with filament picked from one printer's AMS trays). Every plate must use the same build plate and nozzle.</p>
         <div id="batchRows"></div>
         <div id="batchOut"></div>
-        <button class="btn primary hidden" id="batchDownload" style="width:100%;justify-content:center;margin-top:10px">Download batch file</button>
+        <div id="batchWarn" aria-live="polite"></div>
+        <button class="btn primary hidden" id="batchDownload" style="width:100%;justify-content:center;margin-top:10px">Download the queue as one file</button>
         <div id="batchSend" class="hidden" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line)">
           <div class="spread"><b>Or send the batch to a printer and start it</b><button type="button" class="linkbtn" id="batchRefresh">Check again</button></div>
           <div id="batchTargets" class="send-targets" role="radiogroup" aria-label="Printer to send the batch to"></div>
