@@ -182,7 +182,7 @@ $('#platePick').addEventListener('click', async (e) => {
       BATCH.push({token: p.token, file: a.file, parts: a.parts.length, count: +$('#sLoops').value || 1, part_push: p.token === PLATE.token ? {...partPush} : {}});
       added++;
     }
-    $('#addToBatch').textContent = '✓ In the batch';
+    $('#addToBatch').textContent = '✓ In the queue';
     renderBatch(); toast(`Added ${added} plate${added === 1 ? '' : 's'} to the batch`);
   } catch (err) { toast(err.message); }
 });
@@ -226,12 +226,14 @@ function currentSettings() {
     floor_z: +$('#sFloor').value, push_offset: +$('#sDepth').value, natural_cooldown_min: +$('#sNatural').value || 0, bender_fitted: $('#sBender').checked,
     cooldown_fan: $('#sFan').value, wait_for_monitor: $('#sMonitor').checked,
     sounds: $('#sSounds').value, load_line_every_loop: $('#sLoadLine').checked, level_once: $('#sLevelOnce').checked, pause_first_sweep: $('#sFirstPause').dataset.mode || 'auto', part_push: partPush,
+    auto_eject: $('#sEject').checked,
   };
 }
 function fillSettings(s, a) {
   const profiles = STATE.profiles.filter(p => p.printer_model_id === a.printer_model_id);
   $('#sProfile').innerHTML = profiles.map(p => `<option value="${esc(p.id)}">${esc(p.name)}${p.builtin ? '' : ' (imported)'}</option>`).join('');
   $('#sProfile').value = s.profile_id;
+  $('#sEject').checked = s.auto_eject !== false;
   $('#sLoops').value = s.loops; $('#sRelease').value = s.release_temp; $('#sFloor').value = s.floor_z; $('#sDepth').value = s.push_offset;
   syncSliders();
   $('#sNatural').value = s.natural_cooldown_min; $('#sBender').checked = s.bender_fitted; $('#sFan').value = s.cooldown_fan; $('#sMonitor').checked = s.wait_for_monitor;
@@ -247,7 +249,7 @@ function fillSettings(s, a) {
   $('#naturalHint').innerHTML = warp.length && !s.natural_cooldown_min ? `<b style="color:var(--warn)">${esc(warp.join(', '))} on this plate:</b> consider a natural cooldown so parts don't warp when the door opens.` : 'Door shut and fans off before the door opens. Helps ASA, ABS and PC keep their shape.';
 }
 const schedule = () => { clearTimeout(pending); pending = setTimeout(reanalyze, 350); };
-['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor', '#sSounds', '#sLoadLine', '#sLevelOnce', '#sFirstPause'].forEach(id => $(id).addEventListener('input', schedule));
+['#sProfile', '#sLoops', '#sRelease', '#sFloor', '#sDepth', '#sNatural', '#sBender', '#sFan', '#sMonitor', '#sSounds', '#sLoadLine', '#sLevelOnce', '#sFirstPause', '#sEject'].forEach(id => $(id).addEventListener('input', schedule));
 $('#sFirstPause').addEventListener('input', (e) => { e.target.dataset.mode = e.target.checked ? 'on' : 'off'; $('#firstPauseHint').dataset.auto = ''; });
 // Every slider is paired with its number box; either one can be used.
 function syncSliders() { $$('input[type=range][data-num]').forEach(r => { r.value = $('#' + r.dataset.num).value; }); }
@@ -273,7 +275,7 @@ function renderPlate(a, keepSettings) {
   if (document.activeElement !== $('#cLoops')) $('#cLoops').value = +$('#sLoops').value || 1;
   refreshCost(); refreshPlateFil(); refreshTargets('plate');
   $('#changesOut').innerHTML = '';
-  $('#addToBatch').textContent = BATCH.some(b => b.token === a.token) ? '✓ In the batch' : '+ Add this plate';
+  $('#addToBatch').textContent = BATCH.some(b => b.token === a.token) ? '✓ In the queue' : '+ Add this plate';
   const floor = +$('#sFloor').value || 0;
   $('#partTable').innerHTML = '<tr><th>Part</th><th>Height</th><th>Push at</th><th></th></tr>' + a.parts.map(p => {
     const z = a.plan.part_push[p.label], reached = z != null && z < p.height;
@@ -300,8 +302,12 @@ function renderPlate(a, keepSettings) {
   items.push(['ok', '✓', 'Bed wait uses M190 S, never M190 R (that faults on a P2S).']);
   if (a.profile.stage === 2) items.push(['ok', '✓', 'FarmBoard triggers and switch gestures are copied exactly from FarmLoop\'s own output for this kit.']);
   $('#checks').innerHTML = items.map(([k, i, t]) => `<li><span class="ic ${k}">${i}</span><div>${esc(t)}</div></li>`).join('');
-  $('#download').disabled = !a.ok; $('#sendBtn').disabled = !a.ok;
-  $('#download').textContent = a.ok ? 'Download loop file' : 'Fix the problems above first';
+  // One print: the tick box decides whether it ends with the cooldown and sweep. More loops always do.
+  const single = (+$('#sLoops').value || 1) === 1, eject = $('#sEject').checked;
+  const usable = a.ok || (single && !eject);  // a plate printed as sliced needs no sweep, so sweep problems don't stop it
+  $('#download').disabled = !usable; $('#sendBtn').disabled = !usable;
+  $('#ejectRow').classList.toggle('hidden', !single); $('#ejectHint').classList.toggle('hidden', !single);
+  $('#download').textContent = !usable ? 'Fix the problems above first' : single && !eject ? 'Download plate as sliced' : single ? 'Download plate (clears the bed)' : 'Download loop file';
 }
 
 function heightColor(h, max) { const t = max ? h / max : 0; return `hsl(${215 - t * 30} 75% ${62 - t * 22}%)`; }
@@ -379,7 +385,7 @@ const SENDERS = {
     what: () => { const n = +$('#sLoops').value || 1; return `${PLATE.file} (${n} loop${n > 1 ? 's' : ''})`; }},
   batch: {box: '#batchSend', list: '#batchTargets', btn: '#batchSendBtn', ask: '/api/batch/printers', go: '/api/batch/send',
     key: () => BATCH.length ? JSON.stringify(batchBody().items) : '', body: () => batchBody(),
-    what: () => { const n = BATCH.reduce((a, b) => a + b.count, 0); return `the batch (${BATCH.length} plates, ${n} loops)`; }},
+    what: () => { const n = BATCH.reduce((a, b) => a + b.count, 0); return `tonight's queue (${BATCH.length} plates, ${n} loops)`; }},
 };
 const sendUrl = (k, url) => url.replace('{t}', encodeURIComponent(SENDERS[k].key() || ''));
 async function refreshTargets(k, force) {
@@ -409,7 +415,13 @@ function renderTargets(k) {
         ${t.reasons.length ? `<div class="hint">${t.reasons.map(esc).join('<br>')}</div>` : ''}
         ${t.notes.length ? `<div class="hint" style="color:var(--warn)">${t.notes.map(esc).join('<br>')}</div>` : ''}</div></label>`;
   }).join('');
+  if (k === 'batch') renderQueueWarn();
   updateSendBtn(k);
+}
+// Filaments the queue needs that a printer's AMS doesn't hold, said in words before anything is sent.
+function renderQueueWarn() {
+  const gaps = (SENDERS.batch.targets || []).filter(t => (t.missing || []).length);
+  $('#batchWarn').innerHTML = gaps.map(t => `<p class="hint" style="color:var(--warn)"><b>Check the AMS on ${esc(t.printer)}:</b> ${esc(t.missing.join(', '))} ${t.missing.length > 1 ? 'aren\'t' : 'isn\'t'} loaded, and the queue needs ${t.missing.length > 1 ? 'them' : 'it'}.</p>`).join('');
 }
 function updateSendBtn(k) {
   const S = SENDERS[k], on = !!(STATE && STATE.send_to_printer), to = ($(S.list).querySelector('input:checked') || {}).value;
@@ -604,14 +616,14 @@ let BATCH = [];
 $('#addToBatch').onclick = () => {
   if (!PLATE) return;
   if (BATCH.some(b => b.token === PLATE.token)) { toast('This plate is already in the batch'); return; }
-  BATCH.push({token: PLATE.token, file: PLATE.file, parts: PLATE.parts.length, count: +$('#sLoops').value || 1, part_push: {...partPush}});
-  $('#addToBatch').textContent = '✓ In the batch';
-  renderBatch(); toast('Added. Drop another plate to add it too.');
+  BATCH.push({token: PLATE.token, file: PLATE.file, parts: PLATE.parts.length, count: 1, part_push: {...partPush}});
+  $('#addToBatch').textContent = '✓ In the queue';
+  renderBatch(); toast('Added to tonight\'s queue. Drop another plate to add it too.');
 };
 function renderBatch() {
   $('#batchRows').innerHTML = BATCH.map((b, i) => `<div class="batch-row"><div><b>${esc(b.file)}</b><div class="hint">${b.parts} part${b.parts > 1 ? 's' : ''} per plate${Object.keys(pushOf(b)).length ? ` · ${Object.keys(pushOf(b)).length} push height${Object.keys(pushOf(b)).length > 1 ? 's' : ''} set by you` : ''}</div></div>
     <div class="stepper"><button data-b="${i}" data-d="-1" aria-label="fewer">−</button><span>${b.count}×</span><button data-b="${i}" data-d="1" aria-label="more">+</button></div>
-    <div class="row"><button class="linkbtn" data-up="${i}" ${i ? '' : 'disabled'}>↑</button><button class="linkbtn" data-rm="${i}">remove</button></div></div>`).join('');
+    <div class="row"><button class="linkbtn" data-up="${i}" ${i ? '' : 'disabled'} aria-label="move earlier">↑</button><button class="linkbtn" data-down="${i}" ${i < BATCH.length - 1 ? '' : 'disabled'} aria-label="move later">↓</button><button class="linkbtn" data-rm="${i}">remove</button></div></div>`).join('');
   $('#batchDownload').classList.toggle('hidden', !BATCH.length);
   if (BATCH.length) previewBatch(); else $('#batchOut').innerHTML = '';
   renderPlatePick(); renderSend();
@@ -620,6 +632,7 @@ $('#batchRows').addEventListener('click', (e) => {
   const t = e.target;
   if (t.dataset.d) { const b = BATCH[+t.dataset.b]; b.count = Math.max(1, Math.min(50, b.count + +t.dataset.d)); }
   else if (t.dataset.up) { const i = +t.dataset.up; [BATCH[i - 1], BATCH[i]] = [BATCH[i], BATCH[i - 1]]; }
+  else if (t.dataset.down) { const i = +t.dataset.down; [BATCH[i + 1], BATCH[i]] = [BATCH[i], BATCH[i + 1]]; }
   else if (t.dataset.rm) { BATCH.splice(+t.dataset.rm, 1); }
   else return;
   renderBatch();
@@ -631,7 +644,7 @@ async function previewBatch() {
   try {
     const r = await send('/api/batch/preview', batchBody());
     const probs = r.items.flatMap(it => it.problems);
-    $('#batchOut').innerHTML = `<p class="hint"><b>${r.loops} loops</b>, ${r.parts} parts, about ${fmtDur(r.print_seconds)} of printing plus cooldowns.</p>` +
+    $('#batchOut').innerHTML = `<p class="hint"><b>${r.loops} loop${r.loops > 1 ? 's' : ''}</b>, ${r.parts} parts, about ${fmtDur(r.total_seconds)} in all (printing, cooldowns, sweeps)${r.finish_at ? `: <b>done around ${new Date(r.finish_at).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'})}</b> if started now` : ''}.</p>` +
       (probs.length || r.notes.length ? `<ul class="list">${probs.map(p => `<li><span class="ic danger">✖</span><div>${esc(p)}</div></li>`).join('')}${r.notes.map(n => `<li><span class="ic info">i</span><div class="hint">${esc(n)}</div></li>`).join('')}</ul>` : '');
     $('#batchDownload').disabled = !r.ok;
     refreshTargets('batch', true);

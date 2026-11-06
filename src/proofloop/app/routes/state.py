@@ -63,6 +63,7 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             "role": role,
             "notifications": [shown(n, role if allow_send else "phone") for n in app.settings.notifications],
             "quiet_hours": app.settings.quiet_hours.model_dump(),
+            "print_alerts": app.settings.print_alerts.model_dump(),
             "failure_watch": app.settings.failure_watch,
             "camera": app.settings.camera.model_dump(),
             "costs": app.settings.costs.model_dump(),

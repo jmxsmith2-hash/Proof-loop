@@ -3,7 +3,7 @@
 
 loadState().then(() => {
   const t = location.hash.slice(1);
-  // A farm that's running opens on its overview; a first visit opens on making a loop file.
-  show(t && $(`[data-panel=${t}]`) ? t : (STATE.monitor.length || STATE.spools.length) ? 'overview' : 'make');
+  // ProofLoop opens on the printers' overview (a link with a #tab still goes to that tab).
+  show(t && $(`[data-panel=${t}]`) ? t : DEFAULT_TAB);
   startLive();
 }).catch(e => toast(e.message));

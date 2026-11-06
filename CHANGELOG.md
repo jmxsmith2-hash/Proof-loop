@@ -5,6 +5,35 @@ and the window shows them under *More › What's new*.
 
 ## Unreleased
 
+### New
+- **Tonight's queue.** The batch card is now a simple overnight queue: add 2 to 5 different plates (one
+  loop each to start), put them in order, and see the total time and when it would finish ("done around
+  6:40 am"). Then send or download it as one file, with a sweep between prints. If a plate needs a
+  filament the chosen printer's AMS doesn't hold, a warning says which. Sending still asks you first
+  (unless you turned that off), and never works from a watch-only phone.
+- **Clear the bed when done.** One ordinary plate can now end with ProofLoop's cooldown and sweep, without
+  thinking in loop files: on *Make a loop file*, a single print has a **Clear the bed when done** tick box
+  (on by default). Untick it to download or send the plate as sliced. Sending still asks you to confirm the
+  printer each time, and never happens from a phone.
+- **Cost every print.** Each print the Monitor sees end now gets its grams of filament and a cost at your
+  saved prices, recorded when it ends. A new **Print history** card under *Costs* lists recent prints (date,
+  name, printer, time, grams, cost, outcome) with this month's totals by filament type; the same data is at
+  `/api/history`. Files ProofLoop didn't make have no known weight, so they show *unknown* and are left out
+  of the totals instead of guessed.
+- **Quote from a file.** On the *Costs* tab, drop an STL, OBJ, STEP or a sliced `.gcode.3mf` and get
+  its print time, grams, cost per part and a suggested price, for as many copies as you enter. A model
+  is sliced for the printer picked in *Make a loop file*, nothing is made or sent, and a sliced file is
+  read as it is. The suggested price is cost plus a **Markup on cost** you set (100% by default, so
+  twice the cost).
+- **Opens on your printers.** The window and the page now open on *Printers › Overview*, where each
+  printer shows its camera picture, progress, time left, current job and AMS filament.
+- **Print finished / print failed alerts.** Any print on any printer (not only loop files) tells every
+  notification target when it finishes or fails. Turn either off under *Printers › Monitor › Notifications*.
+- **Print again.** *Monitor* lists the loop files ProofLoop made, with when, the printer last sent to and
+  the loops. **Print again** sends a kept file to a printer you pick, through the same checks and AMS
+  tray matching as a plate sent from *Make a loop file*, and still asks first unless you turn that off.
+  A file no longer kept shows *file no longer kept* and can't be sent. Never offered on a phone.
+
 ### Changed
 - **Loop files are silent.** The printer no longer plays its start and finish tunes when it runs a loop
   file: *Printer sounds* is now *Off* unless you choose *Only when the whole run ends* or *Every loop*.

@@ -11,7 +11,7 @@ import time
 from collections import OrderedDict
 from pathlib import Path
 
-from proofloop.core.notify import Notifier
+from proofloop.core.notify import Notifier, print_alert
 from proofloop.core.paths import PRINTERS_DB
 from proofloop.core.settings import Defaults, PrinterConfig, Settings, SettingsStore
 from proofloop.loopfiles import threemf
@@ -29,6 +29,7 @@ from proofloop.monitor.runout import run_of
 from proofloop.monitor.spoolman import Spoolman
 from proofloop.monitor.store import Store
 from proofloop.monitor.timelapse import Timelapse
+from proofloop.monitor.printcost import price_outcome
 from proofloop.monitor.tracking import FilamentTracker, job_key
 from proofloop.monitor.vision import BedVerifier
 from proofloop.monitor.watch import PrinterWatch
@@ -170,6 +171,7 @@ class App:
         )
         self.tracker = FilamentTracker(self)
         self.journal = PrintJournal(self.store, self.data_dir, {p.name: p.model_id for p in self.settings.printers})
+        self.journal.pricer = lambda rec, trays: price_outcome(self, rec, trays)
         self._migrate_cost_spools()
         self.folder_watch = FolderWatch(self)  # models saved into a folder, sliced (monitor/watchfolder.py)
         self.hands_off = HandsOff(self)  # queued jobs sent by themselves (monitor/handsoff.py)
@@ -256,7 +258,12 @@ class App:
         return w
 
     def _emit(self, event: dict, image: bytes | None = None) -> None:
-        self.notifier.send(event, image)
+        wanted = print_alert(event["kind"], self.settings.print_alerts)
+        if wanted is None:
+            self.notifier.send(event, image)
+        elif wanted:  # a print finished or failed: every target hears it, whatever its lowest level
+            self.notifier.send(event, image, every=True)
+        # else: switched off in the settings (the event is still in the list on the page)
 
     def _ticker(self) -> None:
         while not self._stop.wait(15):
@@ -364,7 +371,8 @@ class App:
         cfg, w = self.printer_config(name), self.watches.get(name)
         if w is None:
             raise SendError(f"no printer called {name!r}")
-        job = self.store.job(job_key(filename))  # made_file recorded it: the grams of every loop
+        key = job_key(filename)
+        job = self.store.job(key)  # made_file recorded it: the grams of every loop
         p = plan(name, w.link.state, cfg.model_id, sf.info.printer_model_id or "", sf.info.filament_slots, danger,
                  plate=sf.plate or 1, nozzle=sf.info.nozzle, nozzle_flow=sf.info.nozzle_flow,
                  run=run_of(job)[1] if job else None, spools=self.inventory.all(archived=False),
@@ -373,6 +381,7 @@ class App:
         md5, filaments = plate_facts(data, p.plate)
         w.link.send(remote_path(cfg.model_id, filename), data, start_command(p, cfg.model_id, md5, filaments))
         w.started()  # a new run, even of a file sent before
+        self.store.job_sent_to(key, name)  # the history's "Last printer"
         mapping = ", ".join(f"slot {i + 1} from {label(t)}" for i, t in enumerate(p.ams_mapping) if t >= 0)
         self._emit(self.store.add_event(name, "info", "sent", f"Sent {filename} and started it"
                                         + (f" ({mapping})" if mapping else "")))

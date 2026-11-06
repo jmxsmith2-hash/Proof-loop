@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 
@@ -107,13 +109,19 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
                 row["custom_heights"] = len(a.plan.part_custom)
                 row["problems"] += a.problems
                 row["sweep_s"] = round(a.sweep_s)
+                row["loop_seconds"] = round(sum(x["seconds"] or 0 for x in a.steps))
             except ProcessError as e:
                 row["problems"].append(str(e))
             problems += row["problems"]
             rows.append(row)
+        total = sum((r.get("loop_seconds") or r["print_seconds"] or 0) * r["count"] for r in rows)
         return {
             "items": rows,
             "notes": batch_notes(items),
+            # everything a run takes (print, cooldown and sweep of every loop) and when it would end if
+            # started now: what the overnight queue shows as "done around 6:40 am"
+            "total_seconds": total,
+            "finish_at": (datetime.now().astimezone() + timedelta(seconds=total)).isoformat(timespec="seconds"),
             "filaments": [{"slot": s, "type": t, "color": c} for s, t, c in merged_slots([sf for sf, _, _ in items])],
             "loops": sum(n for _, n, _ in items),
             "parts": sum(r["parts"] * r["count"] for r in rows),
@@ -145,8 +153,11 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
         items = batch_items(body)
         slots = merged_slots([sf for sf, _, _ in items])
         run = [sf.info.slot_grams for sf, n, _ in items for _ in range(n)]
-        return {"send_to_printer": app.settings.send_to_printer,
-                "printers": app.send_readiness(items[0][0], slots, run)}
+        printers = app.send_readiness(items[0][0], slots, run)
+        for p in printers:
+            # filaments no AMS tray of this printer holds (a plate on an external spool is a different warning)
+            p["missing"] = [f"{s['type']} {s['color']}".strip() for s in p["slots"] if p["use_ams"] and s["tray"] is None]
+        return {"send_to_printer": app.settings.send_to_printer, "printers": printers}
 
     @api.post("/api/batch/send", dependencies=guard)
     def batch_send(body: dict):

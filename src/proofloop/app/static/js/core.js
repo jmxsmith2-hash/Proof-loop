@@ -25,6 +25,7 @@ async function saveBlob(resp, fallback) { const name = resp.headers.get('X-Proof
 // (a phone, proofloop printers serve) both groups are shown.
 const PARTS = {loopfiles: ['make', 'check', 'costs', 'calibrate', 'profiles'], printers: ['overview', 'monitor', 'filament', 'orders', 'maintenance']};
 const partOf = (tab) => Object.keys(PARTS).find(p => PARTS[p].includes(tab));
+const DEFAULT_TAB = 'overview';  // what the page opens on when the address has no #tab
 let PART = null;  // inside the window: the tab chosen there
 const lastIn = {};
 function setPart(part, tab) {
@@ -43,7 +44,7 @@ function show(tab) {
   $$('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== tab));
   try { history.replaceState(null, '', '#' + tab); } catch (e) {}
   if (tab === 'monitor') refreshMonitor();
-  if (tab === 'costs') { coolOptions(); bindCosts(); refreshCost(); }
+  if (tab === 'costs') { coolOptions(); bindCosts(); refreshCost(); refreshHistory(); }
   if (tab === 'filament') loadFil();
   if (tab === 'overview') refreshOverview();
   if (tab === 'orders') refreshOrders();
@@ -68,7 +69,7 @@ function dropZone(zone, input, onFile) {
 const WATCH_ONLY = () => !!STATE && STATE.role === 'watch';
 const WATCH_KEEP = [
   '[data-watch]', '[data-goto]', '[data-ordergo]', '[data-x]',
-  '[data-act="snap"]', '[data-act="diff"]', '[data-act="outpic"]', '[data-sa="history"]', '[data-sa="label"]', '[data-sa="again"]',
+  '[data-act="snap"]', '[data-ovsnap]', '[data-act="diff"]', '[data-act="outpic"]', '[data-sa="history"]', '[data-sa="label"]', '[data-sa="again"]',
   'select[data-link]', 'select[data-pick]', '#sumHours', '#ordersAll', '#filSearch', '#filMat', '#filSort', '#filArchived', '#usageDays', '#shopCopy',
 ];
 const WATCH_HIDE = ['[data-part="loopfiles"]', '#sumSchedule'];  // what is only controls, so no label is left behind
