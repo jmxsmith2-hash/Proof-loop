@@ -43,6 +43,7 @@ class PrintJournal:
         self._open: dict[str, dict] = {}  # printer -> record of the print running now
         self._last: dict[str, tuple[int, float]] = {}  # printer -> (outcome id, when it ended)
         self._closed: dict[str, tuple[str, int]] = {}  # printer -> the print just recorded (job, loop)
+        self.pricer = None  # callable(record, trays) -> grams and cost of the print (monitor/printcost.py), or None
 
     # ---- files ProofLoop makes ------------------------------------------------------
     def keep_file(self, filename: str, data: bytes) -> Path | None:
@@ -175,6 +176,11 @@ class PrintJournal:
         rec["ended"] = time.time()
         if outcome == "finished" and rec["total_layers"]:
             rec["layer"] = max(rec["layer"], rec["total_layers"])
+        if self.pricer is not None:
+            try:  # grams and cost as the print ended; a pricing problem must never lose the record
+                rec["costing"] = self.pricer(rec, s.ams.trays())
+            except Exception:  # noqa: BLE001 - the record matters more than its price
+                log.warning("%s: could not price the print", w.name, exc_info=True)
         try:
             rid = self.store.add_outcome(rec)
         except (sqlite3.Error, TypeError, ValueError):  # the database, or a record that isn't JSON

@@ -156,3 +156,27 @@ document.addEventListener('change', (e) => {
   const t = e.target; if (t.dataset.slotkey === undefined) return;
   send('/api/filament/assign', {printer: '', key: t.dataset.slotkey, spool: t.value || null}, 'PUT').then(() => { refreshCost(); refreshPlateFil(); }).catch(err => toast(err.message));
 });
+
+// ---------- print history: grams and cost of every print the Monitor saw end ----------
+const histMoney = (v, cur, dp = 2) => v == null ? '—' : cur + v.toFixed(dp);
+async function refreshHistory() {
+  let h;
+  try { h = await json('/api/history?limit=100'); } catch (e) { return; }
+  const cur = h.currency || '', m = h.month;
+  $('#histKpis').innerHTML = [[`Prints in ${m.label}`, m.prints], ['Filament', m.grams.toFixed(0) + ' g'], ['Filament cost', histMoney(m.material_cost, cur)], ['Cost, all in', histMoney(m.cost, cur)]]
+    .map(([k, v]) => `<div class="kpi"><small>${esc(k)}</small><b>${esc(String(v))}</b></div>`).join('');
+  $('#histTypes').innerHTML = m.by_type.length ? '<tr><th>This month by filament</th><th>Prints</th><th>Grams</th><th>Filament cost</th></tr>' +
+    m.by_type.map(t => `<tr><td>${esc(t.type)}</td><td class="num">${t.prints}</td><td class="num">${t.grams} g</td><td class="num">${histMoney(t.material_cost, cur)}</td></tr>`).join('') : '';
+  $('#histNote').textContent = m.note ? m.note + '.' : '';
+  $('#histRows').innerHTML = '<tr><th>Date</th><th>Name</th><th>Printer</th><th>Time</th><th>Grams</th><th>Cost</th><th>Outcome</th></tr>' +
+    (h.rows.length ? h.rows.map(r => {
+      const types = r.filaments.length ? ' <span class="muted">' + esc(r.filaments.join(' + ')) + '</span>' : '';
+      const grams = r.grams_known ? `${r.grams.toFixed(1)} g${types}` + (r.grams_source && r.grams_source !== 'slicer' ? ` <span class="chip warn" title="${esc(r.grams_source)}">partial</span>` : '')
+        : `<span class="muted" title="${esc(r.note)}">unknown</span>${types}`;
+      const c = r.cost == null ? '<span class="muted">—</span>' : (r.cost_complete ? '' : '<span title="some of your costs aren\'t set">≥ </span>') + histMoney(r.cost, cur, 3);
+      return `<tr data-hist="${r.id}"><td class="num muted">${new Date(r.ts * 1000).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'})}</td>
+        <td>${esc(r.job || '—')}${r.loop_file ? ' <span class="muted">loop ' + r.loop_no + '</span>' : ''}</td><td>${esc(r.printer)}</td>
+        <td class="num">${r.seconds ? fmtDur(r.seconds) : '—'}</td><td class="num">${grams}</td><td class="num">${c}</td><td>${esc(r.outcome)}</td></tr>`;
+    }).join('') : '<tr><td colspan="7" class="muted">Nothing yet. Every print the Monitor sees end is listed here.</td></tr>');
+}
+$('#histRefresh').addEventListener('click', refreshHistory);

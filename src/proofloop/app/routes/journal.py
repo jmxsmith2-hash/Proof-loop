@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response
 
 from proofloop.app.routes.common import Guard
+from proofloop.monitor.printcost import history
 from proofloop.monitor.service import App
 
 
@@ -19,6 +20,11 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             r["has_file"] = bool(r.pop("file", None))
             r["has_picture"] = bool(r.pop("picture", None) or r.pop("eject_picture", None))
         return rows
+
+    @api.get("/api/history", dependencies=guard)
+    def print_history(limit: int = 100, since: float = 0, printer: str | None = None):
+        """Recent prints with grams and cost (null when unknown), and this month's totals by filament type."""
+        return history(app, limit=limit, since=since, printer=printer)
 
     @api.get("/api/outcomes/{oid}/file", dependencies=guard)
     def outcome_file(oid: int):

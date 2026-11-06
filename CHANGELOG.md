@@ -15,6 +15,11 @@ and the window shows them under *More › What's new*.
   thinking in loop files: on *Make a loop file*, a single print has a **Clear the bed when done** tick box
   (on by default). Untick it to download or send the plate as sliced. Sending still asks you to confirm the
   printer each time, and never happens from a phone.
+- **Cost every print.** Each print the Monitor sees end now gets its grams of filament and a cost at your
+  saved prices, recorded when it ends. A new **Print history** card under *Costs* lists recent prints (date,
+  name, printer, time, grams, cost, outcome) with this month's totals by filament type; the same data is at
+  `/api/history`. Files ProofLoop didn't make have no known weight, so they show *unknown* and are left out
+  of the totals instead of guessed.
 
 ### Changed
 - **Loop files are silent.** The printer no longer plays its start and finish tunes when it runs a loop
