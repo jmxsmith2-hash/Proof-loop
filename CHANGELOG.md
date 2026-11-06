@@ -5,6 +5,12 @@ and the window shows them under *More › What's new*.
 
 ## Unreleased
 
+### New
+- **Print again.** *Monitor* lists the loop files ProofLoop made, with when, the printer last sent to and
+  the loops. **Print again** sends a kept file to a printer you pick, through the same checks and AMS
+  tray matching as a plate sent from *Make a loop file*, and still asks first unless you turn that off.
+  A file no longer kept shows *file no longer kept* and can't be sent. Never offered on a phone.
+
 ### Changed
 - **Loop files are silent.** The printer no longer plays its start and finish tunes when it runs a loop
   file: *Printer sounds* is now *Off* unless you choose *Only when the whole run ends* or *Every loop*.

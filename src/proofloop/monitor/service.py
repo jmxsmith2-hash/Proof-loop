@@ -364,7 +364,8 @@ class App:
         cfg, w = self.printer_config(name), self.watches.get(name)
         if w is None:
             raise SendError(f"no printer called {name!r}")
-        job = self.store.job(job_key(filename))  # made_file recorded it: the grams of every loop
+        key = job_key(filename)
+        job = self.store.job(key)  # made_file recorded it: the grams of every loop
         p = plan(name, w.link.state, cfg.model_id, sf.info.printer_model_id or "", sf.info.filament_slots, danger,
                  plate=sf.plate or 1, nozzle=sf.info.nozzle, nozzle_flow=sf.info.nozzle_flow,
                  run=run_of(job)[1] if job else None, spools=self.inventory.all(archived=False),
@@ -373,6 +374,7 @@ class App:
         md5, filaments = plate_facts(data, p.plate)
         w.link.send(remote_path(cfg.model_id, filename), data, start_command(p, cfg.model_id, md5, filaments))
         w.started()  # a new run, even of a file sent before
+        self.store.job_sent_to(key, name)  # the history's "Last printer"
         mapping = ", ".join(f"slot {i + 1} from {label(t)}" for i, t in enumerate(p.ams_mapping) if t >= 0)
         self._emit(self.store.add_event(name, "info", "sent", f"Sent {filename} and started it"
                                         + (f" ({mapping})" if mapping else "")))

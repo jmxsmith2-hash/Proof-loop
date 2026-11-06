@@ -355,6 +355,16 @@ class Store:
             rows = self._db.execute("SELECT name, ts, data FROM jobs ORDER BY ts DESC LIMIT ?", (limit,))
             return [{"name": r[0], "ts": r[1], **json.loads(r[2])} for r in rows]
 
+    def job_sent_to(self, name: str, printer: str) -> None:
+        """Note that loop file ``name`` was last sent to ``printer``. The made time (``ts``) stays as it was."""
+        with self._lock:
+            r = self._db.execute("SELECT data FROM jobs WHERE name=?", (name,)).fetchone()
+            if r is None:
+                return
+            data = json.loads(r[0])
+            data["sent"] = {"printer": printer, "ts": time.time()}
+            self._db.execute("UPDATE jobs SET data=? WHERE name=?", (json.dumps(data), name))
+
     # ---- print journal ------------------------------------------------------------
     def add_outcome(self, data: dict) -> int:
         with self._lock:
