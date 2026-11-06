@@ -101,6 +101,9 @@ input[type=number]{max-width:140px}
 .filrow select{max-width:320px}
 .meter.warn i{background:var(--warn)}
 .meter.bad i{background:var(--bad)}
+.glance{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-top:8px}
+.glance-cam{width:180px;max-width:100%}.glance-cam img{width:100%;border-radius:8px;display:block;background:var(--soft)}
+.glance-info{flex:1;min-width:200px}.glance-job{font-weight:600;overflow-wrap:anywhere}
 .run{padding:12px 0;border-top:1px solid var(--line)}
 .run:first-child{border-top:0}
 .rate{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:2px 10px;align-items:center;font-size:13px}
@@ -731,6 +734,11 @@ input[type=number]{max-width:140px}
       <div class="card" id="notifyCard">
         <h2>Notifications</h2>
         <p class="hint" style="margin-top:-4px">When a plate check finds parts left behind, the camera picture comes with the alert. Add as many places as you like, each with its own lowest level.</p>
+        <form id="alertForm">
+          <h3 style="margin-top:6px">Print finished and print failed</h3>
+          <label class="toggle"><input type="checkbox" name="finished"><span><b>Tell me when a print finishes</b><span class="hint">Any print on any printer, not only loop files. Goes to every place below, whatever its lowest level.</span></span></label>
+          <label class="toggle"><input type="checkbox" name="failed"><span><b>Tell me when a print fails or is cancelled</b></span></label>
+        </form>
         <ul class="list" id="notifyList"></ul>
         <form id="notifyForm">
           <h3 id="notifyHead" style="margin-top:6px">Add a place to send notices</h3>

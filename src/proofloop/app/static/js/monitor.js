@@ -118,6 +118,8 @@ async function refreshMonitor() {
     if (document.activeElement !== $('#failureWatch')) $('#failureWatch').value = STATE.failure_watch || 'alert';
     const q = STATE.quiet_hours, qf = $('#quietForm');
     if (q && document.activeElement?.form !== qf) { qf.enabled.checked = q.enabled; qf.start.value = q.start; qf.end.value = q.end; }
+    const pa = STATE.print_alerts, af = $('#alertForm');
+    if (pa && af && !af.contains(document.activeElement)) { af.finished.checked = pa.finished; af.failed.checked = pa.failed; }
     renderNotify();
     await refreshHa().catch(() => {});  // the export is optional: never let it hide the rest of the page
     renderSend();
@@ -261,3 +263,9 @@ $('#haTest').onclick = async (e) => {
   finally { b.disabled = false; b.textContent = 'Test connection'; }
 };
 setInterval(() => { if (!liveOn && !$('[data-panel=monitor]').classList.contains('hidden')) refreshMonitor(); }, 5000);  // without live updates
+
+$('#alertForm').addEventListener('change', async () => {
+  const f = $('#alertForm');
+  try { STATE.print_alerts = await send('/api/print-alerts', {finished: f.finished.checked, failed: f.failed.checked}, 'PUT'); toast('Saved'); }
+  catch (e) { toast(e.message); refreshMonitor(); }
+});

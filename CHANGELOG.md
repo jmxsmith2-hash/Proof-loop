@@ -25,6 +25,10 @@ and the window shows them under *More › What's new*.
   is sliced for the printer picked in *Make a loop file*, nothing is made or sent, and a sliced file is
   read as it is. The suggested price is cost plus a **Markup on cost** you set (100% by default, so
   twice the cost).
+- **Opens on your printers.** The window and the page now open on *Printers › Overview*, where each
+  printer shows its camera picture, progress, time left, current job and AMS filament.
+- **Print finished / print failed alerts.** Any print on any printer (not only loop files) tells every
+  notification target when it finishes or fails. Turn either off under *Printers › Monitor › Notifications*.
 
 ### Changed
 - **Loop files are silent.** The printer no longer plays its start and finish tunes when it runs a loop

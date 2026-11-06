@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException
 
 from proofloop.app.routes.common import Guard
 from proofloop.core import notify
-from proofloop.core.settings import Notifier, QuietHours
+from proofloop.core.settings import Notifier, PrintAlerts, QuietHours
 from proofloop.monitor.service import App
 
 
@@ -55,6 +55,16 @@ def register(api: FastAPI, app: App, guard: Guard, allow_send: bool = True) -> N
             raise HTTPException(422, str(e)) from e
         app.save_settings()
         return app.settings.quiet_hours.model_dump()
+
+    @api.put("/api/print-alerts", dependencies=guard)
+    def put_print_alerts(body: dict):
+        window_only()
+        try:
+            app.settings.print_alerts = PrintAlerts.model_validate(body)
+        except ValueError as e:
+            raise HTTPException(422, why(e)) from e
+        app.save_settings()
+        return app.settings.print_alerts.model_dump()
 
     @api.put("/api/notifications", dependencies=guard)
     def put_notifications(body: list[dict]):

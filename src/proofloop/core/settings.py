@@ -298,11 +298,19 @@ class WatchFolder(_Model):
     printer: str = ""  # slice for this printer's nozzle, nozzle flow and AMS ("": the first one)
 
 
+class PrintAlerts(_Model):
+    """Tell every notification target when any print ends (not only loop files). Both on unless you turn them off."""
+
+    finished: bool = True
+    failed: bool = True
+
+
 class Settings(_Model):
     defaults: Defaults = Field(default_factory=Defaults)
     slice_usual: SliceUsual = Field(default_factory=SliceUsual)
     watch_folder: WatchFolder = Field(default_factory=WatchFolder)
     quiet_hours: QuietHours = Field(default_factory=QuietHours)
+    print_alerts: PrintAlerts = Field(default_factory=PrintAlerts)
     costs: CostSettings = Field(default_factory=CostSettings)
     filament: FilamentSettings = Field(default_factory=FilamentSettings)
     printers: list[PrinterConfig] = Field(default_factory=list)

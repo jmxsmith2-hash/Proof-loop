@@ -35,6 +35,16 @@ TELEGRAM_API = "https://api.telegram.org"  # tests point this at a local server
 SMTP_PORTS = {"starttls": 587, "ssl": 465, "none": 25}
 
 
+# Event kinds that are a print ending, and the PrintAlerts setting that turns each on or off.
+PRINT_ALERTS = {"print_done": "finished", "failed": "failed"}
+
+
+def print_alert(kind: str, alerts) -> bool | None:
+    """None: ``kind`` is not a print ending. Else whether the setting lets it be sent (``alerts``: PrintAlerts)."""
+    flag = PRINT_ALERTS.get(kind)
+    return None if flag is None else bool(getattr(alerts, flag))
+
+
 class Notifier:
     def __init__(self, configs, farm_name: str = "ProofLoop"):
         self.configs = list(configs)
