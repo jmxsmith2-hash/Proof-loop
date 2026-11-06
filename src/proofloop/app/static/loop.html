@@ -677,6 +677,12 @@ input[type=number]{max-width:140px}
   <div class="grid" id="printerCards" style="grid-template-columns:repeat(auto-fill,minmax(320px,1fr))"></div>
   <div class="grid two" style="margin-top:16px">
     <div class="grid" style="align-content:start">
+    <div class="card hidden" id="histCard">
+      <h2>Print again</h2>
+      <p class="hint">Loop files ProofLoop made, kept on this computer. Send one again to a printer you pick: it's the same file that was made, matched to the filament loaded now. Only shown here, never on a phone.</p>
+      <div class="tw"><table id="history"></table></div>
+      <div id="histPick"></div>
+    </div>
     <div class="card">
       <div class="spread"><h2>Print history</h2><a class="linkbtn" id="csvHistory" href="/api/outcomes/export.csv" download>Download all (CSV)</a></div>
       <p class="hint">How every print on these printers ended. Check learns from it which settings fail on your printers.</p>

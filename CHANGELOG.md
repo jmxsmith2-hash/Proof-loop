@@ -29,6 +29,10 @@ and the window shows them under *More › What's new*.
   printer shows its camera picture, progress, time left, current job and AMS filament.
 - **Print finished / print failed alerts.** Any print on any printer (not only loop files) tells every
   notification target when it finishes or fails. Turn either off under *Printers › Monitor › Notifications*.
+- **Print again.** *Monitor* lists the loop files ProofLoop made, with when, the printer last sent to and
+  the loops. **Print again** sends a kept file to a printer you pick, through the same checks and AMS
+  tray matching as a plate sent from *Make a loop file*, and still asks first unless you turn that off.
+  A file no longer kept shows *file no longer kept* and can't be sent. Never offered on a phone.
 
 ### Changed
 - **Loop files are silent.** The printer no longer plays its start and finish tunes when it runs a loop

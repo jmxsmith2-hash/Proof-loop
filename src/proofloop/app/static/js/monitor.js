@@ -110,6 +110,7 @@ async function refreshMonitor() {
     const oc = await json('/api/outcomes?limit=25');
     const how = {finished: '<span class="chip ok">finished</span>', failed: '<span class="chip bad">failed</span>', cancelled: '<span class="chip">cancelled</span>', unknown: '<span class="chip">?</span>'};
     $('#outcomes').innerHTML = '<tr><th>Ended</th><th>Printer</th><th>File</th><th>Result</th></tr>' + (oc.length ? '' : '<tr><td colspan="4" class="muted">Nothing yet. Every print the Monitor sees is recorded here.</td></tr>') + oc.map(o => `<tr><td class="num muted">${new Date(o.ts * 1000).toLocaleString()}</td><td>${esc(o.printer)}</td><td>${esc(o.job || '')}${o.loop_file ? ' <span class="muted">loop ' + o.loop_no + '</span>' : ''}</td><td>${how[o.outcome] || esc(o.outcome)}${o.outcome !== 'finished' && o.layer ? ' <span class="muted">at layer ' + o.layer + (o.total_layers ? '/' + o.total_layers : '') + '</span>' : ''}${o.hms && o.hms.length ? ' <span class="muted">HMS ' + o.hms.map(h => esc(h.code)).join(', ') + '</span>' : ''}${o.eject === 'parts_left' ? ' <span class="chip warn">parts left</span>' : ''}${o.has_picture ? ` <button class="btn" data-act="outpic" data-id="${o.id}">Picture</button>` : ''}</td></tr>`).join('');
+    await refreshHistory().catch(() => {});  // a list that can't load never hides the rest of the page
     const ev = await json('/api/events?limit=40');
     $('#events').innerHTML = '<tr><th>Time</th><th>Printer</th><th>What happened</th></tr>' + (ev.length ? '' : '<tr><td colspan="3" class="muted">Nothing yet. Events appear here as printers connect and loops run.</td></tr>') + ev.map(e => `<tr><td class="num muted">${new Date(e.ts * 1000).toLocaleString()}</td><td>${esc(e.printer || '')}</td><td>${e.level === 'error' ? '<span class="chip bad">!</span> ' : e.level === 'warning' ? '<span class="chip warn">!</span> ' : ''}${esc(e.message)}</td></tr>`).join('');
     const cs = STATE.camera, cf = $('#cameraForm');
@@ -129,6 +130,45 @@ $('#outcomes').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-act="outpic"]'); if (!b) return;
   const r = await api(`/api/outcomes/${b.dataset.id}/picture`);
   if (r.ok) window.open(URL.createObjectURL(await r.blob()), '_blank'); else toast('No picture');
+});
+// ---------- print again: loop files ProofLoop kept, sent again to a printer you pick (never from a phone) ----------
+async function refreshHistory() {
+  const can = !!(STATE && STATE.can_send) && !WATCH_ONLY();
+  $('#histCard').classList.toggle('hidden', !can);
+  if (!can) return;
+  const rows = await json('/api/made?limit=20');
+  $('#history').innerHTML = '<tr><th>File</th><th>Made</th><th>Last printer</th><th>Loops</th><th></th></tr>' +
+    (rows.length ? '' : '<tr><td colspan="5" class="muted">Nothing made yet. Loop files you make appear here.</td></tr>') +
+    rows.map(h => `<tr><td>${esc(h.file)}</td><td class="num muted">${new Date(h.made * 1000).toLocaleString()}</td>
+      <td>${h.printer ? esc(h.printer) : '<span class="muted">not sent</span>'}</td><td class="num">${h.loops ?? ''}</td>
+      <td>${h.kept ? `<button class="btn" data-hist="${esc(h.key)}" data-file="${esc(h.file)}" ${STATE.send_to_printer ? '' : 'disabled title="Turn sending on first"'}>Print again</button>`
+        : '<span class="muted">file no longer kept</span>'}</td></tr>`).join('');
+}
+$('#history').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-hist]'); if (!b) return;
+  const pick = $('#histPick');
+  pick.innerHTML = '<p class="hint">Checking the printers…</p>';
+  try {
+    const r = await send(`/api/made/${encodeURIComponent(b.dataset.hist)}/printers`, {});
+    pick.innerHTML = `<div class="hint" style="margin-top:10px">Print ${esc(b.dataset.file)} again on:</div>` +
+      (r.printers.length ? r.printers.map(t => `<div class="send-target${t.ready ? '' : ' off'}" style="margin-top:6px"><div class="spread"><b>${esc(t.printer)}</b>
+        ${t.ready ? `<button class="btn primary" data-histgo="${esc(b.dataset.hist)}" data-printer="${esc(t.printer)}" data-file="${esc(b.dataset.file)}">Send and start on ${esc(t.printer)}</button>` : `<span class="chip">${esc(t.state || 'not ready')}</span>`}</div>
+        ${t.slots.map(sl => `<span class="chip${sl.tray == null ? ' bad' : ''}">${swatch(sl.color)} ${esc(sl.type)} → ${sl.tray_label ? esc(sl.tray_label) : (t.use_ams ? 'not loaded' : 'external spool')}</span>`).join(' ')}
+        ${t.reasons.length ? `<div class="hint">${t.reasons.map(esc).join('<br>')}</div>` : ''}
+        ${t.notes.length ? `<div class="hint" style="color:var(--warn)">${t.notes.map(esc).join('<br>')}</div>` : ''}</div>`).join('')
+        : '<p class="hint">No printer is set up yet.</p>');
+  } catch (err) { pick.innerHTML = ''; toast(err.message); }
+});
+$('#histPick').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-histgo]'); if (!b) return;
+  const printer = b.dataset.printer;
+  if (WATCH_ONLY() || !STATE.can_send) return;
+  if (STATE.send_confirm !== false && !confirm(`Print ${b.dataset.file} again on ${printer}?\n\nThe plate must be empty. The printer starts as soon as the file arrives.`)) return;
+  b.disabled = true; b.textContent = `Sending to ${printer}…`;
+  try { const r = await send(`/api/made/${encodeURIComponent(b.dataset.histgo)}/send`, {printer, confirm: printer}); toast(`Started ${r.file} on ${r.printer}`); }
+  catch (err) { toast(err.message); }
+  $('#histPick').innerHTML = '';
+  refreshHistory().catch(() => {});
 });
 $('#printerCards').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-act]'); if (!b) return; const n = b.dataset.n, card = b.closest('.card');
