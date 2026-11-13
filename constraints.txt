@@ -4,13 +4,13 @@ annotated-doc==0.0.5
     #   typer
 annotated-types==0.8.0
     # via pydantic
-anyio==4.15.1
+anyio==4.16.0
     # via starlette
 cascadio==0.1.1
     # via proofloop (pyproject.toml)
 cffi==2.1.1 ; platform_python_implementation != 'PyPy'
     # via cryptography
-click==8.5.0
+click==8.5.1
     # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
@@ -18,7 +18,7 @@ colorama==0.4.6 ; sys_platform == 'win32'
     #   typer
 cryptography==50.0.2
     # via proofloop (pyproject.toml)
-fastapi==0.162.0
+fastapi==0.162.3
     # via proofloop (pyproject.toml)
 h11==0.16.0
     # via uvicorn
@@ -26,7 +26,7 @@ idna==3.20
     # via anyio
 jinja2==3.1.6
     # via proofloop (pyproject.toml)
-markdown-it-py==4.2.0
+markdown-it-py==4.3.0
     # via rich
 markupsafe==3.0.4
     # via jinja2
@@ -44,7 +44,7 @@ numpy==2.5.4 ; python_full_version >= '3.12'
     #   trimesh
 opentelemetry-api==1.45.2
     # via fastapi
-paho-mqtt==2.1.0
+paho-mqtt==2.2.0
     # via proofloop (pyproject.toml)
 pillow==13.0.0
     # via
@@ -52,25 +52,25 @@ pillow==13.0.0
     #   pystray
 pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via cffi
-pydantic==2.14.2
+pydantic==2.14.3
     # via
     #   proofloop (pyproject.toml)
     #   fastapi
-pydantic-core==2.50.2
+pydantic-core==2.50.4
     # via pydantic
 pygments==2.21.0
     # via rich
-pyobjc-core==12.2.2 ; sys_platform == 'darwin'
+pyobjc-core==13.0 ; sys_platform == 'darwin'
     # via
     #   pyobjc-framework-cocoa
     #   pyobjc-framework-quartz
-pyobjc-framework-cocoa==12.2.2 ; sys_platform == 'darwin'
+pyobjc-framework-cocoa==13.0 ; sys_platform == 'darwin'
     # via pyobjc-framework-quartz
-pyobjc-framework-quartz==12.2.2 ; sys_platform == 'darwin'
+pyobjc-framework-quartz==13.0 ; sys_platform == 'darwin'
     # via pystray
 pystray==0.19.5 ; sys_platform == 'darwin' or sys_platform == 'win32'
     # via proofloop (pyproject.toml)
-python-multipart==0.0.32
+python-multipart==0.0.33
     # via proofloop (pyproject.toml)
 pyyaml==6.0.3
     # via proofloop (pyproject.toml)
@@ -90,7 +90,7 @@ starlette==1.10.0
     # via fastapi
 trimesh==5.2.0
     # via proofloop (pyproject.toml)
-typer==0.27.3
+typer==0.29.0
     # via proofloop (pyproject.toml)
 typing-extensions==4.16.0
     # via
@@ -101,7 +101,7 @@ typing-extensions==4.16.0
     #   pydantic-core
     #   starlette
     #   typing-inspection
-typing-inspection==0.4.4
+typing-inspection==0.4.5
     # via
     #   fastapi
     #   pydantic
